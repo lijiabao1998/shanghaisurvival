@@ -110,4 +110,34 @@ test('ordinary and malformed caches never mutate through cache APIs',()=>{
  }
  const c={x:0,z:0,looted:true,cacheKind:'food',cacheDay:1};for(const elapsed of [-1,NaN,Infinity])assert.equal(replenishCaches([c],elapsed),0);assert.equal(c.looted,true);
 });
+
+test('legacy enemies without encounter metadata retain positions health and death',()=>{
+ const old=fresh(),before=encode(old);const restored=parseSnapshot(before,'block.json');assert.equal(encode(restored),before);
+ assert.equal('encounterVersion' in restored,false);assert.equal('home' in restored.enemies[0],false);assert.equal(restored.enemies[0].state,'dead');
+});
+test('encounter homes and patrols roundtrip without moving any enemy',()=>{
+ const s={...fresh(),encounterVersion:1};s.enemies[0].home=[100,200];s.enemies[0].patrol=[105,205];s.enemies[1].home=[300,400];
+ const store=memory();assert.ok(saveSnapshot(store,'save',s));const restored=loadSnapshot(store,'save','block.json');assert.deepEqual(restored,s);
+ assert.deepEqual([restored.enemies[0].x,restored.enemies[0].z],[8,9]);assert.equal(restored.enemies[0].hp,0);assert.equal(restored.enemies[0].state,'dead');
+ assert.equal(restored.enemies[1].hp,50);assert.equal(restored.enemies[1].state,'chase');assert.deepEqual(restored.inventory,s.inventory);
+});
+test('home and patrol require exact finite coordinate pairs',()=>{
+ for(const field of ['home','patrol']) for(const value of [null,{},[],[1],[1,2,3],['1',2],[NaN,2],[1,Infinity],[10000001,2],[-10000001,2]]){
+  const s=fresh();s.enemies[1][field]=value;assert.equal(parseSnapshot(encode(s),'block.json'),null);
+ }
+ const s=fresh();s.enemies[1].patrol=[-10000000,10000000];assert.ok(parseSnapshot(encode(s),'block.json'));
+});
+test('unknown encounter versions reject the snapshot',()=>{
+ for(const encounterVersion of [null,0,2,'1',{},[],1.5]) assert.equal(parseSnapshot(encode({...fresh(),encounterVersion}),'block.json'),null);
+});
+
+test('enemy memory and retreat state roundtrip without changing chase or death',()=>{
+ const s=fresh();Object.assign(s.enemies[1],{lastKnown:[25,35],returning:true,retreat:12.5});Object.assign(s.enemies[0],{returning:false,retreat:0});
+ const before=encode(s),store=memory();assert.ok(saveSnapshot(store,'save',s));assert.deepEqual(loadSnapshot(store,'save','block.json'),s);assert.equal(encode(s),before);
+ assert.equal(parseSnapshot(before,'block.json').enemies[1].state,'chase');
+});
+test('invalid memory coordinates return flags and retreat timers reject',()=>{
+ for(const [field,values] of [['lastKnown',[null,{},[],[1],[1,2,3],[NaN,2],[1,Infinity],['1',2],[10000001,0]]],['returning',[null,0,1,'true',{}]],['retreat',[-1,60.001,NaN,Infinity,null,'2']]])for(const value of values){const s=fresh();s.enemies[1][field]=value;assert.equal(parseSnapshot(encode(s),'block.json'),null);}
+ for(const retreat of [0,.01,60]){const s=fresh();s.enemies[1].retreat=retreat;assert.ok(parseSnapshot(encode(s),'block.json'));}
+});
 console.log(`${passed} campaign tests passed`);

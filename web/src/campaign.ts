@@ -5,6 +5,7 @@ export type ItemId = typeof ITEM_IDS[number];
 export type Inventory = Record<ItemId, number>;
 export type CacheKind = 'water' | 'food' | 'ammo';
 export type SavedContainer = { x: number; z: number; looted: boolean; cacheKind?: CacheKind; cacheDay?: number };
+export type SavedEnemy = { x: number; z: number; hp: number; state: 'sleep' | 'wander' | 'chase' | 'dead'; faction: string; home?: [number, number]; patrol?: [number, number]; lastKnown?: [number, number]; returning?: boolean; retreat?: number };
 export type Outbreak = { hydration: number; satiety: number; exposure: number };
 export type Snapshot = {
   version: 1; mapId: string; characterId: string; elapsed: number;
@@ -13,7 +14,7 @@ export type Snapshot = {
   hasPistol: boolean; pistolEquipped: boolean; position: [number, number];
   shelterId: string; inShelter: boolean; looted: number; kills: number;
   containers: SavedContainer[];
-  enemies: { x: number; z: number; hp: number; state: 'sleep' | 'wander' | 'chase' | 'dead'; faction: string }[];
+  enemies: SavedEnemy[]; encounterVersion?: 1;
   status: 'alive' | 'dead'; restCount: number; helper?: HelperState;
 };
 export type StorageLike = { getItem(key: string): string | null; setItem(key: string, value: string): void };
@@ -51,6 +52,7 @@ export function parseSnapshot(raw: string, mapId: string): Snapshot | null {
       || (s.status === 'dead' && s.hp !== 0)
       || !Array.isArray(s.containers) || s.containers.length > 1000
       || !Array.isArray(s.enemies) || s.enemies.length > 1000) return null;
+    if ('encounterVersion' in s && s.encounterVersion !== 1) return null;
     if ('helper' in s) {
       const h = s.helper;
       const day = dayPhase(s.elapsed).day;
@@ -63,7 +65,12 @@ export function parseSnapshot(raw: string, mapId: string): Snapshot | null {
         || cacheKindValid(c.cacheKind) && cacheDayValid(c.cacheDay) && c.cacheDay <= dayPhase(s.elapsed as number).day))) return null;
     if (!s.enemies.every(e => isRecord(e) && coordinate(e.x) && coordinate(e.z) && meter(e.hp)
       && typeof e.state === 'string' && ['sleep', 'wander', 'chase', 'dead'].includes(e.state) && text(e.faction)
-      && (e.state === 'dead' ? e.hp === 0 : e.hp > 0))) return null;
+      && (e.state === 'dead' ? e.hp === 0 : e.hp > 0)
+      && (!('home' in e) || Array.isArray(e.home) && e.home.length === 2 && e.home.every(coordinate))
+      && (!('patrol' in e) || Array.isArray(e.patrol) && e.patrol.length === 2 && e.patrol.every(coordinate))
+      && (!('lastKnown' in e) || Array.isArray(e.lastKnown) && e.lastKnown.length === 2 && e.lastKnown.every(coordinate))
+      && (!('returning' in e) || typeof e.returning === 'boolean')
+      && (!('retreat' in e) || numberIn(e.retreat, 0, 60)))) return null;
     return s as Snapshot;
   } catch { return null; }
 }

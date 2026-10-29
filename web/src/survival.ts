@@ -1,3 +1,6 @@
+import { planEncounters } from './encounters';
+import { decideEncounterBehavior } from './encounter-behavior';
+import { findLocalPath, type LocalWaypoint } from './navigation';
 import { createHelperState, exchangeWithHelper, aidHelper, receiveHelperCare } from './helper';
 import { createCityVisibility } from './city-visibility';
 import { roadGeometries, nearbyRoadName, type StreetRoad } from './road-geometry';
@@ -254,6 +257,7 @@ type Zombie = {
   state: ZState;
   think: number; attackCd: number; lose: number; phase: number; walk: number;
   wx: number; wz: number; hp: number; flashT: number;
+  path: LocalWaypoint[]; pathTimer: number; retreat: number; patrolX:number; patrolZ:number; lastX:number; lastZ:number; returning:boolean;
 };
 
 const zombies: Zombie[] = [];
@@ -289,6 +293,7 @@ function buildZombies() {
       ...built, faction, warning: 0, x: 0, z: 0, hx: 0, hz: 0, state: 'sleep',
       think: Math.random() * 0.35, attackCd: 0, lose: 0, phase: Math.random() * 6.28,
       walk: 0, wx: 0, wz: 0, hp: 100, flashT: 0,
+      path: [], pathTimer: 0, retreat: 0, patrolX:0, patrolZ:0,lastX:0,lastZ:0,returning:false,
     });
   }
 }
@@ -343,12 +348,13 @@ const inventory: Record<ItemId, number> = { water: 1, food: 1, medkit: 0, batter
 function makeNoise(x: number, z: number, radius: number) {
   for (const zb of zombies) {
     if (zb.state === 'chase' || zb.state === 'dead') continue;
-    if (Math.hypot(zb.x - x, zb.z - z) < radius) wake(zb);
+    if (Math.hypot(zb.x - x, zb.z - z) < radius) wake(zb,x,z);
   }
 }
-function wake(zb: Zombie) {
-  if (zb.state === 'dead') return;
+function wake(zb: Zombie, targetX=px, targetZ=pz) {
+  if (zb.state === 'dead' || zb.retreat>0 || zb.returning) return;
   zb.state = 'chase';
+  zb.pathTimer=0;zb.lastX=targetX;zb.lastZ=targetZ;
   zb.lose = 0;
   zb.attackCd = 0.6;
 }
@@ -524,7 +530,7 @@ function damageZombie(zb: Zombie, amount: number, nx: number, nz: number, knock:
     kills += 1;
     return;
   }
-  zb.state = 'chase';
+  wake(zb,zb.x-nx,zb.z-nz); // React toward the impact direction, not an unseen player.
   const pushed = sweepMove(zb.x, zb.z, nx * knock * 0.4, nz * knock * 0.4, 0.34, collides);
   zb.x = pushed.x;
   zb.z = pushed.z;
@@ -661,9 +667,32 @@ function animateRig(dt: number, speed: number) {
   }
 }
 
+// At most two bounded searches per frame; movement always sweeps real collision.
+let navigationBudget = 0;
+function steerEnemy(zb:Zombie, tx:number, tz:number, speed:number, dt:number) {
+  if(zb.pathTimer<=0 && navigationBudget>0){
+    navigationBudget--;
+    zb.path=findLocalPath(zb.x,zb.z,tx,tz,collides,350);
+    zb.pathTimer=1.1+(zb.phase%0.5);
+  }
+  while(zb.path.length && Math.hypot(zb.path[0].x-zb.x,zb.path[0].z-zb.z)<.25)zb.path.shift();
+  const target=zb.path[0];
+  if(!target)return;
+  const dx=target.x-zb.x,dz=target.z-zb.z,d=Math.hypot(dx,dz);
+  if(d<.001)return;
+  const step=Math.min(speed*dt,d);
+  const moved=sweepMove(zb.x,zb.z,dx/d*step,dz/d*step,.34,collides);
+  zb.walk+=Math.hypot(moved.x-zb.x,moved.z-zb.z)*4;
+  if(Math.hypot(moved.x-zb.x,moved.z-zb.z)>.001)zb.mesh.rotation.y=Math.atan2(moved.x-zb.x,-(moved.z-zb.z));
+  zb.x=moved.x;zb.z=moved.z;
+  if(moved.blocked){zb.path=[];zb.pathTimer=0;}
+}
 function updateZombies(dt: number) {
+  navigationBudget=2;
   for (const zb of zombies) {
     if (zb.state === 'dead') continue;
+    zb.pathTimer=Math.max(0,zb.pathTimer-dt);
+    zb.retreat=Math.max(0,zb.retreat-dt);
     zb.flashT = Math.max(0, zb.flashT - dt);
     (zb.mesh.material as THREE.MeshStandardMaterial).color.setHex(zb.flashT > 0 ? 0xa33a2a : zb.faction.color);
 
@@ -682,18 +711,20 @@ function updateZombies(dt: number) {
     }
 
     if (zb.state === 'chase') {
-      if (dist > 44) {
-        zb.lose += dt;
-        if (zb.lose > 6) { zb.state = 'wander'; zb.wx = zb.hx; zb.wz = zb.hz; zb.lose = 0; }
-      } else zb.lose = 0;
+      const visible=dist<=44 && canSee(zb.x,zb.z,px,pz);
+      if(visible){zb.lastX=px;zb.lastZ=pz;zb.mesh.rotation.y=Math.atan2(dx,-dz);}
+      const decision=decideEncounterBehavior({faction:zb.faction.id,distance:dist,
+        homeDistance:Math.hypot(zb.x-zb.hx,zb.z-zb.hz),visible,
+        lostSeconds:zb.lose,carryingStolenItem:zb.retreat>0,dt});
+      zb.lose=decision.lostSeconds;
+      if(decision.action!=='chase'){
+        zb.state='wander';zb.returning=true;zb.wx=zb.hx;zb.wz=zb.hz;zb.path=[];zb.pathTimer=0;
+        zb.retreat=Math.max(zb.retreat,4);zb.warning=0;
+        continue;
+      }
 
-      if (dist > zb.faction.range * 0.8) {
-        const step = zb.faction.speed * dt;
-        const nx = zb.x + (dx / dist) * step;
-        const nz = zb.z + (dz / dist) * step;
-        if (!collides(nx, zb.z, 0.34)) zb.x = nx;
-        if (!collides(zb.x, nz, 0.34)) zb.z = nz;
-        zb.walk += step * 4;
+      if (!visible || dist > zb.faction.range * 0.8) {
+        steerEnemy(zb,zb.lastX,zb.lastZ,zb.faction.speed,dt);
       }
       zb.attackCd = Math.max(0, zb.attackCd - dt);
       const inRange = dist < zb.faction.range && canSee(zb.x, zb.z, px, pz);
@@ -705,7 +736,7 @@ function updateZombies(dt: number) {
         zb.attackCd = zb.faction.cooldown;
         zb.warning = 0;
         hp = Math.max(0, hp - zb.faction.damage);
-        if (zb.faction.id === 'raider' && inventory.water > 0) { inventory.water--; updateBag(); flashHint('掠奪者搶走了一瓶水！'); }
+        if (zb.faction.id === 'raider' && inventory.water > 0) { inventory.water--;zb.retreat=12; updateBag(); flashHint('掠奪者搶走了一瓶水，正向據點撤退！'); }
         if (zb.faction.id === 'police') stamina = Math.max(0, stamina - 25);
         if (zb.faction.id === 'military') makeNoise(zb.x, zb.z, 45);
         invuln = 1.3;
@@ -718,21 +749,19 @@ function updateZombies(dt: number) {
       const tdx = zb.wx - zb.x, tdz = zb.wz - zb.z;
       const td = Math.hypot(tdx, tdz);
       if (td < 0.6) {
-        zb.wx = zb.hx + (Math.random() - 0.5) * 8;
-        zb.wz = zb.hz + (Math.random() - 0.5) * 8;
+        if(Math.hypot(zb.x-zb.hx,zb.z-zb.hz)<1)zb.returning=false;
+        if(zb.faction.id==='military'||zb.faction.id==='police') {
+          const atHome=Math.hypot(zb.x-zb.hx,zb.z-zb.hz)<1;
+          zb.wx=atHome?zb.patrolX:zb.hx;zb.wz=atHome?zb.patrolZ:zb.hz;
+        } else { zb.wx=zb.hx;zb.wz=zb.hz; }
+        zb.pathTimer=0;
       } else {
-        const step = ZOMBIE_WANDER * dt;
-        const nx = zb.x + (tdx / td) * step;
-        const nz = zb.z + (tdz / td) * step;
-        if (!collides(nx, zb.z, 0.34)) zb.x = nx;
-        if (!collides(zb.x, nz, 0.34)) zb.z = nz;
-        zb.walk += step * 3;
+        if(dist<80)steerEnemy(zb,zb.wx,zb.wz,zb.faction.id==='infected'?ZOMBIE_WANDER:zb.faction.speed*.7,dt);
       }
-      if (dist < 4 && canSee(zb.x, zb.z, px, pz)) wake(zb);
+      if (zb.retreat<=0 && dist < (lightOn?SENSE_LIGHT:SENSE_DARK)*(sneaking?.6:1) && canSee(zb.x, zb.z, px, pz)) wake(zb);
     }
 
     zb.mesh.position.set(zb.x, 0, -zb.z);
-    zb.mesh.rotation.y = Math.atan2(dx, -dz);
     const sw = Math.sin(zb.walk + zb.phase);
     zb.chest.rotation.x = 0.1 + sw * 0.07;
     zb.hips.rotation.z = sw * 0.06;
@@ -987,18 +1016,18 @@ function resetWorld() {
   pz = block.spawn[1];
   py = 0; vy = 0; grounded = true;
   facing = Math.PI;
-  for (const zb of zombies) {
-    const spot = sampleOpenSpot(collides, insideBuilding, bounds, { x: px, z: pz }, 26);
-    zb.x = zb.hx = spot ? spot.x : px + 30;
-    zb.z = zb.hz = spot ? spot.z : pz + 30;
-    zb.state = 'sleep';
-    zb.think = Math.random() * 0.35;
-    zb.attackCd = 0; zb.warning = 0; zb.lose = 0;
-    zb.wx = zb.hx; zb.wz = zb.hz;
-    zb.hp = 100;
-    zb.mesh.visible = true;
-    zb.mesh.position.set(zb.x, 0, -zb.z);
-  }
+  const plan=planEncounters({count:zombies.length,spawn:{x:px,z:pz},bounds,roads:block.roads??[],collides,insideBuilding});
+  if(plan.placements.some(p=>!p))throw new Error('街區缺少安全敵人布點，無法開始；既有存檔未改動。');
+  zombies.forEach((zb,i)=>{
+    const spot=plan.placements[i]!;
+    zb.x=zb.hx=spot.x;zb.z=zb.hz=spot.z;
+    zb.patrolX=spot.patrol?.x??spot.x;zb.patrolZ=spot.patrol?.z??spot.z;
+    zb.state=zb.faction.id==='military'||zb.faction.id==='police'?'wander':'sleep';
+    zb.think=Math.random()*.35;zb.attackCd=0;zb.warning=0;zb.lose=0;
+    zb.path=[];zb.pathTimer=0;zb.retreat=0;zb.returning=false;zb.lastX=zb.x;zb.lastZ=zb.z;
+    zb.wx=zb.patrolX;zb.wz=zb.patrolZ;zb.hp=100;
+    zb.mesh.visible=true;zb.mesh.position.set(zb.x,0,-zb.z);
+  });
   for (let i = 0; i < MAX_ZOMBIES * 2; i++) eyeMesh.setColorAt(i, eyeColor.setHex(0x3f5a44));
   syncEyes();
 
@@ -1150,7 +1179,7 @@ function buildMenu() {
   el.pick.style.display = '';
   el.roster.innerHTML = '';
   for (const c of ROSTER) {
-    const card = document.createElement('div');
+    const card = document.createElement('button');card.type='button';card.setAttribute('aria-pressed','false');
     card.className = 'who';
     const face = document.createElement('div');
     face.className = 'face';
@@ -1164,8 +1193,8 @@ function buildMenu() {
     sx.className = 'sx'; sx.textContent = c.sex === 'f' ? '女' : '男';
     card.append(face, nm, jb, sx);
     card.onclick = () => {
-      el.roster.querySelectorAll('.who').forEach(w => w.classList.remove('sel'));
-      card.classList.add('sel');
+      el.roster.querySelectorAll('.who').forEach(w => {w.classList.remove('sel');w.setAttribute('aria-pressed','false');});
+      card.classList.add('sel');card.setAttribute('aria-pressed','true');
       el.pick.className = '';
       el.pick.innerHTML = `<b>${c.name}</b>·${c.job}·${c.sex === 'f' ? '女' : '男'}——${c.blurb}`;
       el.ovBtn.disabled = false;
@@ -1180,9 +1209,9 @@ function buildMenu() {
 // Campaign persistence owns one atomic snapshot: loot depletion and inventory never save separately.
 function campaignElapsed() { return elapsed; }
 function snapshotCampaign(): Snapshot {
-  return { version:1,mapId:dataUrl,characterId:spec.id,elapsed,hp:phase==='lose'?0:hp,stamina,battery,outbreak:{...outbreak},inventory:{...inventory},stash:{...stash},helper:{...helperState},ammo,hasPistol,pistolEquipped,position:[px,pz],shelterId:shelter?.id??'',inShelter,looted,kills,restCount,status:phase==='lose'?'dead':'alive',
+  return { version:1,encounterVersion:1,mapId:dataUrl,characterId:spec.id,elapsed,hp:phase==='lose'?0:hp,stamina,battery,outbreak:{...outbreak},inventory:{...inventory},stash:{...stash},helper:{...helperState},ammo,hasPistol,pistolEquipped,position:[px,pz],shelterId:shelter?.id??'',inShelter,looted,kills,restCount,status:phase==='lose'?'dead':'alive',
     containers:containers.map(c=>({x:c.x,z:c.z,looted:c.looted,...(c.cacheKind?{cacheKind:c.cacheKind,cacheDay:c.cacheDay}:{})})),
-    enemies:zombies.map(z=>({x:z.x,z:z.z,hp:Math.max(0,z.hp),state:z.state,faction:z.faction.id})) };
+    enemies:zombies.map(z=>({x:z.x,z:z.z,hp:Math.max(0,z.hp),state:z.state,faction:z.faction.id,home:[z.hx,z.hz],patrol:[z.patrolX,z.patrolZ],lastKnown:[z.lastX,z.lastZ],returning:z.returning,retreat:z.retreat})) };
 }
 function persistCampaign() {
   if(mode!=='sandbox'||!shelter||(phase!=='play'&&phase!=='lose'))return;
@@ -1202,7 +1231,15 @@ function restoreCampaign(s:Snapshot) {
   if(shelter&&(px<bounds.minX-8||px>bounds.maxX+8||pz<bounds.minY-8||pz>bounds.maxY+8||collides(px,pz,.36))){[px,pz]=shelter.outside;saveWarning='舊存檔位置在街區外或牆內，已移回安全屋門口；物資與進度保留。';}
   inShelter=s.inShelter;looted=s.looted;kills=s.kills;restCount=s.restCount;
   s.containers.forEach((c,i)=>{delete containers[i].cacheKind;delete containers[i].cacheDay;Object.assign(containers[i],c);paintContainer(containers[i]);});
-  s.enemies.forEach((z,i)=>{Object.assign(zombies[i],z,{faction:profileFor(i),hx:z.x,hz:z.z,wx:z.x,wz:z.z});zombies[i].mesh.visible=z.state!=='dead';zombies[i].mesh.position.set(z.x,0,-z.z);});
+  s.enemies.forEach((z,i)=>{
+    const enemy=zombies[i],home=z.home??[z.x,z.z],patrol=z.patrol??home;
+    Object.assign(enemy,z,{faction:profileFor(i),hx:home[0],hz:home[1],patrolX:patrol[0],patrolZ:patrol[1],
+      wx:patrol[0],wz:patrol[1],lastX:z.lastKnown?.[0]??z.x,lastZ:z.lastKnown?.[1]??z.z,path:[],pathTimer:0,returning:z.returning??false,retreat:z.retreat??0});
+    if(z.state==='chase'&&!z.lastKnown){enemy.state='wander';enemy.returning=true;}
+    if(enemy.returning){enemy.wx=enemy.hx;enemy.wz=enemy.hz;}
+    // Legacy positions, HP and deaths are preserved; no teleport or respawn on upgrade.
+    enemy.mesh.visible=z.state!=='dead';enemy.mesh.position.set(z.x,0,-z.z);
+  });
   if(inShelter&&shelter)[px,pz]=shelter.inside;
   if(playerRoot)playerRoot.position.set(px,0,-pz);syncEyes();updateDaylight();
 }
@@ -1253,7 +1290,7 @@ function showHelper() {
   choice(helperState.helped?'已幫助阿梅（記憶已保存）':'幫助她：交1醫療包，收2水謝禮',helperState.helped||inventory.medkit<1,()=>aidHelper(helperState,inventory),'阿梅記住了你的幫助，以後每天可找她照護一次。');
   choice('接受照護：HP +15（每日一次）',!helperState.helped||helperState.healDay===day||hp>=100,()=>{const player={hp,exposure:outbreak.exposure};if(!receiveHelperCare(helperState,player,day))return false;hp=player.hp;outbreak.exposure=player.exposure;return true;},'阿梅：今天先處理到這裡，別逞強。');
   const exit=document.createElement('button');exit.textContent='離開互助站';exit.onclick=closeHelper;helperPanel.append(exit);
-  const note=document.createElement('p');note.textContent=saveWarning||'虛構遊戲照護效果，不代表現實醫療。所有交換／幫助／每日配額與進度一起保存。';helperPanel.append(note);
+  const note=document.createElement('p');note.id='campaign-note';note.textContent=saveWarning||'虛構遊戲照護效果，不代表現實醫療。所有交換／幫助／每日配額與進度一起保存。';helperPanel.append(note);
 }
 function installHelperUI() {
   const style=document.createElement('style');style.textContent='#helper-panel{position:fixed;z-index:65;right:3vw;top:10vh;width:min(430px,88vw);max-height:78vh;overflow:auto;background:#142422f5;color:#f4ecda;border:1px solid #c8b779;padding:16px;border-radius:10px;font:14px system-ui}#helper-panel[hidden]{display:none}#helper-panel p{line-height:1.6}#helper-panel button{display:block;width:100%;min-height:44px;margin:10px 0;padding:9px;border:1px solid #93b6ad;background:#203631;color:#f4ecda;border-radius:6px;font:inherit;cursor:pointer}#helper-panel button:disabled{opacity:.4;cursor:default}';document.head.append(style);
@@ -1311,12 +1348,13 @@ function installCampaignUI() {
   const modes=document.createElement('div');modes.id='campaign-mode';
   const sand=document.createElement('button');sand.textContent='生存沙盒（持久存檔）';sand.className='selected';sand.disabled=!shelter;
   const quick=document.createElement('button');quick.textContent='8分鐘快速撤離（獨立）';
-  sand.onclick=()=>{mode='sandbox';sand.className='selected';quick.className='';};quick.onclick=()=>{mode='quick';quick.className='selected';sand.className='';};
+  sand.setAttribute('aria-pressed','true');quick.setAttribute('aria-pressed','false');
+  sand.onclick=()=>{mode='sandbox';sand.className='selected';quick.className='';sand.setAttribute('aria-pressed','true');quick.setAttribute('aria-pressed','false');};quick.onclick=()=>{mode='quick';quick.className='selected';sand.className='';quick.setAttribute('aria-pressed','true');sand.setAttribute('aria-pressed','false');};
   if(!shelter){mode='quick';quick.className='selected';sand.textContent='此地圖未找到安全門口';}
   modes.append(sand,quick);
   const valid=isCompatibleSave(savedGame);
   if(valid){const resume=document.createElement('button');resume.textContent=`繼續第${dayPhase(savedGame!.elapsed).day}天存檔`;resume.onclick=()=>{let current:Snapshot|null=null;try{current=loadSnapshot(localStorage,saveKey,dataUrl);}catch{}if(!isCompatibleSave(current)){resume.disabled=true;resume.textContent='存檔已失效';return;}mode='sandbox';modes.hidden=true;start(ROSTER.find(c=>c.id===current!.characterId)??ROSTER[0],current);};modes.append(resume);}
-  const note=document.createElement('p');note.textContent=savedGame?.status==='dead'?'上一位倖存者已死亡；新沙盒會重設世界與庫存。':valid?'選角後開始新沙盒會覆寫此瀏覽器的舊進度；快速挑戰不影響存檔。':'沙盒：找藍色門標，按E／手機「家」進入。先帶一水一罐頭回家。';
+  const note=document.createElement('p');note.id='campaign-note';note.textContent=savedGame?.status==='dead'?'上一位倖存者已死亡；新沙盒會重設世界與庫存。':valid?'選角後開始新沙盒會覆寫此瀏覽器的舊進度；快速挑戰不影響存檔。':'沙盒：找藍色門標，按E／手機「家」進入。先帶一水一罐頭回家。';
   el.roster.before(modes,note);
   el.overlay.querySelector('.sub')!.textContent='上海病毒爆發。選角色後探索街區、搜刮並返回自己的安全屋；或選擇獨立八分鐘撤離挑戰。';
 }
