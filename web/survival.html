@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#070b12" />
+  <link rel="icon" href="data:," />
   <title>魔都生存 · 天亮之前</title>
   <style>
     * { box-sizing: border-box; }
@@ -25,42 +26,55 @@
     #hp { background: #c96a5e; }
     #bat { background: #d8b45f; }
     .track i.low, #bat.low, #sta.low { background: #d4563f; }
+    #kit { margin-top: 10px; display: flex; gap: 9px; font-size: 11px; color: #9fae9f; }
+    #kit b { color: #e6dcc0; font-weight: 600; }
 
     #hint { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
       font-size: 11px; color: #b9c4ba; text-shadow: 0 1px 4px #000; opacity: .85; }
-
     #prompt { position: fixed; left: 50%; bottom: 82px; transform: translateX(-50%);
       padding: 7px 13px; border-radius: 5px; background: #121a18dd; border: 1px solid #ffffff1f;
       font-size: 12px; opacity: 0; transition: opacity .15s; }
     #prompt.on { opacity: 1; }
     #prompt b { color: #f0c96e; }
-
     #place { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); padding: 6px 14px;
       border-radius: 999px; background: #121a18dd; border: 1px solid #ffffff1f; font-size: 12px;
       letter-spacing: .04em; opacity: 0; transition: opacity .2s; pointer-events: none; }
     #place.on { opacity: 1; }
-
     #progress { position: fixed; left: 50%; bottom: 60px; transform: translateX(-50%);
       width: 190px; height: 5px; border-radius: 99px; background: #ffffff1f; overflow: hidden;
       opacity: 0; transition: opacity .15s; }
     #progress.on { opacity: 1; }
     #progress i { display: block; height: 100%; width: 0; background: #f0c96e; }
-
     #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .12s;
       background: radial-gradient(ellipse at center, transparent 30%, #b02a1a66 70%, #b02a1aa8 100%); }
     #flash.on { opacity: 1; }
 
-    #overlay { position: fixed; inset: 0; display: grid; place-items: center;
-      background: #060a10d9; backdrop-filter: blur(3px); opacity: 0; pointer-events: none; transition: opacity .25s; }
+    #overlay { position: fixed; inset: 0; display: grid; place-items: center; overflow: auto;
+      background: #060a10e6; backdrop-filter: blur(4px); opacity: 0; pointer-events: none; transition: opacity .25s; }
     #overlay.on { opacity: 1; pointer-events: auto; }
-    .card { width: min(90vw, 430px); padding: 30px 32px 26px; border-radius: 8px;
-      background: #111917f2; border: 1px solid #ffffff1a; box-shadow: 0 20px 60px #000a; text-align: center; }
-    .card h1 { margin: 0 0 14px; font-size: 30px; letter-spacing: .12em; color: #f0e8d6; }
-    .card p { margin: 0 0 22px; font-size: 12.5px; line-height: 2; color: #b9c4ba; }
-    .card p b { color: #f0c96e; font-weight: 600; }
-    .card button { padding: 10px 30px; border: 1px solid #f0c96e66; border-radius: 5px;
+    .card { width: min(94vw, 900px); padding: 26px 30px 24px; border-radius: 10px;
+      background: #111917f5; border: 1px solid #ffffff1a; box-shadow: 0 24px 70px #000a; }
+    .card h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: .12em; color: #f0e8d6; }
+    .card .sub { margin: 0 0 18px; font-size: 12.5px; line-height: 1.8; color: #9fae9f; }
+    .roster { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+    @media (max-width: 760px) { .roster { grid-template-columns: repeat(3, 1fr); } }
+    .who { padding: 9px 8px 8px; border-radius: 7px; border: 1px solid #ffffff14; background: #0d1413;
+      cursor: pointer; text-align: center; transition: border-color .15s, background .15s, transform .1s; }
+    .who:hover { border-color: #ffffff33; background: #131c1a; }
+    .who.sel { border-color: #f0c96e; background: #1b2018; box-shadow: 0 0 0 1px #f0c96e55 inset; }
+    .who .face { width: 26px; height: 34px; margin: 0 auto 7px; border-radius: 4px 4px 3px 3px; }
+    .who .nm { font-size: 12.5px; color: #e9e3d2; font-weight: 600; }
+    .who .jb { font-size: 10px; color: #93a296; margin-top: 2px; letter-spacing: .02em; }
+    .who .sx { font-size: 9px; color: #6f7d72; margin-top: 3px; }
+    #pick { margin: 16px 0 18px; min-height: 38px; font-size: 12.5px; line-height: 1.8; color: #b9c4ba; }
+    #pick b { color: #f0c96e; }
+    .card button { padding: 11px 34px; border: 1px solid #f0c96e66; border-radius: 6px;
       background: #f0c96e; color: #171d1a; font-size: 13px; font-weight: 700; letter-spacing: .1em; cursor: pointer; }
-    .card button:hover { background: #ffd97e; }
+    .card button:disabled { background: #2a3330; color: #6f7d72; border-color: #ffffff14; cursor: default; }
+    .card button:not(:disabled):hover { background: #ffd97e; }
+    .keys { margin-top: 14px; padding-top: 12px; border-top: 1px solid #ffffff12;
+      font-size: 11px; line-height: 1.9; color: #8e9c91; }
+    .keys b { color: #cfd8c8; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -74,19 +88,27 @@
       <div class="meter"><span>體力</span><div class="track"><i id="sta" style="width:100%"></i></div></div>
       <div class="meter"><span>電池</span><div class="track"><i id="bat" style="width:100%"></i></div></div>
     </div>
+    <div id="kit"></div>
   </div>
 
   <div id="prompt">按住 <b>E</b> 搜刮</div>
   <div id="place"></div>
   <div id="progress"><i></i></div>
   <div id="flash"></div>
-  <div id="hint">F 手電筒 · Shift 跑 · 按住 E 搜刮</div>
+  <div id="hint">F 手電筒 · Shift 跑 · 空白鍵跳 · J 揮擊 · K 投擲 · G 開槍 · E 搜刮</div>
 
   <div id="overlay" class="on">
     <div class="card">
-      <h1 id="ov-title">魔都生存</h1>
-      <p id="ov-body">載入街區中…</p>
-      <button id="ov-btn">開始</button>
+      <h1>魔都生存</h1>
+      <p class="sub">老西門，凌晨兩點，街區斷電。天亮之前離開這條弄堂。<br>選一個活下去的人。</p>
+      <div id="roster" class="roster"></div>
+      <div id="pick"></div>
+      <button id="ov-btn" disabled>開始</button>
+      <div class="keys">
+        <b>WASD</b> 移動　<b>Shift</b> 跑　<b>空白</b> 跳　<b>F</b> 手電筒<br>
+        <b>J</b> 揮擊　<b>K</b> 投擲　<b>G</b> 開槍　<b>E</b> 按住搜刮<br>
+        <b>1</b> 喝水（體力）　<b>2</b> 罐頭（HP）　<b>3</b> 醫療包　<b>4</b> 換電池
+      </div>
     </div>
   </div>
 
