@@ -1,3 +1,4 @@
+import type { HelperState } from './helper';
 /** Versioned, browser-independent campaign rules. No renderer or DOM dependencies. */
 export const ITEM_IDS = ['water', 'food', 'medkit', 'battery', 'ammo', 'pistol'] as const;
 export type ItemId = typeof ITEM_IDS[number];
@@ -13,7 +14,7 @@ export type Snapshot = {
   shelterId: string; inShelter: boolean; looted: number; kills: number;
   containers: SavedContainer[];
   enemies: { x: number; z: number; hp: number; state: 'sleep' | 'wander' | 'chase' | 'dead'; faction: string }[];
-  status: 'alive' | 'dead'; restCount: number;
+  status: 'alive' | 'dead'; restCount: number; helper?: HelperState;
 };
 export type StorageLike = { getItem(key: string): string | null; setItem(key: string, value: string): void };
 export type RestState = Pick<Snapshot, 'hp' | 'stamina' | 'outbreak' | 'inventory' | 'stash' | 'elapsed' | 'restCount'>;
@@ -50,6 +51,13 @@ export function parseSnapshot(raw: string, mapId: string): Snapshot | null {
       || (s.status === 'dead' && s.hp !== 0)
       || !Array.isArray(s.containers) || s.containers.length > 1000
       || !Array.isArray(s.enemies) || s.enemies.length > 1000) return null;
+    if ('helper' in s) {
+      const h = s.helper;
+      const day = dayPhase(s.elapsed).day;
+      if (!isRecord(h) || typeof h.helped !== 'boolean' || !numberIn(h.exchanges, 0, 2) || !Number.isInteger(h.exchanges)
+        || !count(h.exchangeDay) || h.exchangeDay > day || !count(h.healDay) || h.healDay > day
+        || (h.exchangeDay === 0 && h.exchanges !== 0) || (h.healDay !== 0 && !h.helped)) return null;
+    }
     if (!s.containers.every(c => isRecord(c) && coordinate(c.x) && coordinate(c.z) && typeof c.looted === 'boolean'
       && (!('cacheKind' in c) && !('cacheDay' in c)
         || cacheKindValid(c.cacheKind) && cacheDayValid(c.cacheDay) && c.cacheDay <= dayPhase(s.elapsed as number).day))) return null;

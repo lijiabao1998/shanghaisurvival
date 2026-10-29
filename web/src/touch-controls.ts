@@ -135,7 +135,8 @@ export function installTouchControls(): void {
   const overlay = document.getElementById('overlay');
   function syncOverlay() {
     const shelter=document.getElementById('shelter-panel');
-    root.hidden = !!overlay?.classList.contains('on') || (!!shelter && !shelter.hidden);
+    const helper=document.getElementById('helper-panel');
+    root.hidden = !!overlay?.classList.contains('on') || (!!shelter && !shelter.hidden) || (!!helper && !helper.hidden);
     if (root.hidden) releaseAll();
   }
   if (overlay) new MutationObserver(syncOverlay).observe(overlay, { attributes: true, attributeFilter: ['class'] });
