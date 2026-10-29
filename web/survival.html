@@ -7,107 +7,189 @@
   <link rel="icon" href="data:," />
   <title>魔都生存 · 天亮之前</title>
   <style>
+    :root {
+      --ink: #e9efe6;
+      --dim: #8fa094;
+      --faint: #5d6c63;
+      --gold: #f0c96e;
+      --red: #d4563f;
+      --green: #9fc0a8;
+      --panel: rgba(12, 18, 17, .82);
+      --line: rgba(255, 255, 255, .10);
+    }
     * { box-sizing: border-box; }
-    html, body { margin: 0; height: 100%; overflow: hidden; background: #070b12; color: #e8eae2;
-      font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; user-select: none; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #070b12; color: var(--ink);
+      font-family: "Microsoft JhengHei", "PingFang TC", "Noto Sans CJK TC", sans-serif;
+      user-select: none; font-variant-numeric: tabular-nums; }
     #c { position: fixed; inset: 0; display: block; width: 100%; height: 100%; }
+
+    /* ---------- atmosphere ---------- */
     #vignette { position: fixed; inset: 0; pointer-events: none;
-      background: radial-gradient(ellipse at center, transparent 45%, #0009 78%, #000d 100%); }
+      background: radial-gradient(ellipse at center, transparent 42%, #000a 76%, #000e 100%); }
+    #hurt { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .18s;
+      background: radial-gradient(ellipse at center, transparent 26%, #8e1f1288 76%, #8e1f12cc 100%); }
+    #hurt.low { animation: pulse 1.5s ease-in-out infinite; opacity: .55; }
+    @keyframes pulse { 0%, 100% { opacity: .32 } 50% { opacity: .62 } }
+    #darkfall { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .4s;
+      background: radial-gradient(circle at center, transparent 12%, #000d 62%); }
+    #darkfall.on { opacity: 1; }
 
-    #hud { position: fixed; top: 16px; left: 18px; min-width: 250px; }
-    #clock { font-size: 34px; font-weight: 800; letter-spacing: .06em; font-variant-numeric: tabular-nums;
-      color: #dfe6dc; text-shadow: 0 2px 10px #000; }
-    .meters { margin-top: 8px; display: grid; gap: 6px; }
-    .meter { display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 8px; }
-    .meter span { font-size: 10px; letter-spacing: .1em; color: #93a296; }
-    .track { height: 7px; background: #ffffff14; border-radius: 99px; overflow: hidden; }
-    .track i { display: block; height: 100%; width: 100%; border-radius: 99px;
-      background: #9fc0a8; transition: width .12s linear, background .3s; }
-    #hp { background: #c96a5e; }
-    #bat { background: #d8b45f; }
-    .track i.low, #bat.low, #sta.low { background: #d4563f; }
-    #kit { margin-top: 10px; display: flex; gap: 9px; font-size: 11px; color: #9fae9f; }
-    #kit b { color: #e6dcc0; font-weight: 600; }
+    /* ---------- panels ---------- */
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 9px;
+      box-shadow: 0 10px 34px #0007; backdrop-filter: blur(9px); }
 
-    #hint { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
-      font-size: 11px; color: #b9c4ba; text-shadow: 0 1px 4px #000; opacity: .85; }
-    #prompt { position: fixed; left: 50%; bottom: 82px; transform: translateX(-50%);
-      padding: 7px 13px; border-radius: 5px; background: #121a18dd; border: 1px solid #ffffff1f;
-      font-size: 12px; opacity: 0; transition: opacity .15s; }
-    #prompt.on { opacity: 1; }
-    #prompt b { color: #f0c96e; }
-    #place { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); padding: 6px 14px;
-      border-radius: 999px; background: #121a18dd; border: 1px solid #ffffff1f; font-size: 12px;
-      letter-spacing: .04em; opacity: 0; transition: opacity .2s; pointer-events: none; }
+    #hud { position: fixed; top: 14px; left: 14px; width: 246px; padding: 12px 14px 12px; }
+    #who { display: flex; align-items: baseline; gap: 7px; padding-bottom: 9px; border-bottom: 1px solid var(--line); }
+    #who-name { font-size: 15px; font-weight: 750; letter-spacing: .05em; }
+    #who-job { font-size: 10.5px; color: var(--dim); letter-spacing: .06em; }
+    #clockrow { display: flex; align-items: baseline; justify-content: space-between; margin: 9px 0 7px; }
+    #clock { font-size: 27px; font-weight: 800; letter-spacing: .04em; line-height: 1; color: #f2efe4; }
+    #phase { font-size: 10px; letter-spacing: .12em; color: var(--faint); text-transform: uppercase; }
+    #night { height: 3px; border-radius: 9px; background: #ffffff10; overflow: hidden; margin-bottom: 11px; }
+    #night i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, #46606f, #a9c2b4); }
+
+    .bar { display: grid; grid-template-columns: 30px 1fr 30px; align-items: center; gap: 8px; margin-top: 6px; }
+    .bar .k { font-size: 9.5px; letter-spacing: .1em; color: var(--faint); }
+    .bar .v { font-size: 10px; text-align: right; color: var(--dim); }
+    .bar .t { height: 6px; border-radius: 9px; background: #ffffff12; overflow: hidden; }
+    .bar .t i { display: block; height: 100%; width: 100%; border-radius: 9px; transition: width .18s ease, background .3s; }
+    #hp { background: linear-gradient(90deg, #a8473a, #d8695c); }
+    #sta { background: linear-gradient(90deg, #7f9f88, #a9c9ac); }
+    #bat { background: linear-gradient(90deg, #b9922f, #e6c469); }
+    .bar.low .t i { background: linear-gradient(90deg, #8e2f22, #d4563f); }
+
+    #moodles { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; min-height: 18px; }
+    .moodle { font-size: 9.5px; letter-spacing: .04em; padding: 2.5px 7px; border-radius: 99px;
+      border: 1px solid #ffffff1a; background: #ffffff0a; color: #cfd8cc; }
+    .moodle.bad { border-color: #d4563f55; background: #d4563f1f; color: #f0b3a8; }
+    .moodle.warn { border-color: #e0b55855; background: #e0b5581a; color: #ecd49b; }
+
+    /* ---------- inventory ---------- */
+    #side { position: fixed; top: 14px; right: 14px; width: 208px; padding: 11px 12px 12px; }
+    .side-title { font-size: 9.5px; letter-spacing: .18em; color: var(--faint); margin-bottom: 8px; }
+    #bag { display: grid; gap: 3px; }
+    .row { display: grid; grid-template-columns: 10px 1fr auto auto; align-items: center; gap: 8px;
+      padding: 4px 5px; border-radius: 5px; }
+    .row.has { background: #ffffff08; }
+    .row .dot { width: 7px; height: 7px; border-radius: 2px; }
+    .row .nm { font-size: 11.5px; color: #dbe3d8; }
+    .row .ct { font-size: 11px; color: var(--gold); font-weight: 700; }
+    .row .hk { font-size: 9px; color: var(--faint); border: 1px solid #ffffff18; border-radius: 3px;
+      padding: 0 4px; line-height: 1.5; }
+    .row.empty .nm, .row.empty .ct { color: #4d5a52; }
+    .sep { height: 1px; background: var(--line); margin: 7px 0; }
+    #tally { font-size: 10px; color: var(--dim); display: flex; justify-content: space-between; }
+
+    /* ---------- centre ---------- */
+    #place { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); padding: 5px 15px;
+      border-radius: 99px; background: var(--panel); border: 1px solid var(--line);
+      font-size: 11.5px; letter-spacing: .05em; color: #dfe7db; opacity: 0; transition: opacity .25s; }
     #place.on { opacity: 1; }
-    #progress { position: fixed; left: 50%; bottom: 60px; transform: translateX(-50%);
-      width: 190px; height: 5px; border-radius: 99px; background: #ffffff1f; overflow: hidden;
-      opacity: 0; transition: opacity .15s; }
-    #progress.on { opacity: 1; }
-    #progress i { display: block; height: 100%; width: 0; background: #f0c96e; }
-    #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .12s;
-      background: radial-gradient(ellipse at center, transparent 30%, #b02a1a66 70%, #b02a1aa8 100%); }
-    #flash.on { opacity: 1; }
 
+    #prompt { position: fixed; left: 50%; bottom: 74px; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 9px; padding: 7px 14px 7px 9px; border-radius: 99px;
+      background: var(--panel); border: 1px solid var(--line); font-size: 11.5px;
+      opacity: 0; transition: opacity .15s, transform .15s; }
+    #prompt.on { opacity: 1; }
+    #prompt .key { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 5px;
+      background: #ffffff14; border: 1px solid #ffffff2e; font-size: 10px; font-weight: 700; color: var(--gold); }
+    #ring { width: 20px; height: 20px; transform: rotate(-90deg); display: none; }
+    #ring.on { display: block; }
+    #ring circle { fill: none; stroke-width: 3; }
+    #ring .bg { stroke: #ffffff1f; }
+    #ring .fg { stroke: var(--gold); stroke-linecap: round; transition: stroke-dashoffset .08s linear; }
+
+    #hint { position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%);
+      font-size: 10.5px; color: #93a296; letter-spacing: .03em; text-shadow: 0 1px 5px #000;
+      padding: 5px 12px; border-radius: 99px; background: #0b1110a8; }
+    #hint b { color: #c3cec1; font-weight: 600; }
+
+    /* ---------- menu ---------- */
     #overlay { position: fixed; inset: 0; display: grid; place-items: center; overflow: auto;
-      background: #060a10e6; backdrop-filter: blur(4px); opacity: 0; pointer-events: none; transition: opacity .25s; }
+      background: radial-gradient(ellipse at 50% 40%, #0d1513f2, #05080cf7 70%);
+      opacity: 0; pointer-events: none; transition: opacity .28s; }
     #overlay.on { opacity: 1; pointer-events: auto; }
-    .card { width: min(94vw, 900px); padding: 26px 30px 24px; border-radius: 10px;
-      background: #111917f5; border: 1px solid #ffffff1a; box-shadow: 0 24px 70px #000a; }
-    .card h1 { margin: 0 0 6px; font-size: 30px; letter-spacing: .12em; color: #f0e8d6; }
-    .card .sub { margin: 0 0 18px; font-size: 12.5px; line-height: 1.8; color: #9fae9f; }
-    .roster { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
-    @media (max-width: 760px) { .roster { grid-template-columns: repeat(3, 1fr); } }
-    .who { padding: 9px 8px 8px; border-radius: 7px; border: 1px solid #ffffff14; background: #0d1413;
-      cursor: pointer; text-align: center; transition: border-color .15s, background .15s, transform .1s; }
-    .who:hover { border-color: #ffffff33; background: #131c1a; }
-    .who.sel { border-color: #f0c96e; background: #1b2018; box-shadow: 0 0 0 1px #f0c96e55 inset; }
-    .who .face { width: 26px; height: 34px; margin: 0 auto 7px; border-radius: 4px 4px 3px 3px; }
-    .who .nm { font-size: 12.5px; color: #e9e3d2; font-weight: 600; }
-    .who .jb { font-size: 10px; color: #93a296; margin-top: 2px; letter-spacing: .02em; }
-    .who .sx { font-size: 9px; color: #6f7d72; margin-top: 3px; }
-    #pick { margin: 16px 0 18px; min-height: 38px; font-size: 12.5px; line-height: 1.8; color: #b9c4ba; }
-    #pick b { color: #f0c96e; }
-    .card button { padding: 11px 34px; border: 1px solid #f0c96e66; border-radius: 6px;
-      background: #f0c96e; color: #171d1a; font-size: 13px; font-weight: 700; letter-spacing: .1em; cursor: pointer; }
-    .card button:disabled { background: #2a3330; color: #6f7d72; border-color: #ffffff14; cursor: default; }
-    .card button:not(:disabled):hover { background: #ffd97e; }
-    .keys { margin-top: 14px; padding-top: 12px; border-top: 1px solid #ffffff12;
-      font-size: 11px; line-height: 1.9; color: #8e9c91; }
-    .keys b { color: #cfd8c8; font-weight: 600; }
+    .card { width: min(94vw, 920px); padding: 30px 34px 26px; border-radius: 12px;
+      background: linear-gradient(180deg, #131c1af7, #0c1110fa); border: 1px solid #ffffff14;
+      box-shadow: 0 30px 90px #000b; }
+    .card h1 { margin: 0 0 8px; font-size: 33px; letter-spacing: .16em; color: #f4ecda; }
+    .card .sub { margin: 0 0 20px; font-size: 12.5px; line-height: 1.9; color: #93a296; }
+    .roster { display: grid; grid-template-columns: repeat(6, 1fr); gap: 9px; }
+    @media (max-width: 820px) { .roster { grid-template-columns: repeat(3, 1fr); } }
+    .who { position: relative; padding: 11px 8px 9px; border-radius: 8px; border: 1px solid #ffffff12;
+      background: #0b1112; cursor: pointer; text-align: center; transition: all .16s; }
+    .who:hover { border-color: #ffffff30; transform: translateY(-2px); background: #101a18; }
+    .who.sel { border-color: var(--gold); background: #1a1f16; box-shadow: 0 0 0 1px #f0c96e44 inset, 0 8px 22px #0006; }
+    .who .face { width: 30px; height: 38px; margin: 0 auto 8px; border-radius: 5px 5px 4px 4px;
+      box-shadow: inset 0 -8px 0 #00000030; }
+    .who .nm { font-size: 12.5px; color: #eae4d3; font-weight: 700; }
+    .who .jb { font-size: 9.5px; color: #8b9a8f; margin-top: 2px; }
+    .who .sx { font-size: 8.5px; color: #5d6c63; margin-top: 4px; letter-spacing: .1em; }
+    #pick { margin: 18px 0; min-height: 40px; padding: 11px 14px; border-radius: 8px;
+      background: #ffffff07; border: 1px solid #ffffff0e; font-size: 12.5px; line-height: 1.85; color: #b3c0b4; }
+    #pick b { color: var(--gold); }
+    #pick.empty { color: #5d6c63; }
+    #ov-btn { margin-top: 4px; padding: 12px 40px; border: 1px solid #f0c96e55; border-radius: 7px;
+      background: linear-gradient(180deg, #f4d184, #e0b558); color: #171d1a;
+      font-size: 13px; font-weight: 800; letter-spacing: .14em; cursor: pointer;
+      font-family: inherit; transition: filter .15s; }
+    #ov-btn:disabled { background: #1d2622; color: #556359; border-color: #ffffff10; cursor: default; }
+    #ov-btn:not(:disabled):hover { filter: brightness(1.08); }
+    .keys { margin-top: 18px; padding-top: 14px; border-top: 1px solid #ffffff10;
+      font-size: 10.5px; line-height: 2.1; color: #7d8c82; letter-spacing: .02em; }
+    .keys b { color: #c6d1c3; font-weight: 600; }
+
+    /* ---------- end screen ---------- */
+    #stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 18px 0 6px; }
+    #stats .s { padding: 11px 12px; border-radius: 8px; background: #ffffff07; border: 1px solid #ffffff0e; }
+    #stats .s .l { font-size: 9px; letter-spacing: .14em; color: var(--faint); }
+    #stats .s .n { font-size: 23px; font-weight: 800; color: #efe6d2; margin-top: 3px; }
+    @media (max-width: 600px) { #stats { grid-template-columns: repeat(2, 1fr); } }
   </style>
 </head>
 <body>
   <canvas id="c"></canvas>
   <div id="vignette"></div>
+  <div id="hurt"></div>
+  <div id="darkfall"></div>
 
-  <div id="hud">
-    <div id="clock">02:00</div>
-    <div class="meters">
-      <div class="meter"><span>HP</span><div class="track"><i id="hp" style="width:100%"></i></div></div>
-      <div class="meter"><span>體力</span><div class="track"><i id="sta" style="width:100%"></i></div></div>
-      <div class="meter"><span>電池</span><div class="track"><i id="bat" style="width:100%"></i></div></div>
-    </div>
-    <div id="kit"></div>
+  <div id="hud" class="panel">
+    <div id="who"><span id="who-name">—</span><span id="who-job"></span></div>
+    <div id="clockrow"><span id="clock">02:00</span><span id="phase">night</span></div>
+    <div id="night"><i id="night-fill"></i></div>
+    <div class="bar" id="bar-hp"><span class="k">HP</span><div class="t"><i id="hp"></i></div><span class="v" id="hp-num">100</span></div>
+    <div class="bar" id="bar-sta"><span class="k">體力</span><div class="t"><i id="sta"></i></div><span class="v" id="sta-num">100</span></div>
+    <div class="bar" id="bar-bat"><span class="k">電量</span><div class="t"><i id="bat"></i></div><span class="v" id="bat-num">100</span></div>
+    <div id="moodles"></div>
   </div>
 
-  <div id="prompt">按住 <b>E</b> 搜刮</div>
+  <div id="side" class="panel">
+    <div class="side-title">背包</div>
+    <div id="bag"></div>
+    <div class="sep"></div>
+    <div id="tally"><span id="tally-kill">擊殺 0</span><span id="tally-loot">搜刮 0</span></div>
+  </div>
+
   <div id="place"></div>
-  <div id="progress"><i></i></div>
-  <div id="flash"></div>
-  <div id="hint">F 手電筒 · Shift 跑 · 空白鍵跳 · J 揮擊 · K 投擲 · G 開槍 · E 搜刮</div>
+
+  <div id="prompt">
+    <span class="key" id="prompt-key">E</span>
+    <svg id="ring" viewBox="0 0 20 20"><circle class="bg" cx="10" cy="10" r="7.5"></circle><circle class="fg" cx="10" cy="10" r="7.5" stroke-dasharray="47.1" stroke-dashoffset="47.1"></circle></svg>
+    <span id="prompt-text">搜刮</span>
+  </div>
+
+  <div id="hint"><b>WASD</b> 移動 · <b>Shift</b> 跑 · <b>空白</b> 跳 · <b>J</b> 揮擊 · <b>K</b> 投擲 · <b>G</b> 開槍 · <b>E</b> 搜刮</div>
 
   <div id="overlay" class="on">
     <div class="card">
       <h1>魔都生存</h1>
       <p class="sub">老西門，凌晨兩點，街區斷電。天亮之前離開這條弄堂。<br>選一個活下去的人。</p>
       <div id="roster" class="roster"></div>
-      <div id="pick"></div>
+      <div id="pick" class="empty">選一個角色。</div>
       <button id="ov-btn" disabled>開始</button>
-      <div class="keys">
-        <b>WASD</b> 移動　<b>Shift</b> 跑　<b>空白</b> 跳　<b>F</b> 手電筒<br>
-        <b>J</b> 揮擊　<b>K</b> 投擲　<b>G</b> 開槍　<b>E</b> 按住搜刮<br>
-        <b>1</b> 喝水（體力）　<b>2</b> 罐頭（HP）　<b>3</b> 醫療包　<b>4</b> 換電池
+      <div class="keys" id="legend">
+        <b>WASD</b> 移動　<b>Shift</b> 跑　<b>空白</b> 跳　<b>F</b> 手電筒　<b>E</b> 按住搜刮<br>
+        <b>J</b> 揮擊　<b>K</b> 投擲　<b>G</b> 開槍　｜　<b>1</b> 水　<b>2</b> 罐頭　<b>3</b> 醫療包　<b>4</b> 電池
       </div>
     </div>
   </div>

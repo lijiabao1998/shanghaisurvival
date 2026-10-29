@@ -30,17 +30,22 @@ export function cityGeometry(block: Block): THREE.BufferGeometry {
   return g;
 }
 
-export function wallGridOf(block: Block): UniformGrid<Wall> {
+export function wallGridOf(block: Block, interiors = false): UniformGrid<Wall> {
   const grid = new UniformGrid<Wall>(8);
+  const add = (w: Wall) => grid.insert({
+    minX: Math.min(w.a[0], w.b[0]) - 0.5, maxX: Math.max(w.a[0], w.b[0]) + 0.5,
+    minY: Math.min(w.a[1], w.b[1]) - 0.5, maxY: Math.max(w.a[1], w.b[1]) + 0.5,
+  }, w);
   for (const b of block.buildings) {
-    const ring = b.footprint;
-    for (let i = 0; i < ring.length; i++) {
-      const a = ring[i], c = ring[(i + 1) % ring.length];
-      grid.insert({
-        minX: Math.min(a[0], c[0]) - 0.5, maxX: Math.max(a[0], c[0]) + 0.5,
-        minY: Math.min(a[1], c[1]) - 0.5, maxY: Math.max(a[1], c[1]) + 0.5,
-      }, { a, b: c });
+    const door = doorEdgeIndex(b.footprint);
+    for (const seg of ringSegments(b.footprint, b.height_m, door)) {
+      if (!seg.solid) continue;
+      add({ a: seg.a, b: seg.b });
     }
+    for (const hole of b.holes) {
+      for (const seg of ringSegments(hole, b.height_m, -1)) add({ a: seg.a, b: seg.b });
+    }
+    if (interiors) for (const w of interiorWalls(b)) add(w);
   }
   return grid;
 }
@@ -99,4 +104,165 @@ export function sampleOpenSpot(
     return { x, z };
   }
   return null;
+}
+
+// ---------------------------------------------------------------- 門與室內
+
+const DOOR_W = 1.6;
+const PART_H = 2.6;
+
+/** The longest edge of the ring, if it is wide enough to hold a doorway. */
+export function doorEdgeIndex(ring: Point[]): number {
+  let best = -1;
+  let longest = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i], b = ring[(i + 1) % ring.length];
+    const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (d > longest) { longest = d; best = i; }
+  }
+  return longest > 2.8 ? best : -1;
+}
+
+export type Seg = { a: Point; b: Point; y0: number; y1: number; solid: boolean };
+
+/** Split one ring edge into wall pieces, leaving a doorway with a lintel. */
+function ringSegments(ring: Point[], height: number, doorEdge: number): Seg[] {
+  const segs: Seg[] = [];
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i], b = ring[(i + 1) % ring.length];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < 0.01) continue;
+    if (i !== doorEdge || len < 2.8) {
+      segs.push({ a, b, y0: 0, y1: height, solid: true });
+      continue;
+    }
+    const t = DOOR_W / 2 / len;
+    const p1: Point = [a[0] + (b[0] - a[0]) * (0.5 - t), a[1] + (b[1] - a[1]) * (0.5 - t)];
+    const p2: Point = [a[0] + (b[0] - a[0]) * (0.5 + t), a[1] + (b[1] - a[1]) * (0.5 + t)];
+    segs.push({ a, b: p1, y0: 0, y1: height, solid: true });
+    segs.push({ a: p2, b, y0: 0, y1: height, solid: true });
+    segs.push({ a: p1, b: p2, y0: 2.1, y1: height, solid: false });
+  }
+  return segs;
+}
+
+function boundsOf(ring: Point[]) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of ring) {
+    if (p[0] < minX) minX = p[0];
+    if (p[0] > maxX) maxX = p[0];
+    if (p[1] < minY) minY = p[1];
+    if (p[1] > maxY) maxY = p[1];
+  }
+  return { minX, maxX, minY, maxY };
+}
+
+/** Two to four rooms per footprint; every split leaves a gap to walk through. */
+export function interiorWalls(b: Building): Wall[] {
+  const ring = b.footprint;
+  if (ring.length < 3) return [];
+  const bb = boundsOf(ring);
+  const inset = 0.45;
+  const x0 = bb.minX + inset, x1 = bb.maxX - inset;
+  const y0 = bb.minY + inset, y1 = bb.maxY - inset;
+  const w = x1 - x0, h = y1 - y0;
+  if (w < 2.6 || h < 2.6) return [];
+  const gap = 1.3;
+  const out: Wall[] = [];
+
+  const splitAcross = (at: number, from: number, to: number, vertical: boolean) => {
+    const mid = (from + to) / 2;
+    if (vertical) {
+      out.push({ a: [at, from], b: [at, mid - gap / 2] });
+      out.push({ a: [at, mid + gap / 2], b: [at, to] });
+    } else {
+      out.push({ a: [from, at], b: [mid - gap / 2, at] });
+      out.push({ a: [mid + gap / 2, at], b: [to, at] });
+    }
+  };
+
+  if (w >= h) {
+    splitAcross(x0 + w * 0.5, y0, y1, true);
+    if (w > 9.5) splitAcross(x0 + w * 0.78, y0, y1, true);
+    if (h > 10) splitAcross(y0 + h * 0.55, x0, x0 + w * 0.5, false);
+  } else {
+    splitAcross(y0 + h * 0.5, x0, x1, false);
+    if (h > 9.5) splitAcross(y0 + h * 0.78, x0, x1, false);
+    if (w > 10) splitAcross(x0 + w * 0.55, y0, y0 + h * 0.5, true);
+  }
+  return out;
+}
+
+/** Walls only, with doorways punched. `maxH` squashes them for a cutaway view. */
+export function cityWalls(bs: Building[], maxH?: number): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const push = (p: Point, y: number) => { pos.push(p[0], y, -p[1]); };
+  const quad = (a: Point, b: Point, y0: number, y1: number) => {
+    push(a, y0); push(b, y0); push(b, y1);
+    push(a, y0); push(b, y1); push(a, y1);
+  };
+  for (const b of bs) {
+    const raw = Number.isFinite(b.height_m) && b.height_m > 2 && b.height_m < 250 ? b.height_m : 12;
+    const h = maxH ? Math.min(raw, maxH) : raw;
+    const door = doorEdgeIndex(b.footprint);
+    for (const seg of ringSegments(b.footprint, raw, door)) {
+      const y0 = Math.min(seg.y0, h);
+      const y1 = Math.min(seg.y1, h);
+      if (y1 - y0 > 0.02) quad(seg.a, seg.b, y0, y1);
+    }
+    for (const hole of b.holes) {
+      for (const seg of ringSegments(hole, raw, -1)) {
+        const y1 = Math.min(seg.y1, h);
+        if (y1 > 0.02) quad(seg.a, seg.b, 0, y1);
+      }
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+/** Roof slabs for a group of buildings, each at its own height. */
+export function roofGeometry(bs: Building[]): THREE.BufferGeometry {
+  const pos: number[] = [];
+  for (const b of bs) {
+    const h = Number.isFinite(b.height_m) && b.height_m > 2 && b.height_m < 250 ? b.height_m : 12;
+    const ring = b.footprint;
+    for (let i = 1; i < ring.length - 1; i++) {
+      for (const p of [ring[0], ring[i], ring[i + 1]]) pos.push(p[0], h, -p[1]);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.computeVertexNormals();
+  return g;
+}
+
+/** Floors and partitions for a group of buildings, in one vertex-coloured mesh. */
+export function interiorGeometry(bs: Building[]): THREE.BufferGeometry {
+  const pos: number[] = [];
+  const col: number[] = [];
+  const floor = new THREE.Color(0x6d6250);
+  const part = new THREE.Color(0xb3ab9a);
+  const add = (p: Point, y: number, c: THREE.Color) => {
+    pos.push(p[0], y, -p[1]);
+    col.push(c.r, c.g, c.b);
+  };
+  for (const b of bs) {
+    const ring = b.footprint;
+    for (let i = 1; i < ring.length - 1; i++) {
+      for (const p of [ring[0], ring[i], ring[i + 1]]) add(p, 0.035, floor);
+    }
+    for (const w of interiorWalls(b)) {
+      const a = w.a, c = w.b;
+      add(a, 0, part); add(c, 0, part); add(c, PART_H, part);
+      add(a, 0, part); add(c, PART_H, part); add(a, PART_H, part);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  g.computeVertexNormals();
+  return g;
 }

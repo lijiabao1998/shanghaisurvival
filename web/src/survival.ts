@@ -10,7 +10,8 @@
  */
 import * as THREE from 'three';
 import {
-  cityGeometry, makeCollider, makeInsideTest, sampleOpenSpot, wallGridOf,
+  cityWalls, makeCollider, makeInsideTest, roofGeometry,
+  sampleOpenSpot, wallGridOf,
   type Block, type Building,
 } from './world';
 import { ROSTER, buildRig, buildWeapon, type CharSpec, type Rig } from './characters';
@@ -54,23 +55,41 @@ type GameBlock = Block & { landmarks?: Landmark[]; shops?: Shop[] };
 // ---------------------------------------------------------------- DOM
 
 const canvas = document.querySelector<HTMLCanvasElement>('#c')!;
+const q = <T extends Element>(sel: string) => document.querySelector<T>(sel)!;
 const el = {
-  clock: document.querySelector<HTMLElement>('#clock')!,
-  hp: document.querySelector<HTMLElement>('#hp')!,
-  sta: document.querySelector<HTMLElement>('#sta')!,
-  bat: document.querySelector<HTMLElement>('#bat')!,
-  kit: document.querySelector<HTMLElement>('#kit')!,
-  prompt: document.querySelector<HTMLElement>('#prompt')!,
-  progress: document.querySelector<HTMLElement>('#progress')!,
-  progressFill: document.querySelector<HTMLElement>('#progress > i')!,
-  overlay: document.querySelector<HTMLElement>('#overlay')!,
-  roster: document.querySelector<HTMLElement>('#roster')!,
-  pick: document.querySelector<HTMLElement>('#pick')!,
-  ovBtn: document.querySelector<HTMLButtonElement>('#ov-btn')!,
-  flash: document.querySelector<HTMLElement>('#flash')!,
-  hint: document.querySelector<HTMLElement>('#hint')!,
-  place: document.querySelector<HTMLElement>('#place')!,
+  clock: q<HTMLElement>('#clock'),
+  phase: q<HTMLElement>('#phase'),
+  nightFill: q<HTMLElement>('#night-fill'),
+  whoName: q<HTMLElement>('#who-name'),
+  whoJob: q<HTMLElement>('#who-job'),
+  hp: q<HTMLElement>('#hp'),
+  sta: q<HTMLElement>('#sta'),
+  bat: q<HTMLElement>('#bat'),
+  hpNum: q<HTMLElement>('#hp-num'),
+  staNum: q<HTMLElement>('#sta-num'),
+  batNum: q<HTMLElement>('#bat-num'),
+  barHp: q<HTMLElement>('#bar-hp'),
+  barSta: q<HTMLElement>('#bar-sta'),
+  barBat: q<HTMLElement>('#bar-bat'),
+  moodles: q<HTMLElement>('#moodles'),
+  bag: q<HTMLElement>('#bag'),
+  kill: q<HTMLElement>('#tally-kill'),
+  loot: q<HTMLElement>('#tally-loot'),
+  prompt: q<HTMLElement>('#prompt'),
+  promptKey: q<HTMLElement>('#prompt-key'),
+  promptText: q<HTMLElement>('#prompt-text'),
+  ring: q<SVGSVGElement>('#ring'),
+  ringFg: q<SVGCircleElement>('#ring .fg'),
+  overlay: q<HTMLElement>('#overlay'),
+  roster: q<HTMLElement>('#roster'),
+  pick: q<HTMLElement>('#pick'),
+  ovBtn: q<HTMLButtonElement>('#ov-btn'),
+  hurt: q<HTMLElement>('#hurt'),
+  darkfall: q<HTMLElement>('#darkfall'),
+  hint: q<HTMLElement>('#hint'),
+  place: q<HTMLElement>('#place'),
 };
+const RING_LEN = 2 * Math.PI * 7.5;
 
 addEventListener('error', e => {
   el.hint.textContent = `JS 錯誤：${e.message}`;
@@ -248,6 +267,7 @@ let lightOn = true;
 let invuln = 0, shake = 0;
 let timeLeft = NIGHT_SECONDS;
 let kills = 0;
+let looted = 0;
 let hasPistol = false, ammo = 0;
 let runNoiseTimer = 0, lootNoiseTimer = 0;
 let lootTarget: Container | null = null;
@@ -374,7 +394,7 @@ function fire() {
     best = zb; bestD = along;
   }
   if (best) damageZombie(best, 200, f.x, f.z, 3);
-  updateKit();
+  updateBag();
 }
 
 function damageZombie(zb: Zombie, amount: number, nx: number, nz: number, knock: number) {
@@ -400,7 +420,7 @@ function useItem(id: ItemId) {
   if (id === 'battery') { battery = Math.min(100, battery + BATTERY_PICKUP); flashHint(`換了電池，電量 ${Math.round(battery)}%。`); }
   if (id === 'ammo') { ammo += 6; flashHint('彈藥 +6。'); }
   if (id === 'pistol') { hasPistol = true; ammo += 6; flashHint('撿到手槍。按 G 開槍，很吵。'); }
-  updateKit();
+  updateBag();
 }
 
 let hintTimer = 0;
@@ -562,8 +582,8 @@ function updateZombies(dt: number) {
         hp = Math.max(0, hp - 30);
         invuln = 1.3;
         camShake = 0.6;
-        el.flash.classList.add('on');
-        setTimeout(() => el.flash.classList.remove('on'), 200);
+        el.hurt.style.opacity = '0.85';
+        setTimeout(() => { if (hp >= 35) el.hurt.style.opacity = ''; }, 190);
         if (hp <= 0) lose();
       }
     } else {
@@ -643,6 +663,12 @@ function updateProjectiles(dt: number) {
   }
 }
 
+function setRing(progress: number) {
+  const p = Math.min(1, Math.max(0, progress));
+  el.ring.classList.toggle('on', p > 0.001);
+  el.ringFg.style.strokeDashoffset = String(RING_LEN * (1 - p));
+}
+
 function updateLoot(dt: number) {
   let nearest: Container | null = null;
   let best = 1.9;
@@ -655,12 +681,13 @@ function updateLoot(dt: number) {
   if (nearest !== lootTarget) {
     lootTarget = nearest;
     lootProgress = 0;
-    el.progress.classList.remove('on');
+    setRing(0);
     if (action === 'loot') action = 'none';
   }
 
   if (!lootTarget) {
     el.prompt.classList.remove('on');
+    setRing(0);
     if (action === 'loot') action = 'none';
     return;
   }
@@ -672,8 +699,7 @@ function updateLoot(dt: number) {
     lootProgress += dt / LOOT_SECONDS;
     lootNoiseTimer -= dt;
     if (lootNoiseTimer <= 0) { lootNoiseTimer = 0.7; makeNoise(px, pz, HEAR_LOOT); }
-    el.progress.classList.add('on');
-    el.progressFill.style.width = `${Math.min(1, lootProgress) * 100}%`;
+    setRing(lootProgress);
 
     if (lootProgress >= 1) {
       lootTarget.looted = true;
@@ -681,19 +707,19 @@ function updateLoot(dt: number) {
       const item = rollLoot();
       inventory[item] += 1;
       if (item === 'pistol') { hasPistol = true; ammo += 6; }
+      looted += 1;
       flashHint(`撿到 ${ITEMS[item].label}（${ITEMS[item].hint}）`);
-      updateKit();
+      updateBag();
       lootTarget = null;
       lootProgress = 0;
       action = 'none'; actionT = 0;
-      el.progress.classList.remove('on');
+      setRing(0);
       el.prompt.classList.remove('on');
     }
   } else {
     if (action === 'loot') { action = 'none'; actionT = 0; }
     lootProgress = Math.max(0, lootProgress - dt * 1.8);
-    el.progressFill.style.width = `${Math.min(1, lootProgress) * 100}%`;
-    if (lootProgress <= 0) el.progress.classList.remove('on');
+    setRing(lootProgress);
   }
 }
 
@@ -728,18 +754,69 @@ function updateHud() {
   const hh = Math.floor(minutes / 60);
   const mm = Math.floor(minutes % 60);
   el.clock.textContent = `0${hh}:${mm.toString().padStart(2, '0')}`;
+  el.nightFill.style.width = `${Math.min(100, t * 100)}%`;
+  el.phase.textContent = t > 0.82 ? 'dawn' : 'night';
+
   el.hp.style.width = `${hp}%`;
   el.sta.style.width = `${stamina}%`;
   el.bat.style.width = `${battery}%`;
-  el.bat.classList.toggle('low', battery < 25);
-  el.sta.classList.toggle('low', stamina < 25);
+  el.hpNum.textContent = String(Math.round(hp));
+  el.staNum.textContent = String(Math.round(stamina));
+  el.batNum.textContent = String(Math.round(battery));
+
+  el.barHp.classList.toggle('low', hp < 35);
+  el.barSta.classList.toggle('low', stamina < 22);
+  el.barBat.classList.toggle('low', battery < 20);
+  el.hurt.classList.toggle('low', hp < 35 && hp > 0);
+  if (hp >= 35) el.hurt.style.opacity = '';
+  el.darkfall.classList.toggle('on', !lightOn);
+  updateMoodles();
 }
 
-function updateKit() {
-  const parts = [`水×${inventory.water}`, `罐×${inventory.food}`, `醫×${inventory.medkit}`, `電×${inventory.battery}`];
-  if (hasPistol) parts.push(`彈×${ammo}`);
-  parts.push(`擊殺 ${kills}`);
-  el.kit.textContent = parts.join('   ');
+let moodleKey = '';
+function updateMoodles() {
+  const list: [string, string][] = [];
+  if (hp < 30) list.push(['重傷', 'bad']);
+  else if (hp < 65) list.push(['受傷', 'warn']);
+  if (stamina < 22) list.push(['疲憊', 'warn']);
+  if (battery <= 0) list.push(['全黑', 'bad']);
+  else if (battery < 20) list.push(['快沒電', 'warn']);
+  if (lightOn) list.push(['顯眼', '']);
+  if (hasPistol && ammo > 0) list.push([`彈藥 ${ammo}`, '']);
+  const key = list.map(([t]) => t).join('|');
+  if (key === moodleKey) return;
+  moodleKey = key;
+  el.moodles.innerHTML = list
+    .map(([text, cls]) => `<span class="moodle ${cls}">${text}</span>`)
+    .join('');
+}
+
+const ITEM_COLOR: Record<ItemId, string> = {
+  water: '#6aa8c9', food: '#c9a15a', medkit: '#c96a6a',
+  battery: '#d8b45f', ammo: '#9aa0a6', pistol: '#b8bcc2',
+};
+const BAG_ROWS: [ItemId | 'kill', string, string][] = [
+  ['water', '礦泉水', '1'], ['food', '罐頭', '2'], ['medkit', '醫療包', '3'],
+  ['battery', '電池', '4'], ['ammo', '彈藥', 'G'], ['pistol', '手槍', 'G'],
+];
+
+function updateBag() {
+  el.bag.innerHTML = '';
+  for (const [id, label, key] of BAG_ROWS) {
+    if (id === 'pistol' && !hasPistol) continue;
+    if (id === 'ammo' && !hasPistol) continue;
+    const count = id === 'pistol' ? 1 : id === 'ammo' ? ammo : inventory[id as ItemId];
+    const row = document.createElement('div');
+    row.className = `row ${count > 0 ? 'has' : 'empty'}`;
+    row.innerHTML =
+      `<span class="dot" style="background:${ITEM_COLOR[id as ItemId]}"></span>` +
+      `<span class="nm">${label}</span>` +
+      `<span class="ct">${count > 0 ? `×${count}` : '—'}</span>` +
+      `<span class="hk">${key}</span>`;
+    el.bag.appendChild(row);
+  }
+  el.kill.textContent = `擊殺 ${kills}`;
+  el.loot.textContent = `搜刮 ${looted}`;
 }
 
 // ---------------------------------------------------------------- 流程
@@ -820,21 +897,45 @@ function start(chosen: CharSpec) {
   spawnCharacter(chosen);
   if (torch) torch.visible = lightOn;
   if (halo) halo.visible = lightOn;
+  el.whoName.textContent = chosen.name;
+  el.whoJob.textContent = chosen.job;
+  el.hurt.style.opacity = '';
+  el.hurt.classList.remove('low');
+  looted = 0;
+  moodleKey = '';
   resetWorld();
   updateHud();
-  updateKit();
+  updateBag();
   el.hint.textContent = HINT_DEFAULT;
   el.overlay.classList.remove('on');
-  el.progress.classList.remove('on');
+  setRing(0);
   el.prompt.classList.remove('on');
   phase = 'play';
 }
 
-function showOverlay(title: string, body: string, button: string) {
+function showOverlay(title: string, body: string, button: string, stats?: [string, string][]) {
+  const card = el.overlay.querySelector<HTMLElement>('.card')!;
   el.overlay.querySelector('h1')!.textContent = title;
   el.overlay.querySelector('.sub')!.innerHTML = body;
   el.roster.style.display = 'none';
-  el.pick.style.display = 'none';
+  el.roster.innerHTML = '';
+  card.querySelector('#stats')?.remove();
+  if (stats?.length) {
+    const grid = document.createElement('div');
+    grid.id = 'stats';
+    grid.innerHTML = stats
+      .map(([label, value]) => `<div class="s"><div class="l">${label}</div><div class="n">${value}</div></div>`)
+      .join('');
+    card.insertBefore(grid, el.ovBtn);
+  }
+  el.pick.style.display = 'block';
+  el.pick.className = 'empty';
+  el.pick.textContent = '';
+  const swap = document.createElement('span');
+  swap.textContent = '換一個角色';
+  swap.style.cssText = 'color:#93a296;text-decoration:underline;cursor:pointer';
+  swap.onclick = () => location.reload();
+  el.pick.appendChild(swap);
   el.ovBtn.textContent = button;
   el.ovBtn.disabled = false;
   el.ovBtn.onclick = () => { el.overlay.classList.remove('on'); start(spec); };
@@ -843,12 +944,24 @@ function showOverlay(title: string, body: string, button: string) {
 
 function win() {
   phase = 'win';
-  showOverlay('天亮了', `你撐過了整夜。<br><b>${spec.name}</b>（${spec.job}）活了下來。<br>擊殺 ${kills} 隻，剩下 HP ${Math.round(hp)}。`, '再來一次');
+  const secs = Math.floor(NIGHT_SECONDS - timeLeft);
+  showOverlay('天亮了', `<b>${spec.name}</b>（${spec.job}）走完了這一夜。`, '再守一夜', [
+    ['存活', `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`],
+    ['擊殺', String(kills)],
+    ['搜刮', String(looted)],
+    ['剩餘 HP', String(Math.round(hp))],
+  ]);
 }
 
 function lose() {
   phase = 'lose';
-  showOverlay('你死了', `<b>${spec.name}</b>沒能走出這條弄堂。<br>撐了 ${Math.floor((NIGHT_SECONDS - timeLeft) / 60)} 分 ${Math.floor((NIGHT_SECONDS - timeLeft) % 60)} 秒，擊殺 ${kills} 隻。`, '再試一次');
+  const secs = Math.floor(NIGHT_SECONDS - timeLeft);
+  showOverlay('你死了', `<b>${spec.name}</b>沒能走出這條弄堂。`, '再試一次', [
+    ['撐了', `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`],
+    ['擊殺', String(kills)],
+    ['搜刮', String(looted)],
+    ['進度', `${Math.round((secs / NIGHT_SECONDS) * 100)}%`],
+  ]);
 }
 
 // ---------------------------------------------------------------- 選單
@@ -874,6 +987,7 @@ function buildMenu() {
     card.onclick = () => {
       el.roster.querySelectorAll('.who').forEach(w => w.classList.remove('sel'));
       card.classList.add('sel');
+      el.pick.className = '';
       el.pick.innerHTML = `<b>${c.name}</b>·${c.job}·${c.sex === 'f' ? '女' : '男'}——${c.blurb}`;
       el.ovBtn.disabled = false;
       spec = c;
@@ -950,7 +1064,7 @@ fetch(dataUrl)
   .then(data => {
     block = data;
     landmarks = data.landmarks ?? [];
-    const grid = wallGridOf(data);
+    const grid = wallGridOf(data, true);
     collides = makeCollider(grid);
     insideBuilding = makeInsideTest(data);
 
@@ -966,11 +1080,15 @@ fetch(dataUrl)
     zombieCount = Math.min(MAX_ZOMBIES, Math.max(80, Math.round(80 * Math.sqrt(area / REF_AREA))));
     containerCount = Math.min(48, Math.max(12, Math.round(12 * area / REF_AREA)));
 
-    const city = new THREE.Mesh(
-      cityGeometry(data),
+    // Walls and roofs are separate so doorways can exist without a roof hole.
+    scene.add(new THREE.Mesh(
+      cityWalls(data.buildings),
       new THREE.MeshStandardMaterial({ color: 0x9c968a, roughness: 1, side: THREE.DoubleSide }),
-    );
-    scene.add(city);
+    ));
+    scene.add(new THREE.Mesh(
+      roofGeometry(data.buildings),
+      new THREE.MeshStandardMaterial({ color: 0x9c968a, roughness: 1, side: THREE.DoubleSide }),
+    ));
 
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(
@@ -1028,7 +1146,7 @@ fetch(dataUrl)
         },
         swing: () => startSwing(),
         hurt: (n = 30) => { hp = Math.max(0, hp - n); if (hp <= 0) lose(); },
-        give: (id: ItemId, n = 1) => { inventory[id] += n; if (id === 'pistol') hasPistol = true; updateKit(); },
+        give: (id: ItemId, n = 1) => { inventory[id] += n; if (id === 'pistol') hasPistol = true; updateBag(); },
       };
     }
 
