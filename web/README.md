@@ -19,7 +19,7 @@ Windows 已安裝依賴後也可雙擊 `start.cmd` 啟動，再在瀏覽器開�
 - **窗戶是貼圖不是幾何**（`src/windows.ts`）。每個牆面只有一個四邊形，UV 以 3.2 m × 3.1 m 平鋪；`alphaTest` 讓它留在不透明批次，`polygonOffset` 處理與牆面共面的深度競爭。改之前每棟樓的窗戶四邊形是牆面三角形的 7.4 倍。
 - **碰撞與遮擋查表**（`src/spatial.ts`）。牆段與建築輪廓分別放進 8 m / 32 m 的均勻網格，玩家每幀只查所在格與鄰格，不再掃全區。
 - **地面依資料範圍生成**，不再固定 280 × 280，避免邊緣建築浮空。移動範圍也改由資料 bbox 決定。
-- `?debug` 會暴露 `__shanghai.state()`，含 `drawCalls` 與 `triangles`，可直接看預算。
+- `?data=block_1000m.json` 可直接切換到 1 km 場景，不改程式碼；`?debug` 會在右上角顯示 fps、draw calls、triangles 與載入毫秒，並暴露 `__shanghai.state()`。
 
 CMAB 樓頂輪廓與推估樓高來自 Zhang、Zhao、Long，CC BY 4.0；上海資料的 Height 欄位暫按米解讀，欄位映射仍待核實。道路 © OpenStreetMap contributors，ODbL；路寬按道路類型估算。程序生成的店面、招牌、陽台、雨棚、路燈、樹木、車輛與垃圾桶均為原型示意，招牌名稱不代表真實商家；門和室內也不是實測。部分道路和建築來源幾何互相重疊，資料尚未精確對齊。部分 OSM 中文路名原文有亂碼，未用於路牌。
 

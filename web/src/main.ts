@@ -20,6 +20,16 @@ type BuildingRender = {
 
 const status = document.querySelector<HTMLDivElement>('#status')!;
 const viewport = document.querySelector<HTMLDivElement>('#viewport')!;
+// ?data=block_1000m.json swaps the scene without touching code; ?debug shows the HUD.
+const params = new URLSearchParams(location.search);
+// Bare names resolve under ./data/, so ?data=block_1000m.json works as written.
+const rawData = params.get('data');
+const dataUrl = rawData ? (rawData.includes('/') ? rawData : `./data/${rawData}`) : './data/block.json';
+const debug = params.has('debug');
+const loadStart = performance.now();
+let loadMs = 0;
+let fps = 0;
+let hudEl: HTMLDivElement | undefined;
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xaebbb8);
 scene.fog = new THREE.Fog(0xaebbb8, 120, 330);
@@ -321,9 +331,33 @@ function frame(delta: number) {
 }
 
 const clock = new THREE.Clock();
-function animate() { requestAnimationFrame(animate); frame(Math.min(clock.getDelta(), .05)); renderer.render(scene, camera); }
+let frames = 0, elapsed = 0;
+function updateHud() {
+  if (!hudEl) return;
+  const info = renderer.info.render;
+  hudEl.textContent =
+    `fps ${fps.toFixed(0)} · calls ${info.calls} · tris ${info.triangles}\n` +
+    `load ${loadMs.toFixed(0)} ms · buildings ${renderBuildings.length} · roads ${block?.roads.length ?? 0}`;
+}
+function animate() {
+  requestAnimationFrame(animate);
+  const delta = Math.min(clock.getDelta(), .05);
+  frame(delta);
+  renderer.render(scene, camera);
+  if (!loadMs) {
+    loadMs = performance.now() - loadStart;
+    if (debug) {
+      hudEl = document.createElement('div');
+      hudEl.className = 'debug-hud';
+      document.querySelector('#app')!.appendChild(hudEl);
+      updateHud();
+    }
+  }
+  frames++; elapsed += delta;
+  if (elapsed >= 0.5) { fps = frames / elapsed; frames = 0; elapsed = 0; updateHud(); }
+}
 
-fetch('./data/block.json').then(r => { if (!r.ok) throw new Error(`資料載入失敗 ${r.status}`); return r.json() as Promise<Block>; }).then(data => {
+fetch(dataUrl).then(r => { if (!r.ok) throw new Error(`資料載入失敗 ${r.status}`); return r.json() as Promise<Block>; }).then(data => {
   block = data; pos = [...block.spawn];
   bounds = boxOf(data.buildings.flatMap(b => b.footprint));
 
@@ -352,9 +386,10 @@ fetch('./data/block.json').then(r => { if (!r.ok) throw new Error(`資料載入�
   };
   updateSign();
   status.textContent = '建築高度為模型推估、暫按米解讀；道路寬度、入口及街景細節為示意。部分道路與建築重疊。';
-  if (new URLSearchParams(location.search).has('debug')) {
+  if (debug) {
     (window as unknown as { __shanghai: unknown }).__shanghai = {
-      state: () => ({ position: [...pos], spawn: block.spawn, entrance: block.entrance, entranceBuilding: block.entrance_building,
+      state: () => ({ url: dataUrl, loadMs, fps,
+        position: [...pos], spawn: block.spawn, entrance: block.entrance, entranceBuilding: block.entrance_building,
         inside: renderBuildings.filter(r => insideBuilding(pos, r.building)).map(r => r.building.id),
         hiddenRoofs: renderBuildings.filter(r => !r.roof.visible).map(r => r.building.id),
         hiddenFacades: renderBuildings.filter(r => !r.facade.visible).map(r => r.building.id),

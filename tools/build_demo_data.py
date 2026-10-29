@@ -4,6 +4,7 @@ Run from repository root with .venv/Scripts/python.exe tools/build_demo_data.py.
 Writes straight to web/public/data/block.json, so no manual copy step is needed.
 Shapely is already specified in tools/requirements.txt.
 """
+import argparse
 import json
 import math
 from pathlib import Path
@@ -12,11 +13,18 @@ from shapely.geometry import LineString, Point, Polygon, box
 from shapely.geometry.polygon import orient
 
 ROOT = Path(__file__).resolve().parent.parent
-OUT = ROOT / 'web/public/data'
-src = ROOT / 'data/samples/shanghai_huangpu_250m.json'
-roads_src = ROOT / 'data/samples/shanghai_huangpu_roads.json'
+
+ap = argparse.ArgumentParser(description=__doc__)
+ap.add_argument('--sample', type=Path, default=ROOT / 'data/samples/shanghai_huangpu_250m.json')
+ap.add_argument('--roads', type=Path, default=ROOT / 'data/samples/shanghai_huangpu_roads.json')
+ap.add_argument('--out', type=Path, default=ROOT / 'web/public/data/block.json')
+args = ap.parse_args()
+
+src = args.sample
+roads_src = args.roads
 data = json.loads(src.read_text(encoding='utf-8'))
-window = box(0, 0, 250, 250)
+size_m = float(data.get('chunk', {}).get('size_m') or 250.0)
+window = box(0, 0, size_m, size_m)
 processed = []
 for item in data['buildings']:
     poly = Polygon(item['footprint'], item.get('holes', []))
@@ -56,7 +64,7 @@ for item, poly, height, raw in processed:
         access = LineString([outside, inside]).buffer(0.35)
         if any(other.intersects(access) for candidate, other, _, _ in processed if candidate['id'] != item['id']):
             continue
-        score = math.hypot(mid[0] - 125, mid[1] - 125)
+        score = math.hypot(mid[0] - size_m / 2, mid[1] - size_m / 2)
         choices.append((score, item['id'], idx, list(outside.coords)[0], mid))
 if not choices:
     raise RuntimeError('No safe candidate entrance found; no demo generated.')
@@ -82,6 +90,6 @@ if roads_src.exists():
     out['road_source'] = road_data.get('source', {})
 else:
     out['roads'] = []
-OUT.mkdir(parents=True, exist_ok=True)
-(OUT / 'block.json').write_text(json.dumps(out, ensure_ascii=False, separators=(',', ':')) + '\n', encoding='utf-8')
-print(f"Built {len(processed)} buildings, {len(out['roads'])} roads; invented entrance {selected_id}, edge {entrance_edge}; spawn {spawn}; wrote {OUT / 'block.json'}.")
+args.out.parent.mkdir(parents=True, exist_ok=True)
+args.out.write_text(json.dumps(out, ensure_ascii=False, separators=(',', ':')) + '\n', encoding='utf-8')
+print(f"Built {len(processed)} buildings, {len(out['roads'])} roads; invented entrance {selected_id}, edge {entrance_edge}; spawn {spawn}; wrote {args.out}.")

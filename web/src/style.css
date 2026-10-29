@@ -11,6 +11,7 @@ body { font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; color: #f3f
 .guide { position: absolute; bottom: 46px; left: 16px; padding: 8px 11px; background: #1d2422d9; border-radius: 4px; font-size: 12px; pointer-events: none; }
 .guide span { color: #f7cc75; }
 .entrance-label { position: absolute; padding: 3px 6px; transform: translate(-50%, -50%); border-radius: 3px; color: #fff1c6; background: #252b28cc; font-size: 11px; white-space: nowrap; pointer-events: none; }
+.debug-hud { position: absolute; top: 16px; right: 16px; padding: 8px 11px; border-radius: 4px; background: #101614e6; border: 1px solid #ffffff1f; color: #d8e2d6; font: 11px/1.6 ui-monospace, "Cascadia Mono", Consolas, monospace; white-space: pre; pointer-events: none; }
 .hud-touch { display: none; }
 .touch-controls { display: none; position: absolute; bottom: 68px; left: 15px; width: 168px; grid-template-columns: repeat(3, 50px); gap: 8px; touch-action: none; }
 .touch-controls button { border: 1px solid #ffffff50; border-radius: 50%; height: 50px; background: #202c28c9; color: #f7f5ed; font-size: 18px; touch-action: none; user-select: none; }

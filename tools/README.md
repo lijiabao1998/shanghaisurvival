@@ -26,4 +26,14 @@ python -m venv .venv
 .\.venv\Scripts\python.exe tools\build_demo_data.py
 ```
 
-讀取 `data/samples/` 的建築與道路樣本，輸出 `web/public/data/block.json`（直接寫入，不需手動複製）。它會挑一棟完全落在範圍內的建築，在可用的邊上開門，並發明入口與室內供試玩；幾何本身不改動。`Height` 在此按米解讀，落在 2–250 m 之外的值以 12 m 代替，屬預覽假設，單位仍待作者確認。重跑後輸出應與 `web/public/data/block.json` 逐位元組相同（Shapely 2.1.2 / pyproj 3.8.0 下已驗證）。
+讀取 `data/samples/` 的建築與道路樣本，輸出 `web/public/data/block.json`（直接寫入，不需手動複製）。可用 `--sample`、`--roads`、`--out` 產生其他尺寸的場景，例如 1 km 對照組：
+
+```powershell
+.\.venv\Scripts\python.exe tools\cmab_extract.py --shp data\sources\cmab-v7\shanghai-core\processed_shanghai_20201231_all.shp --archive data\sources\cmab-v7\shanghai.zip --lon 121.484 --lat 31.221 --size-m 1000 --out data\samples\shanghai_huangpu_1000m.json
+.\.venv\Scripts\python.exe tools\extract_osm_roads.py --shp data\sources\osm-shanghai-20261029\gis_osm_roads_free_1.shp --buildings data\samples\shanghai_huangpu_1000m.json --archive data\sources\osm-shanghai-20261029\geofabrik-shanghai-261028.shp.zip --out data\samples\shanghai_huangpu_1000m_roads.json
+.\.venv\Scripts\python.exe tools\build_demo_data.py --sample data\samples\shanghai_huangpu_1000m.json --roads data\samples\shanghai_huangpu_1000m_roads.json --out web\public\data\block_1000m.json
+```
+
+它會挑一棟完全落在範圍內的建築，在可用的邊上開門，並發明入口與室內供試玩；幾何本身不改動。`Height` 在此按米解讀，落在 2–250 m 之外的值以 12 m 代替，屬預覽假設，單位仍待作者確認。重跑後 250 m 輸出應與 `web/public/data/block.json` 逐位元組相同（Shapely 2.1.2 / pyproj 3.8.0 下已驗證）。
+
+注意：開門位置的搜尋對每條候選邊都比對全部建築，複雜度約 O(n²)。250 m（63 棟）約 1 秒，1 km（697 棟）約 22 秒，再大就需要空間索引。
