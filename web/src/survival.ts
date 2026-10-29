@@ -1,3 +1,4 @@
+import { createCityVisibility } from './city-visibility';
 import { roadGeometries, nearbyRoadName, type StreetRoad } from './road-geometry';
 import { viewHeight } from './view';
 import { emptyInventory, replenishCaches, applyCacheLoot, loadSnapshot, saveSnapshot, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
@@ -18,7 +19,7 @@ import { createOutbreak, stepOutbreak, applySupply, canEvacuate } from './outbre
  */
 import * as THREE from 'three';
 import {
-  cityWalls, makeCollider, makeInsideTest, roofGeometry,
+  makeCollider, makeInsideTest,
   sampleOpenSpot, wallGridOf,
   type Block, type Building,
 } from './world';
@@ -32,7 +33,8 @@ let mode: 'sandbox' | 'quick' = 'sandbox';
 let elapsed = 0;
 let inShelter = false;
 let shelter: Shelter | null = null;
-let shelterRoof: THREE.Mesh | null = null;
+let cityVisibility:ReturnType<typeof createCityVisibility>|null=null;
+let visibilityTimer=0;
 let stash = emptyInventory();
 let restCount = 0;
 let saveTimer = 0;
@@ -1040,7 +1042,7 @@ function start(chosen: CharSpec, resume: Snapshot | null = null) {
   if(mode==='sandbox'&&!resume&&savedGame?.status==='alive'&&!confirm('開始新沙盒會覆寫這個瀏覽器的舊進度。確定開始新遊戲？')) {el.overlay.classList.add('on');return;}
   if(!resume)savedGame=null;
   elapsed=0; inShelter=false; stash=emptyInventory(); restCount=0; saveTimer=0; saveWarning='';
-  shelterPanel.hidden=true; if(shelterRoof)shelterRoof.visible=true;
+  shelterPanel.hidden=true;
   spec = chosen;
   document.querySelector<HTMLElement>('#campaign-mode')?.setAttribute('hidden','');
   hp = 100; stamina = 100; battery = 100;
@@ -1234,12 +1236,12 @@ function enterShelter() {
 function leaveShelter() {
   if(!shelter)return;
   inShelter=false;paused=false;[px,pz]=shelter.outside;if(playerRoot)playerRoot.position.set(px,0,-pz);
-  shelterPanel.hidden=true;if(shelterRoof)shelterRoof.visible=true;
+  shelterPanel.hidden=true;
   document.querySelector<HTMLElement>('#survivor-touch-controls')?.removeAttribute('hidden');
   clearControlState();invuln=1.5;persistCampaign();flashHint('離開安全屋。先找水與罐頭，別把所有物資帶出去。');
 }
 function showShelter() {
-  shelterPanel.hidden=false;if(shelterRoof)shelterRoof.visible=false;
+  shelterPanel.hidden=false;
   const touch=document.querySelector<HTMLElement>('#survivor-touch-controls');if(touch)touch.hidden=true;
   shelterPanel.replaceChildren();
   const title=document.createElement('h2');title.textContent='弄堂安全屋';shelterPanel.append(title);
@@ -1322,6 +1324,7 @@ function frame(dt: number) {
     40,
   ));
   camera.lookAt(target);
+  visibilityTimer-=dt;if(visibilityTimer<=0){visibilityTimer=.1;cityVisibility?.update(px,pz);}
 }
 
 const clock = new THREE.Clock();
@@ -1373,19 +1376,10 @@ fetch(dataUrl)
     zombieCount = Math.min(MAX_ZOMBIES, Math.max(80, Math.round(80 * Math.sqrt(area / REF_AREA))));
     containerCount = Math.min(48, Math.max(12, Math.round(12 * area / REF_AREA)));
 
-    // Walls and roofs are separate so doorways can exist without a roof hole.
-    scene.add(new THREE.Mesh(
-      cityWalls(data.buildings),
-      new THREE.MeshStandardMaterial({ color: 0x9c968a, roughness: 1, side: THREE.DoubleSide }),
-    ));
+    // Preserve every source vertex; fade only buildings intersecting the camera ray.
     shelter = selectShelter(data.buildings, data.spawn, collides, insideBuilding);
-    scene.add(new THREE.Mesh(
-      roofGeometry(data.buildings.filter(b=>b.id!==shelter?.id)),
-      new THREE.MeshStandardMaterial({ color: 0x9c968a, roughness: 1, side: THREE.DoubleSide }),
-    ));
-
+    cityVisibility=createCityVisibility(data.buildings);scene.add(cityVisibility.group);
     if(shelter) {
-      shelterRoof = new THREE.Mesh(roofGeometry(data.buildings.filter(b=>b.id===shelter?.id)),new THREE.MeshStandardMaterial({color:0x9c968a,side:THREE.DoubleSide})); scene.add(shelterRoof);
       const marker=new THREE.Mesh(new THREE.BoxGeometry(1.2,2.4,.25),new THREE.MeshStandardMaterial({color:0x49c8d8,emissive:0x166c7a,emissiveIntensity:.8}));
       marker.position.set(shelter.outside[0],1.2,-shelter.outside[1]); marker.scale.set(.4,1,.4);scene.add(marker);
       const floor=new THREE.Mesh(new THREE.CircleGeometry(2,24),new THREE.MeshStandardMaterial({color:0x9f956d,side:THREE.DoubleSide}));floor.rotation.x=-Math.PI/2;floor.position.set(shelter.inside[0],.03,-shelter.inside[1]);scene.add(floor);
@@ -1433,6 +1427,7 @@ fetch(dataUrl)
     if (params.has('debug')) {
       (window as unknown as { __modu: unknown }).__modu = {
         state: () => ({
+          fadedBuildings:cityVisibility?.fadedIds(), cityMeshes:cityVisibility?.stats(),
           phase, hp, battery, stamina, timeLeft, kills, paused, bagOpen, sneaking, looted, outbreak: { ...outbreak },
           zombies: zombies.length, awake: zombies.filter(z => z.state === 'chase').length,
           dead: zombies.filter(z => z.state === 'dead').length,
