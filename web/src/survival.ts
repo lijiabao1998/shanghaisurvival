@@ -1,5 +1,7 @@
+import { profileFor, type FactionProfile } from './factions';
+import { createOutbreak, stepOutbreak, applySupply, canEvacuate } from './outbreak';
 /**
- * 魔都生存：老西門夜間生存
+ * 上海倖存者：老西門夜間生存
  *
  * 一個資源：電池　一個威脅：聲音　一個目標：撐到天亮
  * 十二個角色，六女六男，職業都是老城廂真的會遇到的。
@@ -19,11 +21,23 @@ import { ROSTER, buildRig, buildWeapon, type CharSpec, type Rig } from './charac
 // ---------------------------------------------------------------- 參數
 
 const NIGHT_SECONDS = 480;
+let outbreak = createOutbreak();
+let sneaking = false;
+let paused = false;
+let evacRing: THREE.Mesh | null = null;
+const mission = document.querySelector<HTMLElement>('#mission')!;
+const radio = document.querySelector<HTMLElement>('#radio')!;
+const needs = document.querySelector<HTMLElement>('#needs')!;
+const BROADCASTS = [
+  [0, '02:00｜社區互助台：不明病毒爆發，感染者會追逐聲光。先搜集三處補給，再回綠圈接應點。'],
+  [120, '02:45｜街區消息：供水已中斷。保留飲水與罐頭，C 潛行避開感染者。'],
+  [270, '03:41｜社區互助台：接應隊正在清理通道。保持距離，暴露壓力太高時先脫離追逐。'],
+  [420, '04:37｜接應窗口開啟：帶回搜刮紀錄，回綠圈按 R 撤離。05:00 後通道關閉。'],
+] as const;
 const MAX_ZOMBIES = 240;
 const REF_AREA = 250 * 250;
 const WALK_SPEED = 3.3;
 const RUN_SPEED = 5.9;
-const ZOMBIE_CHASE = 1.6;
 const ZOMBIE_WANDER = 0.5;
 const SENSE_LIGHT = 22;
 const SENSE_DARK = 9;
@@ -37,8 +51,8 @@ const LOOT_SECONDS = 1.3;
 
 type ItemId = 'water' | 'food' | 'medkit' | 'battery' | 'ammo' | 'pistol';
 const ITEMS: Record<ItemId, { label: string; hint: string }> = {
-  water: { label: '水', hint: '體力 +35' },
-  food: { label: '罐頭', hint: 'HP +14' },
+  water: { label: '水', hint: '水分 +40、體力 +35' },
+  food: { label: '罐頭', hint: '飽足 +35、HP +14' },
   medkit: { label: '醫療包', hint: 'HP +45' },
   battery: { label: '電池', hint: '電量 +40' },
   ammo: { label: '彈藥', hint: '手槍 +6' },
@@ -198,6 +212,7 @@ const eyeColor = new THREE.Color();
 
 type ZState = 'sleep' | 'wander' | 'chase' | 'dead';
 type Zombie = {
+  faction: FactionProfile; warning: number;
   mesh: THREE.SkinnedMesh;
   hips: THREE.Bone; chest: THREE.Bone; head: THREE.Bone;
   x: number; z: number; hx: number; hz: number;
@@ -228,8 +243,15 @@ function makeZombieMesh() {
 function buildZombies() {
   for (let i = 0; i < zombieCount; i++) {
     const built = makeZombieMesh();
+    const faction = profileFor(i);
+    (built.mesh.material as THREE.MeshStandardMaterial).color.setHex(faction.color);
+    if (faction.id !== 'infected') {
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(.6,.16,.4), new THREE.MeshStandardMaterial({color:faction.color}));
+      cap.position.set(0,1.78,0); built.mesh.add(cap);
+      if (faction.id === 'military') { const rifle = new THREE.Mesh(new THREE.BoxGeometry(.12,.12,.8),new THREE.MeshStandardMaterial({color:0x20252a})); rifle.position.set(.28,.85,.2); built.mesh.add(rifle); }
+    }
     zombies.push({
-      ...built, x: 0, z: 0, hx: 0, hz: 0, state: 'sleep',
+      ...built, faction, warning: 0, x: 0, z: 0, hx: 0, hz: 0, state: 'sleep',
       think: Math.random() * 0.35, attackCd: 0, lose: 0, phase: Math.random() * 6.28,
       walk: 0, wx: 0, wz: 0, hp: 100, flashT: 0,
     });
@@ -311,6 +333,19 @@ addEventListener('keydown', e => {
   if (e.repeat) return;
   keys.add(e.code);
   if (phase !== 'play') return;
+  if (e.code === 'Escape') { paused = !paused; keys.clear(); return; }
+  if (paused) return;
+  if (e.code === 'KeyT') {
+    if (Math.hypot(px - block.spawn[0], pz - block.spawn[1]) > 5) flashHint('互助者在接應綠圈等你，靠近後按 T。');
+    else if (inventory.food < 1) flashHint('互助者：一份罐頭換一瓶水，帶補給回來吧。');
+    else { inventory.food--; inventory.water++; updateBag(); flashHint('互助者：罐頭收下，這瓶水給你。別把所有倖存者都當敵人。'); }
+  }
+  if (e.code === 'KeyC') sneaking = !sneaking;
+  if (e.code === 'KeyR') {
+    const distance = Math.hypot(px - block.spawn[0], pz - block.spawn[1]);
+    if (canEvacuate(outbreak, NIGHT_SECONDS - timeLeft, looted, distance)) win();
+    else flashHint('未達接應條件：最後一分鐘、搜刮 3 處、距綠圈 5m 內、暴露低於 85。');
+  }
   if (e.code === 'KeyF') {
     lightOn = !lightOn && battery > 0;
     if (torch) torch.visible = lightOn;
@@ -414,9 +449,10 @@ function damageZombie(zb: Zombie, amount: number, nx: number, nz: number, knock:
 function useItem(id: ItemId) {
   if (phase !== 'play' || inventory[id] <= 0) return;
   inventory[id] -= 1;
-  if (id === 'water') { stamina = Math.min(100, stamina + 35); flashHint('喝了一瓶水，體力回復。'); }
-  if (id === 'food') { hp = Math.min(100, hp + 14); flashHint('吃了罐頭，HP +14。'); }
-  if (id === 'medkit') { hp = Math.min(100, hp + 45); flashHint('包紮完成，HP +45。'); }
+  if (id === 'water' || id === 'food' || id === 'medkit') applySupply(outbreak, id);
+  if (id === 'water') { stamina = Math.min(100, stamina + 35); flashHint('喝水補充水分，體力回復。'); }
+  if (id === 'food') { hp = Math.min(100, hp + 14); flashHint('吃了罐頭，補充飽足，HP +14。'); }
+  if (id === 'medkit') { hp = Math.min(100, hp + 45); flashHint('處置傷口，暴露壓力降低，HP +45（虛構機制）。'); }
   if (id === 'battery') { battery = Math.min(100, battery + BATTERY_PICKUP); flashHint(`換了電池，電量 ${Math.round(battery)}%。`); }
   if (id === 'ammo') { ammo += 6; flashHint('彈藥 +6。'); }
   if (id === 'pistol') { hasPistol = true; ammo += 6; flashHint('撿到手槍。按 G 開槍，很吵。'); }
@@ -428,7 +464,7 @@ function flashHint(text: string) {
   el.hint.textContent = text;
   hintTimer = 2.4;
 }
-const HINT_DEFAULT = 'F 手電筒 · Shift 跑 · 空白鍵跳 · J 揮擊 · K 投擲 · G 開槍 · E 搜刮';
+const HINT_DEFAULT = 'T 互助交換 · C 潛行 · R 接應 · Esc 暫停 · F 手電筒 · Shift 跑 · 空白鍵跳 · J 揮擊 · K 投擲 · G 開槍 · E 搜刮';
 
 // ---------------------------------------------------------------- 更新
 
@@ -436,8 +472,8 @@ function updatePlayer(dt: number) {
   const right = Number(keys.has('KeyD') || keys.has('ArrowRight')) - Number(keys.has('KeyA') || keys.has('ArrowLeft'));
   const fwd = Number(keys.has('KeyW') || keys.has('ArrowUp')) - Number(keys.has('KeyS') || keys.has('ArrowDown'));
   const moving = right !== 0 || fwd !== 0;
-  const wantRun = moving && (keys.has('ShiftLeft') || keys.has('ShiftRight')) && stamina > 1 && action === 'none';
-  const speed = wantRun ? RUN_SPEED : WALK_SPEED;
+  const wantRun = !sneaking && moving && (keys.has('ShiftLeft') || keys.has('ShiftRight')) && stamina > 1 && action === 'none';
+  const speed = (wantRun ? RUN_SPEED : sneaking ? WALK_SPEED * 0.5 : WALK_SPEED) * (outbreak.hydration < 20 ? 0.75 : 1);
 
   let movedSpeed = 0;
   if (moving && action === 'none') {
@@ -545,7 +581,7 @@ function updateZombies(dt: number) {
   for (const zb of zombies) {
     if (zb.state === 'dead') continue;
     zb.flashT = Math.max(0, zb.flashT - dt);
-    (zb.mesh.material as THREE.MeshStandardMaterial).color.setHex(zb.flashT > 0 ? 0xa33a2a : 0x646b56);
+    (zb.mesh.material as THREE.MeshStandardMaterial).color.setHex(zb.flashT > 0 ? 0xa33a2a : zb.faction.color);
 
     const dx = px - zb.x, dz = pz - zb.z;
     const dist = Math.hypot(dx, dz);
@@ -554,7 +590,7 @@ function updateZombies(dt: number) {
       zb.think -= dt;
       if (zb.think <= 0) {
         zb.think = 0.35;
-        const sense = lightOn ? SENSE_LIGHT : SENSE_DARK;
+        const sense = (lightOn ? SENSE_LIGHT : SENSE_DARK) * (sneaking ? 0.6 : 1);
         if (dist < sense && canSee(zb.x, zb.z, px, pz)) wake(zb);
       }
       zb.mesh.position.set(zb.x, 0, -zb.z);
@@ -567,8 +603,8 @@ function updateZombies(dt: number) {
         if (zb.lose > 6) { zb.state = 'wander'; zb.wx = zb.hx; zb.wz = zb.hz; zb.lose = 0; }
       } else zb.lose = 0;
 
-      if (dist > 1.15) {
-        const step = ZOMBIE_CHASE * dt;
+      if (dist > zb.faction.range * 0.8) {
+        const step = zb.faction.speed * dt;
         const nx = zb.x + (dx / dist) * step;
         const nz = zb.z + (dz / dist) * step;
         if (!collides(nx, zb.z, 0.34)) zb.x = nx;
@@ -576,10 +612,18 @@ function updateZombies(dt: number) {
         zb.walk += step * 4;
       }
       zb.attackCd = Math.max(0, zb.attackCd - dt);
-      // Reach only counts with line of sight; a wall between you is a wall.
-      if (dist < 1.3 && zb.attackCd <= 0 && invuln <= 0 && canSee(zb.x, zb.z, px, pz)) {
-        zb.attackCd = 1.7;
-        hp = Math.max(0, hp - 30);
+      const inRange = dist < zb.faction.range && canSee(zb.x, zb.z, px, pz);
+      if (inRange && zb.attackCd <= 0) {
+        if (zb.warning === 0 && zb.faction.id !== 'infected') flashHint(`${zb.faction.label}警告：離開警戒範圍！找牆遮擋。`);
+        zb.warning += dt;
+      } else zb.warning = 0;
+      if (inRange && zb.attackCd <= 0 && zb.warning >= zb.faction.warningSeconds && invuln <= 0) {
+        zb.attackCd = zb.faction.cooldown;
+        zb.warning = 0;
+        hp = Math.max(0, hp - zb.faction.damage);
+        if (zb.faction.id === 'raider' && inventory.water > 0) { inventory.water--; updateBag(); flashHint('掠奪者搶走了一瓶水！'); }
+        if (zb.faction.id === 'police') stamina = Math.max(0, stamina - 25);
+        if (zb.faction.id === 'military') makeNoise(zb.x, zb.z, 45);
         invuln = 1.3;
         camShake = 0.6;
         el.hurt.style.opacity = '0.85';
@@ -749,6 +793,12 @@ function updatePlaceLabel() {
 }
 
 function updateHud() {
+  const elapsed = NIGHT_SECONDS - timeLeft;
+  const distance = Math.hypot(px - block.spawn[0], pz - block.spawn[1]);
+  needs.textContent = `水分 ${Math.round(outbreak.hydration)} · 飽足 ${Math.round(outbreak.satiety)} · 暴露 ${Math.round(outbreak.exposure)}${sneaking ? ' · 潛行' : ''}`;
+  mission.textContent = paused ? '已暫停｜Esc 繼續' : `接應點 ${Math.round(distance)}m · 搜刮 ${Math.min(looted, 3)}/3 · ${elapsed >= 480 ? '窗口已關閉' : elapsed >= 420 ? '窗口開啟，回綠圈按 R' : `接應倒數 ${Math.ceil(420 - elapsed)} 秒`} · 暴露須低於85`;
+  radio.textContent = [...BROADCASTS].reverse().find(([at]) => elapsed >= at)?.[1] ?? '';
+  if (evacRing) (evacRing.material as THREE.MeshBasicMaterial).color.setHex(elapsed >= 420 && elapsed < 480 ? 0x9fffc2 : 0x397959);
   const t = 1 - Math.max(0, timeLeft) / NIGHT_SECONDS;
   const minutes = 120 + t * 180;
   const hh = Math.floor(minutes / 60);
@@ -832,7 +882,7 @@ function resetWorld() {
     zb.z = zb.hz = spot ? spot.z : pz + 30;
     zb.state = 'sleep';
     zb.think = Math.random() * 0.35;
-    zb.attackCd = 0; zb.lose = 0;
+    zb.attackCd = 0; zb.warning = 0; zb.lose = 0;
     zb.wx = zb.hx; zb.wz = zb.hz;
     zb.hp = 100;
     zb.mesh.visible = true;
@@ -886,6 +936,7 @@ function placeContainer(): { x: number; z: number } {
 function start(chosen: CharSpec) {
   spec = chosen;
   hp = 100; stamina = 100; battery = 100;
+  outbreak = createOutbreak(); sneaking = false; paused = false; keys.clear();
   lightOn = true; invuln = 0; timeLeft = NIGHT_SECONDS;
   kills = 0; hasPistol = false; ammo = 0;
   runNoiseTimer = 0; lootNoiseTimer = 0;
@@ -945,7 +996,7 @@ function showOverlay(title: string, body: string, button: string, stats?: [strin
 function win() {
   phase = 'win';
   const secs = Math.floor(NIGHT_SECONDS - timeLeft);
-  showOverlay('天亮了', `<b>${spec.name}</b>（${spec.job}）走完了這一夜。`, '再守一夜', [
+  showOverlay('抵達安全接應點', `<b>${spec.name}</b>（${spec.job}）帶回街區補給情報，登上接應車。病毒危機尚未結束。`, '再守一夜', [
     ['存活', `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`],
     ['擊殺', String(kills)],
     ['搜刮', String(looted)],
@@ -953,10 +1004,10 @@ function win() {
   ]);
 }
 
-function lose() {
+function lose(reason = '沒能走出這條弄堂。') {
   phase = 'lose';
   const secs = Math.floor(NIGHT_SECONDS - timeLeft);
-  showOverlay('你死了', `<b>${spec.name}</b>沒能走出這條弄堂。`, '再試一次', [
+  showOverlay('你死了', `<b>${spec.name}</b>${reason}`, '再試一次', [
     ['撐了', `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`],
     ['擊殺', String(kills)],
     ['搜刮', String(looted)],
@@ -1001,10 +1052,15 @@ function buildMenu() {
 // ---------------------------------------------------------------- 主循環
 
 function frame(dt: number) {
-  if (phase === 'play') {
+  if (phase === 'play' && !paused) {
     timeLeft -= dt;
+    const nearbyThreat = zombies.some(z => z.faction.id === 'infected' && z.state !== 'dead' && Math.hypot(z.x - px, z.z - pz) < 4 && canSee(z.x, z.z, px, pz));
+    stepOutbreak(outbreak, dt, { running: !sneaking && stamina > 1 && action === 'none' && ['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].some(k => keys.has(k)) && (keys.has('ShiftLeft') || keys.has('ShiftRight')), nearbyThreat });
+    if (outbreak.hydration <= 0 || outbreak.satiety <= 0) hp = Math.max(0, hp - dt * 1.5);
+    if (hp <= 0) { lose('在耗盡補給後倒下。'); return; }
     updatePlayer(dt);
     updateZombies(dt);
+    if (phase !== 'play') return;
     updateProjectiles(dt);
     updateLoot(dt);
     updateHud();
@@ -1017,9 +1073,10 @@ function frame(dt: number) {
       muzzleT -= dt;
       if (muzzle && muzzleT <= 0) muzzle.visible = false;
     }
-    if (timeLeft <= 0) win();
+    if (phase === 'play' && timeLeft <= 0) lose('錯過接應窗口，街區通道已封閉。');
   }
 
+  if (paused) updateHud();
   shake = Math.max(0, shake - dt * 2.4);
   camShake = Math.max(0, camShake - dt * 3);
   const jitter = camShake * 0.5;
@@ -1064,7 +1121,7 @@ fetch(dataUrl)
   .then(data => {
     block = data;
     landmarks = data.landmarks ?? [];
-    const grid = wallGridOf(data, true);
+    const grid = wallGridOf(data, false);
     collides = makeCollider(grid);
     insideBuilding = makeInsideTest(data);
 
@@ -1112,6 +1169,12 @@ fetch(dataUrl)
     muzzle.visible = false;
     scene.add(muzzle);
 
+    evacRing = new THREE.Mesh(new THREE.RingGeometry(4.6, 5, 64), new THREE.MeshBasicMaterial({ color: 0x397959, side: THREE.DoubleSide }));
+    evacRing.rotation.x = -Math.PI / 2;
+    evacRing.position.set(data.spawn[0], 0.06, -data.spawn[1]);
+    scene.add(evacRing);
+    const helper = new THREE.Mesh(new THREE.CapsuleGeometry(.3,1,4,8), new THREE.MeshStandardMaterial({color:0xe4c47a}));
+    helper.position.set(data.spawn[0]+1.4,.8,-data.spawn[1]); scene.add(helper);
     px = data.spawn[0];
     pz = data.spawn[1];
     buildZombies();
@@ -1120,9 +1183,10 @@ fetch(dataUrl)
     if (params.has('debug')) {
       (window as unknown as { __modu: unknown }).__modu = {
         state: () => ({
-          phase, hp, battery, stamina, timeLeft, kills,
+          phase, hp, battery, stamina, timeLeft, kills, paused, sneaking, looted, outbreak: { ...outbreak },
           zombies: zombies.length, awake: zombies.filter(z => z.state === 'chase').length,
           dead: zombies.filter(z => z.state === 'dead').length,
+          factions: Object.fromEntries(['infected','military','police','raider'].map(id => [id,zombies.filter(z => z.faction.id === id).length])),
           inventory: { ...inventory }, ammo, hasPistol,
           spawn: [px, pz], facing,
         }),
@@ -1144,6 +1208,7 @@ fetch(dataUrl)
             zb.attackCd = 1.2;
           }
         },
+        outbreakTest: (elapsed: number, searched: number, exposure = 0) => { timeLeft = NIGHT_SECONDS - elapsed; looted = searched; outbreak.exposure = exposure; px = block.spawn[0]; pz = block.spawn[1]; updateHud(); },
         swing: () => startSwing(),
         hurt: (n = 30) => { hp = Math.max(0, hp - n); if (hp <= 0) lose(); },
         give: (id: ItemId, n = 1) => { inventory[id] += n; if (id === 'pistol') hasPistol = true; updateBag(); },

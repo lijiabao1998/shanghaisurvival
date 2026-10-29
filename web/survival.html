@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#070b12" />
   <link rel="icon" href="data:," />
-  <title>魔都生存 · 天亮之前</title>
+  <title>上海倖存者 · 天亮之前</title>
   <style>
     :root {
       --ink: #e9efe6;
@@ -145,6 +145,11 @@
     #stats .s .l { font-size: 9px; letter-spacing: .14em; color: var(--faint); }
     #stats .s .n { font-size: 23px; font-weight: 800; color: #efe6d2; margin-top: 3px; }
     @media (max-width: 600px) { #stats { grid-template-columns: repeat(2, 1fr); } }
+    #dispatch { position:fixed; left:20px; bottom:72px; width:min(560px,calc(100vw - 40px)); padding:12px 16px; pointer-events:none; }
+    #mission { color:#f0c96e; font-size:12px; line-height:1.7; }
+    #radio { color:#aebdb2; font-size:11px; line-height:1.8; margin-top:5px; }
+    #needs { font-size:11px; color:#b7d8c2; margin-top:10px; line-height:1.8; }
+    @media(max-width:600px) { #dispatch { bottom:80px; } #side { display:none; } }
   </style>
 </head>
 <body>
@@ -160,7 +165,7 @@
     <div class="bar" id="bar-hp"><span class="k">HP</span><div class="t"><i id="hp"></i></div><span class="v" id="hp-num">100</span></div>
     <div class="bar" id="bar-sta"><span class="k">體力</span><div class="t"><i id="sta"></i></div><span class="v" id="sta-num">100</span></div>
     <div class="bar" id="bar-bat"><span class="k">電量</span><div class="t"><i id="bat"></i></div><span class="v" id="bat-num">100</span></div>
-    <div id="moodles"></div>
+    <div id="moodles"></div><div id="needs"></div>
   </div>
 
   <div id="side" class="panel">
@@ -170,7 +175,7 @@
     <div id="tally"><span id="tally-kill">擊殺 0</span><span id="tally-loot">搜刮 0</span></div>
   </div>
 
-  <div id="place"></div>
+  <div id="dispatch" class="panel"><div id="mission"></div><div id="radio"></div></div><div id="place"></div>
 
   <div id="prompt">
     <span class="key" id="prompt-key">E</span>
@@ -178,18 +183,18 @@
     <span id="prompt-text">搜刮</span>
   </div>
 
-  <div id="hint"><b>WASD</b> 移動 · <b>Shift</b> 跑 · <b>空白</b> 跳 · <b>J</b> 揮擊 · <b>K</b> 投擲 · <b>G</b> 開槍 · <b>E</b> 搜刮</div>
+  <div id="hint"><b>WASD</b> 移動 · <b>Shift</b> 跑 · <b>空白</b> 跳 · <b>T</b> 互助交換　<b>C</b> 潛行　<b>R</b> 接應　<b>Esc</b> 暫停　<b>J</b> 揮擊 · <b>K</b> 投擲 · <b>G</b> 開槍 · <b>E</b> 搜刮</div>
 
   <div id="overlay" class="on">
     <div class="card">
-      <h1>魔都生存</h1>
-      <p class="sub">老西門，凌晨兩點，街區斷電。天亮之前離開這條弄堂。<br>選一個活下去的人。</p>
+      <h1>上海倖存者</h1>
+      <p class="sub">上海，凌晨兩點。不明病毒爆發，街區斷電。<br>搜刮至少三處、維持水分與飽足，最後一分鐘回綠圈按 R 接應。<br>感染者追逐聲光，軍方封鎖、警察警戒、掠奪者搶補給。<br>綠圈的互助者可按 T 用罐頭換水；所有人物及疫情皆為虛構。</p>
       <div id="roster" class="roster"></div>
       <div id="pick" class="empty">選一個角色。</div>
       <button id="ov-btn" disabled>開始</button>
       <div class="keys" id="legend">
         <b>WASD</b> 移動　<b>Shift</b> 跑　<b>空白</b> 跳　<b>F</b> 手電筒　<b>E</b> 按住搜刮<br>
-        <b>J</b> 揮擊　<b>K</b> 投擲　<b>G</b> 開槍　｜　<b>1</b> 水　<b>2</b> 罐頭　<b>3</b> 醫療包　<b>4</b> 電池
+        <b>T</b> 互助交換　<b>C</b> 潛行　<b>R</b> 接應　<b>Esc</b> 暫停　<b>J</b> 揮擊　<b>K</b> 投擲　<b>G</b> 開槍　｜　<b>1</b> 水　<b>2</b> 罐頭　<b>3</b> 醫療包　<b>4</b> 電池
       </div>
     </div>
   </div>
