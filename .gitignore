@@ -1,0 +1,48 @@
+# Godot
+.godot/
+game/.tools/
+*.translation
+export_presets.cfg
+
+# 烘焙產物（可由 data/ + tools/ 重新產生，不進版控）
+data/city/
+data/sources/cmab-v7/shanghai.zip
+data/sources/cmab-v7/*.partial
+data/sources/cmab-v7/shanghai-core/
+data/sources/osm-shanghai-20261029/*.zip
+data/sources/osm-shanghai-20261029/*.shp
+data/sources/osm-shanghai-20261029/*.shx
+data/sources/osm-shanghai-20261029/*.dbf
+*.bin
+*.mesh
+!.gitkeep
+
+# Rust（備用）
+target/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+
+# Web
+node_modules/
+web/dist/
+
+# 編輯器
+.vscode/
+.idea/
+*.swp
+
+# 系統
+Thumbs.db
+desktop.ini
+.DS_Store
+*~
+*.lnk
+
+# 大檔（用 git-lfs 或外部存放）
+*.fbx
+*.blend1
+*.zip

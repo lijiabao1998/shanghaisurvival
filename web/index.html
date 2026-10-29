@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#222827" />
+  <link rel="icon" href="data:," />
+  <title>魔都生存 · 上海街區</title>
+</head>
+<body>
+  <main id="app">
+    <div id="viewport" aria-label="上海街區三維場景"></div>
+    <header class="hud">
+      <div class="hud-title">魔都生存 <span>上海街區原型</span></div>
+      <div class="hud-hint hud-desktop">WASD 移動 <b>·</b> Shift 奔跑 <b>·</b> 空白鍵跳躍 <b>·</b> 滾輪縮放 <b>·</b> F 手電筒</div>
+      <div class="hud-hint hud-touch">按住左下方向鍵移動</div>
+      <div class="hud-status" id="status" role="status">正在載入街區…</div>
+    </header>
+    <div class="guide">走近<span>「入口示意」</span>標記，可進入測試建築。</div>
+    <div class="touch-controls" aria-label="觸控操作">
+      <button data-key="KeyW" class="touch-up" aria-label="向前">▲</button>
+      <button data-key="KeyA" aria-label="向左">◀</button>
+      <button data-key="KeyS" aria-label="向後">▼</button>
+      <button data-key="KeyD" aria-label="向右">▶</button>
+    </div>
+    <footer>
+      建築 <a href="https://doi.org/10.6084/m9.figshare.27992417">Zhang, Zhao &amp; Long, CMAB</a>，
+      <a href="https://creativecommons.org/licenses/by/4.0/">CC BY 4.0</a>；已擷取子區、簡化幾何、將 Height 暫按米解讀、
+      加建門洞與室內、程序化生成立面與招牌，非原樣呈現。<br />
+      道路 © <a href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>，
+      <a href="https://opendatacommons.org/licenses/odbl/1-0/">ODbL 1.0</a>；已裁剪至本區塊，路寬為依道路類別的估算值。
+    </footer>
+  </main>
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

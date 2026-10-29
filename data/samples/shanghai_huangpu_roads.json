@@ -1,0 +1,2134 @@
+{
+  "schema": "modu.roads/1",
+  "chunk": {
+    "id": "cmab_shanghai_sample",
+    "size_m": 250.0,
+    "origin_m": [
+      0,
+      0
+    ]
+  },
+  "units": {
+    "length": "meter",
+    "angle": "degree",
+    "winding": "ccw",
+    "axes": "x=east, y=north, height=up"
+  },
+  "source": {
+    "name": "OpenStreetMap contributors, Geofabrik Shanghai extract",
+    "url": "https://download.geofabrik.de/asia/china/shanghai-261028-free.shp.zip",
+    "source_data_timestamp_utc": "2026-10-28T21:21:02Z",
+    "archive_sha256": "e8071eba5f1f7ea974c26dfed67aadb3a3df83cafd8de2d933f76c496ff60d26",
+    "shapefile_sha256": "219218f30d4e37d2d131c46d37a0584bdbe00cafd231f9442b5e7dbe049462cd",
+    "license": "ODbL 1.0",
+    "copyright": "© OpenStreetMap contributors",
+    "attribution_url": "https://www.openstreetmap.org/copyright",
+    "projection": "EPSG:32651",
+    "origin_projected_m": [
+      355475.442703357,
+      3454960.058976174
+    ],
+    "source_crs": "EPSG:4326",
+    "geometry": "Road centerlines clipped to 250 m sample window; source SHP was OSM-derived.",
+    "width": "Illustrative class-based estimate; source extract has no width attribute; not surveyed.",
+    "limitations": [
+      "OSM completeness and accuracy unverified; CMAB roof polygons, not measured ground footprints.",
+      "CMAB and OSM have different survey dates; overlaps may reflect roofs, source shifts, road width assumptions, level, or changes."
+    ]
+  },
+  "roads": [
+    {
+      "id": "osm_40040178_0",
+      "osm_id": "40040178",
+      "type": "residential",
+      "name": "学宫街",
+      "centerline": [
+        [
+          139.096,
+          0.0
+        ],
+        [
+          133.731,
+          12.017
+        ],
+        [
+          123.715,
+          32.055
+        ],
+        [
+          115.072,
+          50.722
+        ],
+        [
+          102.98,
+          74.214
+        ],
+        [
+          97.767,
+          86.603
+        ],
+        [
+          91.29,
+          99.952
+        ],
+        [
+          82.726,
+          117.42
+        ]
+      ],
+      "width_m": 6,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_40109239_0",
+      "osm_id": "40109239",
+      "type": "residential",
+      "name": "梦花街",
+      "centerline": [
+        [
+          0.0,
+          73.523
+        ],
+        [
+          34.22,
+          90.391
+        ],
+        [
+          50.863,
+          101.327
+        ],
+        [
+          60.675,
+          106.758
+        ],
+        [
+          82.726,
+          117.42
+        ]
+      ],
+      "width_m": 6,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_40138655_0",
+      "osm_id": "40138655",
+      "type": "residential",
+      "name": "老道前街",
+      "centerline": [
+        [
+          0.0,
+          32.073
+        ],
+        [
+          9.254,
+          11.785
+        ],
+        [
+          13.94,
+          0.567
+        ],
+        [
+          14.322,
+          0.0
+        ]
+      ],
+      "width_m": 6,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_40138675_0",
+      "osm_id": "40138675",
+      "type": "residential",
+      "name": "半泾园弄",
+      "centerline": [
+        [
+          250.0,
+          1.12
+        ],
+        [
+          225.382,
+          40.606
+        ]
+      ],
+      "width_m": 6,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_50322906_0",
+      "osm_id": "50322906",
+      "type": "residential",
+      "name": "文庙路",
+      "centerline": [
+        [
+          161.336,
+          0.0
+        ],
+        [
+          168.612,
+          5.008
+        ],
+        [
+          178.597,
+          11.268
+        ],
+        [
+          225.382,
+          40.606
+        ],
+        [
+          234.089,
+          46.063
+        ],
+        [
+          250.0,
+          56.039
+        ]
+      ],
+      "width_m": 6,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_50323225_0",
+      "osm_id": "50323225",
+      "type": "residential",
+      "name": "静修路",
+      "centerline": [
+        [
+          0.0,
+          226.193
+        ],
+        [
+          3.412,
+          228.168
+        ],
+        [
+          19.194,
+          238.185
+        ],
+        [
+          37.8,
+          250.0
+        ]
+      ],
+      "width_m": 6,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_50323227_0",
+      "osm_id": "50323227",
+      "type": "residential",
+      "name": "庄家街",
+      "centerline": [
+        [
+          82.726,
+          117.42
+        ],
+        [
+          75.823,
+          134.433
+        ],
+        [
+          69.652,
+          145.76
+        ],
+        [
+          63.48,
+          157.053
+        ],
+        [
+          56.156,
+          170.469
+        ],
+        [
+          49.976,
+          181.785
+        ],
+        [
+          44.288,
+          192.207
+        ],
+        [
+          41.593,
+          197.155
+        ],
+        [
+          34.269,
+          210.56
+        ],
+        [
+          28.46,
+          221.206
+        ],
+        [
+          19.194,
+          238.185
+        ],
+        [
+          13.691,
+          250.0
+        ]
+      ],
+      "width_m": 6,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_50323231_0",
+      "osm_id": "50323231",
+      "type": "residential",
+      "name": "柳江街",
+      "centerline": [
+        [
+          82.726,
+          117.42
+        ],
+        [
+          103.439,
+          131.272
+        ],
+        [
+          151.432,
+          159.882
+        ],
+        [
+          167.052,
+          169.192
+        ],
+        [
+          195.007,
+          185.86
+        ],
+        [
+          204.073,
+          189.716
+        ],
+        [
+          213.513,
+          193.744
+        ],
+        [
+          223.79,
+          197.672
+        ],
+        [
+          230.875,
+          192.497
+        ],
+        [
+          233.45,
+          187.14
+        ],
+        [
+          239.472,
+          174.629
+        ],
+        [
+          245.299,
+          162.531
+        ],
+        [
+          250.0,
+          152.765
+        ]
+      ],
+      "width_m": 6,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_50323232_0",
+      "osm_id": "50323232",
+      "type": "residential",
+      "name": "西仓桥街",
+      "centerline": [
+        [
+          159.735,
+          250.0
+        ],
+        [
+          158.063,
+          249.439
+        ],
+        [
+          155.266,
+          250.0
+        ]
+      ],
+      "width_m": 6,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837503_0",
+      "osm_id": "116837503",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          178.597,
+          11.268
+        ],
+        [
+          185.17,
+          0.0
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837504_0",
+      "osm_id": "116837504",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          120.681,
+          99.815
+        ],
+        [
+          117.431,
+          95.58
+        ],
+        [
+          97.767,
+          86.603
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837506_0",
+      "osm_id": "116837506",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          108.901,
+          182.163
+        ],
+        [
+          63.48,
+          157.053
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837508_0",
+      "osm_id": "116837508",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          0.0,
+          149.11
+        ],
+        [
+          4.506,
+          141.333
+        ],
+        [
+          12.874,
+          126.905
+        ],
+        [
+          19.445,
+          115.572
+        ],
+        [
+          26.053,
+          104.162
+        ],
+        [
+          34.22,
+          90.391
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837509_0",
+      "osm_id": "116837509",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          91.495,
+          216.981
+        ],
+        [
+          64.792,
+          208.201
+        ],
+        [
+          41.593,
+          197.155
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837510_0",
+      "osm_id": "116837510",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          12.897,
+          0.0
+        ],
+        [
+          13.94,
+          0.567
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837511_0",
+      "osm_id": "116837511",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          224.591,
+          8.664
+        ],
+        [
+          229.071,
+          0.0
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837513_0",
+      "osm_id": "116837513",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          17.348,
+          177.31
+        ],
+        [
+          23.387,
+          167.482
+        ],
+        [
+          30.479,
+          155.932
+        ],
+        [
+          38.55,
+          142.783
+        ],
+        [
+          46.518,
+          129.802
+        ],
+        [
+          52.595,
+          119.918
+        ],
+        [
+          60.675,
+          106.758
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837517_0",
+      "osm_id": "116837517",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          26.301,
+          196.523
+        ],
+        [
+          2.615,
+          186.094
+        ],
+        [
+          0.0,
+          184.723
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837520_0",
+      "osm_id": "116837520",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          127.02,
+          88.231
+        ],
+        [
+          120.324,
+          82.823
+        ],
+        [
+          102.98,
+          74.214
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837525_0",
+      "osm_id": "116837525",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          214.607,
+          249.883
+        ],
+        [
+          182.708,
+          238.779
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837539_0",
+      "osm_id": "116837539",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          167.052,
+          169.192
+        ],
+        [
+          153.726,
+          202.103
+        ],
+        [
+          136.844,
+          243.832
+        ],
+        [
+          137.363,
+          250.0
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837546_0",
+      "osm_id": "116837546",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          103.439,
+          131.272
+        ],
+        [
+          110.596,
+          118.202
+        ],
+        [
+          114.426,
+          111.22
+        ],
+        [
+          118.367,
+          104.015
+        ],
+        [
+          120.681,
+          99.815
+        ],
+        [
+          127.02,
+          88.231
+        ],
+        [
+          133.183,
+          76.993
+        ],
+        [
+          140.805,
+          63.085
+        ],
+        [
+          151.969,
+          42.721
+        ],
+        [
+          159.353,
+          25.989
+        ],
+        [
+          168.612,
+          5.008
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837549_0",
+      "osm_id": "116837549",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          0.0,
+          87.681
+        ],
+        [
+          26.053,
+          104.162
+        ],
+        [
+          52.595,
+          119.918
+        ],
+        [
+          75.823,
+          134.433
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837552_0",
+      "osm_id": "116837552",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          245.299,
+          162.531
+        ],
+        [
+          250.0,
+          165.053
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837554_0",
+      "osm_id": "116837554",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          0.0,
+          168.811
+        ],
+        [
+          8.638,
+          173.039
+        ],
+        [
+          17.348,
+          177.31
+        ],
+        [
+          44.288,
+          192.207
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837568_0",
+      "osm_id": "116837568",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          219.248,
+          215.229
+        ],
+        [
+          237.254,
+          224.14
+        ],
+        [
+          250.0,
+          228.16
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837576_0",
+      "osm_id": "116837576",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          68.653,
+          228.492
+        ],
+        [
+          34.269,
+          210.56
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837577_0",
+      "osm_id": "116837577",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          221.572,
+          236.051
+        ],
+        [
+          250.0,
+          246.776
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837578_0",
+      "osm_id": "116837578",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          101.078,
+          245.332
+        ],
+        [
+          99.556,
+          250.0
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837588_0",
+      "osm_id": "116837588",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          159.353,
+          25.989
+        ],
+        [
+          150.108,
+          18.843
+        ],
+        [
+          133.731,
+          12.017
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837591_0",
+      "osm_id": "116837591",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          122.551,
+          170.789
+        ],
+        [
+          110.712,
+          164.842
+        ],
+        [
+          110.614,
+          157.726
+        ],
+        [
+          102.413,
+          155.799
+        ],
+        [
+          97.332,
+          158.418
+        ],
+        [
+          69.652,
+          145.76
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837592_0",
+      "osm_id": "116837592",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          8.638,
+          173.039
+        ],
+        [
+          2.615,
+          186.094
+        ],
+        [
+          1.153,
+          189.229
+        ],
+        [
+          0.0,
+          191.611
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837595_0",
+      "osm_id": "116837595",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          98.889,
+          250.0
+        ],
+        [
+          84.725,
+          245.046
+        ],
+        [
+          78.431,
+          250.0
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837595_1",
+      "osm_id": "116837595",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          77.76,
+          250.0
+        ],
+        [
+          28.46,
+          221.206
+        ],
+        [
+          0.0,
+          209.758
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837598_0",
+      "osm_id": "116837598",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          0.0,
+          120.848
+        ],
+        [
+          12.874,
+          126.905
+        ],
+        [
+          38.55,
+          142.783
+        ],
+        [
+          63.48,
+          157.053
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837601_0",
+      "osm_id": "116837601",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          0.0,
+          154.151
+        ],
+        [
+          23.387,
+          167.482
+        ],
+        [
+          49.976,
+          181.785
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837616_0",
+      "osm_id": "116837616",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          114.426,
+          111.22
+        ],
+        [
+          109.416,
+          107.896
+        ],
+        [
+          91.29,
+          99.952
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837623_0",
+      "osm_id": "116837623",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          116.787,
+          235.459
+        ],
+        [
+          142.048,
+          176.619
+        ],
+        [
+          151.432,
+          159.882
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837624_0",
+      "osm_id": "116837624",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          0.0,
+          138.155
+        ],
+        [
+          4.506,
+          141.333
+        ],
+        [
+          30.479,
+          155.932
+        ],
+        [
+          56.156,
+          170.469
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837632_0",
+      "osm_id": "116837632",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          239.472,
+          174.629
+        ],
+        [
+          213.352,
+          158.346
+        ],
+        [
+          188.115,
+          143.946
+        ],
+        [
+          174.826,
+          144.129
+        ],
+        [
+          141.281,
+          120.686
+        ],
+        [
+          139.138,
+          113.087
+        ],
+        [
+          118.367,
+          104.015
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837638_0",
+      "osm_id": "116837638",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          0.0,
+          104.163
+        ],
+        [
+          19.445,
+          115.572
+        ],
+        [
+          46.518,
+          129.802
+        ],
+        [
+          69.652,
+          145.76
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837640_0",
+      "osm_id": "116837640",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          250.0,
+          206.263
+        ],
+        [
+          245.172,
+          204.707
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837645_0",
+      "osm_id": "116837645",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          226.25,
+          129.687
+        ],
+        [
+          154.11,
+          86.939
+        ],
+        [
+          133.183,
+          76.993
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837647_0",
+      "osm_id": "116837647",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          0.0,
+          7.162
+        ],
+        [
+          9.254,
+          11.785
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837652_0",
+      "osm_id": "116837652",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          234.089,
+          46.063
+        ],
+        [
+          212.744,
+          76.467
+        ],
+        [
+          197.463,
+          97.431
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837653_0",
+      "osm_id": "116837653",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          233.45,
+          187.14
+        ],
+        [
+          179.63,
+          158.808
+        ],
+        [
+          133.24,
+          130.453
+        ],
+        [
+          110.596,
+          118.202
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837659_0",
+      "osm_id": "116837659",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          177.281,
+          250.0
+        ],
+        [
+          182.708,
+          238.779
+        ],
+        [
+          187.739,
+          228.377
+        ],
+        [
+          189.963,
+          223.114
+        ],
+        [
+          204.073,
+          189.716
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837660_0",
+      "osm_id": "116837660",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          235.327,
+          120.416
+        ],
+        [
+          200.325,
+          102.581
+        ],
+        [
+          197.463,
+          97.431
+        ],
+        [
+          192.461,
+          88.453
+        ],
+        [
+          140.805,
+          63.085
+        ],
+        [
+          115.072,
+          50.722
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837681_0",
+      "osm_id": "116837681",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          205.67,
+          231.18
+        ],
+        [
+          189.963,
+          223.114
+        ],
+        [
+          153.726,
+          202.103
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837688_0",
+      "osm_id": "116837688",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          151.969,
+          42.721
+        ],
+        [
+          144.794,
+          41.289
+        ],
+        [
+          123.715,
+          32.055
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837700_0",
+      "osm_id": "116837700",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          100.951,
+          198.547
+        ],
+        [
+          74.678,
+          183.652
+        ],
+        [
+          56.156,
+          170.469
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    },
+    {
+      "id": "osm_116837714_0",
+      "osm_id": "116837714",
+      "type": "service",
+      "name": "",
+      "centerline": [
+        [
+          221.298,
+          140.953
+        ],
+        [
+          194.553,
+          129.113
+        ],
+        [
+          185.941,
+          134.819
+        ],
+        [
+          169.939,
+          123.341
+        ],
+        [
+          168.836,
+          117.259
+        ],
+        [
+          127.02,
+          88.231
+        ]
+      ],
+      "width_m": 4,
+      "width_source": "estimated_by_road_class",
+      "tags": {
+        "oneway": "B",
+        "maxspeed": 0,
+        "layer": 0,
+        "bridge": "F",
+        "tunnel": "F"
+      }
+    }
+  ],
+  "quality": {
+    "road_segments": 52,
+    "unmapped_class_fallbacks": 0,
+    "road_centerlines_intersecting_cmab_roof": [
+      {
+        "road": "osm_40138675_0",
+        "building_ids": [
+          "cmab_329806_0"
+        ]
+      },
+      {
+        "road": "osm_50323225_0",
+        "building_ids": [
+          "cmab_327849_0",
+          "cmab_327850_0"
+        ]
+      },
+      {
+        "road": "osm_50323227_0",
+        "building_ids": [
+          "cmab_327836_0",
+          "cmab_327839_0",
+          "cmab_327842_0",
+          "cmab_327846_0",
+          "cmab_327850_0",
+          "cmab_327850_1"
+        ]
+      },
+      {
+        "road": "osm_116837506_0",
+        "building_ids": [
+          "cmab_327839_0"
+        ]
+      },
+      {
+        "road": "osm_116837513_0",
+        "building_ids": [
+          "cmab_327841_0"
+        ]
+      },
+      {
+        "road": "osm_116837517_0",
+        "building_ids": [
+          "cmab_327844_0"
+        ]
+      },
+      {
+        "road": "osm_116837525_0",
+        "building_ids": [
+          "cmab_329842_0"
+        ]
+      },
+      {
+        "road": "osm_116837539_0",
+        "building_ids": [
+          "cmab_329829_0"
+        ]
+      },
+      {
+        "road": "osm_116837546_0",
+        "building_ids": [
+          "cmab_329807_0",
+          "cmab_329810_0",
+          "cmab_329811_0"
+        ]
+      },
+      {
+        "road": "osm_116837554_0",
+        "building_ids": [
+          "cmab_327841_0"
+        ]
+      },
+      {
+        "road": "osm_116837588_0",
+        "building_ids": [
+          "cmab_329807_0"
+        ]
+      },
+      {
+        "road": "osm_116837592_0",
+        "building_ids": [
+          "cmab_327841_0"
+        ]
+      },
+      {
+        "road": "osm_116837623_0",
+        "building_ids": [
+          "cmab_329827_0"
+        ]
+      },
+      {
+        "road": "osm_116837632_0",
+        "building_ids": [
+          "cmab_329826_0"
+        ]
+      },
+      {
+        "road": "osm_116837645_0",
+        "building_ids": [
+          "cmab_329819_0",
+          "cmab_329822_0"
+        ]
+      },
+      {
+        "road": "osm_116837653_0",
+        "building_ids": [
+          "cmab_329824_0",
+          "cmab_329826_0"
+        ]
+      },
+      {
+        "road": "osm_116837659_0",
+        "building_ids": [
+          "cmab_329839_0"
+        ]
+      },
+      {
+        "road": "osm_116837660_0",
+        "building_ids": [
+          "cmab_329818_0"
+        ]
+      },
+      {
+        "road": "osm_116837688_0",
+        "building_ids": [
+          "cmab_329810_0"
+        ]
+      }
+    ],
+    "estimated_road_surface_intersecting_cmab_roof": [
+      {
+        "road": "osm_40040178_0",
+        "building_ids": [
+          "cmab_329807_0"
+        ]
+      },
+      {
+        "road": "osm_40138655_0",
+        "building_ids": [
+          "cmab_327810_0"
+        ]
+      },
+      {
+        "road": "osm_40138675_0",
+        "building_ids": [
+          "cmab_329806_0"
+        ]
+      },
+      {
+        "road": "osm_50322906_0",
+        "building_ids": [
+          "cmab_329808_0",
+          "cmab_331848_0"
+        ]
+      },
+      {
+        "road": "osm_50323225_0",
+        "building_ids": [
+          "cmab_327849_0",
+          "cmab_327850_0",
+          "cmab_327850_1"
+        ]
+      },
+      {
+        "road": "osm_50323227_0",
+        "building_ids": [
+          "cmab_327836_0",
+          "cmab_327839_0",
+          "cmab_327842_0",
+          "cmab_327846_0",
+          "cmab_327850_0",
+          "cmab_327850_1"
+        ]
+      },
+      {
+        "road": "osm_50323231_0",
+        "building_ids": [
+          "cmab_329824_0",
+          "cmab_329829_0",
+          "cmab_331868_0"
+        ]
+      },
+      {
+        "road": "osm_116837506_0",
+        "building_ids": [
+          "cmab_327839_0"
+        ]
+      },
+      {
+        "road": "osm_116837508_0",
+        "building_ids": [
+          "cmab_327834_0"
+        ]
+      },
+      {
+        "road": "osm_116837509_0",
+        "building_ids": [
+          "cmab_327847_0"
+        ]
+      },
+      {
+        "road": "osm_116837511_0",
+        "building_ids": [
+          "cmab_329806_0"
+        ]
+      },
+      {
+        "road": "osm_116837513_0",
+        "building_ids": [
+          "cmab_327841_0"
+        ]
+      },
+      {
+        "road": "osm_116837517_0",
+        "building_ids": [
+          "cmab_327844_0"
+        ]
+      },
+      {
+        "road": "osm_116837525_0",
+        "building_ids": [
+          "cmab_329842_0"
+        ]
+      },
+      {
+        "road": "osm_116837539_0",
+        "building_ids": [
+          "cmab_329829_0"
+        ]
+      },
+      {
+        "road": "osm_116837546_0",
+        "building_ids": [
+          "cmab_329807_0",
+          "cmab_329810_0",
+          "cmab_329811_0",
+          "cmab_329813_0"
+        ]
+      },
+      {
+        "road": "osm_116837554_0",
+        "building_ids": [
+          "cmab_327841_0"
+        ]
+      },
+      {
+        "road": "osm_116837568_0",
+        "building_ids": [
+          "cmab_329837_0"
+        ]
+      },
+      {
+        "road": "osm_116837588_0",
+        "building_ids": [
+          "cmab_329807_0"
+        ]
+      },
+      {
+        "road": "osm_116837591_0",
+        "building_ids": [
+          "cmab_327836_0",
+          "cmab_329828_0"
+        ]
+      },
+      {
+        "road": "osm_116837592_0",
+        "building_ids": [
+          "cmab_327841_0"
+        ]
+      },
+      {
+        "road": "osm_116837601_0",
+        "building_ids": [
+          "cmab_327841_0"
+        ]
+      },
+      {
+        "road": "osm_116837623_0",
+        "building_ids": [
+          "cmab_329827_0",
+          "cmab_329831_0",
+          "cmab_329832_0",
+          "cmab_329834_0",
+          "cmab_329838_0"
+        ]
+      },
+      {
+        "road": "osm_116837632_0",
+        "building_ids": [
+          "cmab_329816_0",
+          "cmab_329826_0"
+        ]
+      },
+      {
+        "road": "osm_116837645_0",
+        "building_ids": [
+          "cmab_329813_0",
+          "cmab_329819_0",
+          "cmab_329822_0"
+        ]
+      },
+      {
+        "road": "osm_116837647_0",
+        "building_ids": [
+          "cmab_327810_0"
+        ]
+      },
+      {
+        "road": "osm_116837652_0",
+        "building_ids": [
+          "cmab_329812_0",
+          "cmab_329814_0"
+        ]
+      },
+      {
+        "road": "osm_116837653_0",
+        "building_ids": [
+          "cmab_329824_0",
+          "cmab_329826_0"
+        ]
+      },
+      {
+        "road": "osm_116837659_0",
+        "building_ids": [
+          "cmab_329836_0",
+          "cmab_329839_0"
+        ]
+      },
+      {
+        "road": "osm_116837660_0",
+        "building_ids": [
+          "cmab_329813_0",
+          "cmab_329818_0"
+        ]
+      },
+      {
+        "road": "osm_116837688_0",
+        "building_ids": [
+          "cmab_329810_0"
+        ]
+      },
+      {
+        "road": "osm_116837700_0",
+        "building_ids": [
+          "cmab_327842_0",
+          "cmab_329830_0"
+        ]
+      },
+      {
+        "road": "osm_116837714_0",
+        "building_ids": [
+          "cmab_329817_0",
+          "cmab_329821_0"
+        ]
+      }
+    ]
+  }
+}

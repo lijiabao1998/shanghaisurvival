@@ -1,0 +1,16 @@
+; 真實上海街區白模，資料由 CMAB / OSM 轉換而來。
+config_version=5
+
+[application]
+config/name="Modu Survival - Shanghai Block"
+run/main_scene="res://main.tscn"
+
+[display]
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/stretch/mode="canvas_items"
+
+[rendering]
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"
+textures/default_filters/use_nearest_mipmap_filter=false
