@@ -40,7 +40,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
 viewport.appendChild(renderer.domElement);
 
-const camera = new THREE.OrthographicCamera(-30, 30, 22, -22, 0.1, 700);
+const camera = new THREE.OrthographicCamera(-30, 30, 22, -22, 0.1, 2400);
 const ambient = new THREE.HemisphereLight(0xe3e8e2, 0x6f766b, 2.05);
 scene.add(ambient);
 const sun = new THREE.DirectionalLight(0xffe8c7, 2);
@@ -285,7 +285,7 @@ document.querySelectorAll<HTMLButtonElement>('.touch-controls button').forEach(b
   button.addEventListener('pointercancel', () => keys.delete(code));
   button.addEventListener('lostpointercapture', () => keys.delete(code));
 });
-renderer.domElement.addEventListener('wheel', e => { e.preventDefault(); viewSize = THREE.MathUtils.clamp(viewSize * (e.deltaY < 0 ? .9 : 1.1), 18, 66); resize(); }, { passive: false });
+renderer.domElement.addEventListener('wheel', e => { e.preventDefault(); viewSize = THREE.MathUtils.clamp(viewSize * (e.deltaY < 0 ? .9 : 1.1), 12, 260); resize(); }, { passive: false });
 function resize() {
   const w = window.innerWidth, h = window.innerHeight; renderer.setSize(w, h);
   const aspect = w / h; camera.left = -viewSize * aspect / 2; camera.right = viewSize * aspect / 2;

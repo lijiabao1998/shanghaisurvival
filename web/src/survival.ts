@@ -16,8 +16,12 @@ import {
 // ---------------------------------------------------------------- 參數
 
 const NIGHT_SECONDS = 480;      // 現實 8 分鐘 = 遊戲內 02:00 → 05:00
-const ZOMBIE_COUNT = 80;
-const CONTAINER_COUNT = 12;
+/** Instanced eye buffer capacity, and the hard cap on simultaneous zombies. */
+const MAX_ZOMBIES = 240;
+/** The 250 m single-block slice these numbers were tuned on. */
+const REF_AREA = 250 * 250;
+let zombieCount = 80;
+let containerCount = 12;
 const WALK_SPEED = 3.2;
 const RUN_SPEED = 5.8;
 const ZOMBIE_CHASE = 1.55;
@@ -51,6 +55,11 @@ const el = {
   hint: document.querySelector<HTMLElement>('#hint')!,
 };
 
+// ?data=block_250m.json swaps the block without touching code.
+const params = new URLSearchParams(location.search);
+const rawData = params.get('data');
+const dataUrl = rawData ? (rawData.includes('/') ? rawData : `./data/${rawData}`) : './data/block.json';
+
 addEventListener('error', e => {
   el.ovBody.textContent = `JS 錯誤：${e.message}`;
   el.overlay.classList.add('on');
@@ -73,7 +82,7 @@ const NIGHT_SKY = new THREE.Color(0x070b12);
 scene.background = NIGHT_SKY;
 scene.fog = new THREE.Fog(NIGHT_SKY, 55, 260);
 
-const camera = new THREE.OrthographicCamera(-30, 30, 22, -22, 0.1, 700);
+const camera = new THREE.OrthographicCamera(-30, 30, 22, -22, 0.1, 2400);
 let viewSize = 30;
 
 const hemi = new THREE.HemisphereLight(0x3b4a66, 0x0a0d10, 1.45);
@@ -148,7 +157,7 @@ const zombieMat = new THREE.MeshStandardMaterial({ color: 0x5d6650, roughness: 1
 const eyeMesh = new THREE.InstancedMesh(
   new THREE.SphereGeometry(0.15, 6, 4),
   new THREE.MeshBasicMaterial({ color: 0xffffff }),
-  ZOMBIE_COUNT * 2,
+  MAX_ZOMBIES * 2,
 );
 eyeMesh.frustumCulled = false;
 eyeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
@@ -186,7 +195,7 @@ function makeZombieMesh(): { mesh: THREE.SkinnedMesh; hips: THREE.Bone; chest: T
 }
 
 function buildZombies() {
-  for (let i = 0; i < ZOMBIE_COUNT; i++) {
+  for (let i = 0; i < zombieCount; i++) {
     const rig = makeZombieMesh();
     zombieMeshes.push(rig.mesh);
     zombies.push({
@@ -407,6 +416,7 @@ function syncEyes() {
       eyeMesh.setColorAt(i * 2 + e, eyeColor.setHex(color));
     }
   }
+  eyeMesh.count = zombies.length * 2;
   eyeMesh.instanceMatrix.needsUpdate = true;
   if (eyeMesh.instanceColor) eyeMesh.instanceColor.needsUpdate = true;
 }
@@ -490,8 +500,7 @@ function resetWorld() {
     zb.mesh.position.set(zb.x, 0, -zb.z);
     zb.mesh.visible = true;
   }
-  for (let i = 0; i < zombies.length; i++) eyeMesh.setColorAt(i, eyeColor.setHex(0x3f5a44));
-  for (let i = zombies.length; i < ZOMBIE_COUNT * 2; i++) eyeMesh.setColorAt(i, eyeColor.setHex(0x3f5a44));
+  for (let i = 0; i < MAX_ZOMBIES * 2; i++) eyeMesh.setColorAt(i, eyeColor.setHex(0x3f5a44));
   syncEyes();
 
   for (const c of containers) {
@@ -595,14 +604,14 @@ function resize() {
 addEventListener('resize', resize);
 addEventListener('wheel', e => {
   e.preventDefault();
-  viewSize = THREE.MathUtils.clamp(viewSize * (e.deltaY < 0 ? 0.9 : 1.1), 20, 90);
+  viewSize = THREE.MathUtils.clamp(viewSize * (e.deltaY < 0 ? 0.9 : 1.1), 12, 260);
   resize();
 }, { passive: false });
 resize();
 
 // ---------------------------------------------------------------- 啟動
 
-fetch('./data/block.json')
+fetch(dataUrl)
   .then(r => { if (!r.ok) throw new Error(`資料載入失敗 ${r.status}`); return r.json() as Promise<Block>; })
   .then(data => {
     block = data;
@@ -620,6 +629,12 @@ fetch('./data/block.json')
       }
     }
 
+    // Entities cost frame time, so density necessarily falls as the map grows:
+    // 80 zombies on a 250 m block would mean ~800 here. sqrt keeps it affordable.
+    const area = (bounds.maxX - bounds.minX) * (bounds.maxY - bounds.minY);
+    zombieCount = Math.min(MAX_ZOMBIES, Math.max(80, Math.round(80 * Math.sqrt(area / REF_AREA))));
+    containerCount = Math.min(48, Math.max(12, Math.round(12 * area / REF_AREA)));
+
     const city = new THREE.Mesh(
       cityGeometry(data),
       new THREE.MeshStandardMaterial({ color: 0x8a8478, roughness: 1, side: THREE.DoubleSide }),
@@ -627,14 +642,17 @@ fetch('./data/block.json')
     scene.add(city);
 
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(760, 760),
+      new THREE.PlaneGeometry(
+        bounds.maxX - bounds.minX + 320,
+        bounds.maxY - bounds.minY + 320,
+      ),
       new THREE.MeshStandardMaterial({ color: 0x40484a, roughness: 1 }),
     );
     ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.02;
+    ground.position.set((bounds.minX + bounds.maxX) / 2, -0.02, -(bounds.minY + bounds.maxY) / 2);
     scene.add(ground);
 
-    for (let i = 0; i < CONTAINER_COUNT; i++) {
+    for (let i = 0; i < containerCount; i++) {
       const mesh = new THREE.Mesh(containerGeo, containerMat);
       mesh.position.set(0, 0.26, 0);
       scene.add(mesh);
@@ -653,7 +671,7 @@ fetch('./data/block.json')
       '開始',
     );
 
-    if (new URLSearchParams(location.search).has('debug')) {
+    if (params.has('debug')) {
       (window as unknown as { __modu: unknown }).__modu = {
         state: () => ({
           phase, hp, battery, stamina, timeLeft,
@@ -676,7 +694,7 @@ fetch('./data/block.json')
       };
     }
 
-    if (new URLSearchParams(location.search).has('play')) start();
+    if (params.has('play')) start();
 
     requestAnimationFrame(animate);
   })
