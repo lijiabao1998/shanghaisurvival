@@ -2,6 +2,8 @@
 export const ITEM_IDS = ['water', 'food', 'medkit', 'battery', 'ammo', 'pistol'] as const;
 export type ItemId = typeof ITEM_IDS[number];
 export type Inventory = Record<ItemId, number>;
+export type CacheKind = 'water' | 'food' | 'ammo';
+export type SavedContainer = { x: number; z: number; looted: boolean; cacheKind?: CacheKind; cacheDay?: number };
 export type Outbreak = { hydration: number; satiety: number; exposure: number };
 export type Snapshot = {
   version: 1; mapId: string; characterId: string; elapsed: number;
@@ -9,7 +11,7 @@ export type Snapshot = {
   inventory: Inventory; stash: Inventory; ammo: number;
   hasPistol: boolean; pistolEquipped: boolean; position: [number, number];
   shelterId: string; inShelter: boolean; looted: number; kills: number;
-  containers: { x: number; z: number; looted: boolean }[];
+  containers: SavedContainer[];
   enemies: { x: number; z: number; hp: number; state: 'sleep' | 'wander' | 'chase' | 'dead'; faction: string }[];
   status: 'alive' | 'dead'; restCount: number;
 };
@@ -24,6 +26,8 @@ const text = (v: unknown): v is string => typeof v === 'string' && v.length > 0 
 const meter = (v: unknown): v is number => numberIn(v, 0, 100);
 const coordinate = (v: unknown): v is number => numberIn(v, -10_000_000, 10_000_000);
 const inventoryValid = (v: unknown): v is Inventory => isRecord(v) && Object.keys(v).length === ITEM_IDS.length && ITEM_IDS.every(id => count(v[id]));
+const cacheKindValid = (v: unknown): v is CacheKind => v === 'water' || v === 'food' || v === 'ammo';
+const cacheDayValid = (v: unknown): v is number => count(v) && v >= 1;
 const outbreakValid = (v: unknown): v is Outbreak => isRecord(v) && meter(v.hydration) && meter(v.satiety) && meter(v.exposure);
 
 export function emptyInventory(): Inventory {
@@ -46,7 +50,9 @@ export function parseSnapshot(raw: string, mapId: string): Snapshot | null {
       || (s.status === 'dead' && s.hp !== 0)
       || !Array.isArray(s.containers) || s.containers.length > 1000
       || !Array.isArray(s.enemies) || s.enemies.length > 1000) return null;
-    if (!s.containers.every(c => isRecord(c) && coordinate(c.x) && coordinate(c.z) && typeof c.looted === 'boolean')) return null;
+    if (!s.containers.every(c => isRecord(c) && coordinate(c.x) && coordinate(c.z) && typeof c.looted === 'boolean'
+      && (!('cacheKind' in c) && !('cacheDay' in c)
+        || cacheKindValid(c.cacheKind) && cacheDayValid(c.cacheDay) && c.cacheDay <= dayPhase(s.elapsed as number).day))) return null;
     if (!s.enemies.every(e => isRecord(e) && coordinate(e.x) && coordinate(e.z) && meter(e.hp)
       && typeof e.state === 'string' && ['sleep', 'wander', 'chase', 'dead'].includes(e.state) && text(e.faction)
       && (e.state === 'dead' ? e.hp === 0 : e.hp > 0))) return null;
@@ -95,4 +101,31 @@ export function dayPhase(elapsed: number): { day: number; hour: number; daylight
   const hours = 8 + seconds / 30;
   const hour = hours % 24;
   return { day: Math.floor(hours / 24) + 1, hour, daylight: hour <= 6 || hour >= 18 ? 0 : Math.sin((hour - 6) / 12 * Math.PI) };
+}
+
+/** Refresh each marked supply cache at most once per calendar day. Never stockpile missed days. */
+export function replenishCaches(containers: SavedContainer[], elapsed: number): number {
+  if (!numberIn(elapsed, 0, MAX_SECONDS)) return 0;
+  const day = dayPhase(elapsed).day;
+  if (day > MAX_COUNT) return 0;
+  let replenished = 0;
+  for (const c of containers) {
+    if (!cacheKindValid(c.cacheKind) || !cacheDayValid(c.cacheDay) || typeof c.looted !== 'boolean' || day <= c.cacheDay) continue;
+    c.looted = false;
+    c.cacheDay = day;
+    replenished++;
+  }
+  return replenished;
+}
+
+/** Claim a cache once, atomically; a full/corrupt bag must not consume its supply. */
+export function applyCacheLoot(inventory: Inventory, container: SavedContainer): boolean {
+  if (!cacheKindValid(container.cacheKind) || !cacheDayValid(container.cacheDay)
+    || container.looted !== false || !inventoryValid(inventory)) return false;
+  const id = container.cacheKind;
+  const amount = id === 'ammo' ? 1 : 2;
+  if (inventory[id] > MAX_COUNT - amount) return false;
+  inventory[id] += amount;
+  container.looted = true;
+  return true;
 }

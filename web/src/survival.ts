@@ -1,5 +1,5 @@
 import { viewHeight } from './view';
-import { emptyInventory, loadSnapshot, saveSnapshot, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
+import { emptyInventory, replenishCaches, applyCacheLoot, loadSnapshot, saveSnapshot, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
 import { selectShelter, type Shelter } from './shelter';
 import { installTouchControls } from './touch-controls';
 import { sweepMove, segmentClear } from './combat';
@@ -295,7 +295,9 @@ let bounds = { minX: 0, maxX: 250, minY: 0, maxY: 250 };
 let px = 0, pz = 0, py = 0, vy = 0, facing = 0;
 let grounded = true;
 
-type Container = { x: number; z: number; mesh: THREE.Mesh; looted: boolean };
+type Container = { x: number; z: number; mesh: THREE.Mesh; looted: boolean; cacheKind?: 'water'|'food'|'ammo'; cacheDay?: number };
+const CACHE_RULES = {water:{name:'藍色互助水箱',seconds:2.5,noise:30,color:0x45cce3},food:{name:'綠色食物交接箱',seconds:3.5,noise:45,color:0x84c75a},ammo:{name:'紅色封鎖物資箱',seconds:5,noise:70,color:0xe65d4d}};
+const cacheMaterials=Object.fromEntries(Object.entries(CACHE_RULES).map(([id,r])=>[id,new THREE.MeshStandardMaterial({color:r.color,emissive:r.color,emissiveIntensity:.8})])) as Record<'water'|'food'|'ammo',THREE.MeshStandardMaterial>;
 const containers: Container[] = [];
 let containerCount = 12;
 const containerGeo = new THREE.BoxGeometry(0.8, 0.75, 0.6);
@@ -554,8 +556,8 @@ function updatePlayer(dt: number) {
     const dz = (right + fwd) / len;
     const nx = px + dx * speed * dt;
     const nz = pz + dz * speed * dt;
-    if (!collides(nx, pz, 0.36)) px = nx;
-    if (!collides(px, nz, 0.36)) pz = nz;
+    if (nx>=bounds.minX-8&&nx<=bounds.maxX+8&&!collides(nx, pz, 0.36)) px = nx;
+    if (nz>=bounds.minY-8&&nz<=bounds.maxY+8&&!collides(px, nz, 0.36)) pz = nz;
     // Model faces +Z, and world z is -data y.
     if (!mouseAimActive && !touchActionHeld) facing = Math.atan2(dx, -dz);
     movedSpeed = speed;
@@ -816,22 +818,29 @@ function updateLoot(dt: number) {
   }
 
   el.prompt.classList.add('on');
+  const rule=lootTarget.cacheKind?CACHE_RULES[lootTarget.cacheKind]:null;
+  el.promptText.textContent=rule?`${rule.name}｜按住${rule.seconds}秒，聲響${rule.noise}m`:'按住 E 搜刮';
   const holding = keys.has('KeyE');
   if (holding) {
     if (action !== 'loot') { action = 'loot'; actionT = 0; actionDur = 1e9; }
-    lootProgress += dt / LOOT_SECONDS;
+    lootProgress += dt / (rule?.seconds??LOOT_SECONDS);
     lootNoiseTimer -= dt;
-    if (lootNoiseTimer <= 0) { lootNoiseTimer = 0.7; makeNoise(px, pz, HEAR_LOOT); }
+    if (lootNoiseTimer <= 0) { lootNoiseTimer = 0.7; makeNoise(px, pz, rule?.noise??HEAR_LOOT); }
     setRing(lootProgress);
 
     if (lootProgress >= 1) {
-      lootTarget.looted = true;
-      lootTarget.mesh.material = containerUsed;
-      const item = rollLoot();
-      inventory[item] += 1;
-      if (item === 'pistol') { hasPistol = true; ammo += 6; }
+      if(lootTarget.cacheKind) {
+        const kind=lootTarget.cacheKind;
+        if(!applyCacheLoot(inventory,lootTarget)){flashHint('背包數量已滿，未領走補給。');lootProgress=0;return;}
+        flashHint(`${CACHE_RULES[kind].name}：取得${kind==='ammo'?'1盒彈藥':'2份'+ITEMS[kind].label}。此點今天已領完。`);
+      } else {
+        lootTarget.looted = true;
+        const item = rollLoot();inventory[item] += 1;
+        if(item==='pistol'){hasPistol=true;ammo+=6;}
+        flashHint(`撿到 ${ITEMS[item].label}（${ITEMS[item].hint}）`);
+      }
+      paintContainer(lootTarget);
       looted += 1;
-      flashHint(`撿到 ${ITEMS[item].label}（${ITEMS[item].hint}）`);
       updateBag();
       lootTarget = null;
       lootProgress = 0;
@@ -880,8 +889,8 @@ function updateHud() {
   mission.textContent = bagOpen ? '背包已開啟（暫停）｜點物品使用，Tab / Esc 返回' : paused ? '已暫停｜Esc 繼續' : `接應點 ${Math.round(distance)}m · 搜刮 ${Math.min(looted, 3)}/3 · ${elapsed >= 480 ? '窗口已關閉' : elapsed >= 420 ? '窗口開啟，回綠圈按 E' : `接應倒數 ${Math.ceil(420 - elapsed)} 秒`} · 暴露須低於85`;
   if(mode==='sandbox') {
     const day=dayPhase(elapsed);
-    mission.textContent = inShelter ? '安全屋｜存放物資、休息或返回街區' : bagOpen ? '背包（暫停）｜點擊使用／裝備' : paused ? '已暫停｜Esc 繼續' : `第 ${day.day} 天 · 安全屋 ${shelter ? Math.round(Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])) : '?'}m · 已搜 ${looted}/${containers.length} · 回家存放補給`;
-    radio.textContent = saveWarning || (inShelter ? '休息花費庫存1水＋1罐頭，時間推進2分鐘。物資有限，不會重生。' : day.daylight<.25 ? '夜間感染者更敏銳。慢行、關燈；帶回一水一食便能在家休息。' : '互助台：藍色門標是你的安全屋。物資與已搜地點自動保存。');
+    mission.textContent = inShelter ? '安全屋｜存放物資、休息或返回街區' : bagOpen ? '背包（暫停）｜點擊使用／裝備' : paused ? '已暫停｜Esc 繼續' : `第 ${day.day} 天 · 安全屋 ${shelter ? Math.round(Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])) : '?'}m · 已搜 ${looted}次 · ${nearestSupplyHint()}`;
+    radio.textContent = saveWarning || (inShelter ? '休息花費庫存1水＋1罐頭，時間推進2分鐘。物資有限，不會重生。' : day.daylight<.25 ? '夜間感染者更敏銳。慢行、關燈；帶回一水一食便能在家休息。' : '互助台：藍門回家；水／食／封鎖物資箱每日交接一次，普通搜刮點不重生。紅箱聲響最遠。');
   } else radio.textContent = [...BROADCASTS].reverse().find(([at]) => elapsed >= at)?.[1] ?? '';
   if (evacRing) (evacRing.material as THREE.MeshBasicMaterial).color.setHex(elapsed >= 420 && elapsed < 480 ? 0x9fffc2 : 0x397959);
   const t = mode==='sandbox' ? (dayPhase(elapsed).hour-2)/3 : 1 - Math.max(0, timeLeft) / NIGHT_SECONDS;
@@ -982,8 +991,10 @@ function resetWorld() {
 
   for (const c of containers) {
     const spot = placeContainer();
+    delete c.cacheKind;delete c.cacheDay;
     c.x = spot.x; c.z = spot.z; c.looted = false;
     c.mesh.position.set(c.x, 0.26, -c.z);
+    c.mesh.scale.set(1,1,1);
     c.mesh.material = containerMat;
     c.mesh.visible = true;
   }
@@ -1050,6 +1061,7 @@ function start(chosen: CharSpec, resume: Snapshot | null = null) {
   moodleKey = '';
   resetWorld();
   if(resume) restoreCampaign(resume);
+  if(mode==='sandbox')installSupplySites();
   updateHud();
   updateBag();
   el.hint.textContent = HINT_DEFAULT;
@@ -1154,7 +1166,7 @@ function buildMenu() {
 function campaignElapsed() { return elapsed; }
 function snapshotCampaign(): Snapshot {
   return { version:1,mapId:dataUrl,characterId:spec.id,elapsed,hp:phase==='lose'?0:hp,stamina,battery,outbreak:{...outbreak},inventory:{...inventory},stash:{...stash},ammo,hasPistol,pistolEquipped,position:[px,pz],shelterId:shelter?.id??'',inShelter,looted,kills,restCount,status:phase==='lose'?'dead':'alive',
-    containers:containers.map(c=>({x:c.x,z:c.z,looted:c.looted})),
+    containers:containers.map(c=>({x:c.x,z:c.z,looted:c.looted,...(c.cacheKind?{cacheKind:c.cacheKind,cacheDay:c.cacheDay}:{})})),
     enemies:zombies.map(z=>({x:z.x,z:z.z,hp:Math.max(0,z.hp),state:z.state,faction:z.faction.id})) };
 }
 function persistCampaign() {
@@ -1162,14 +1174,45 @@ function persistCampaign() {
   try { if(!saveSnapshot(localStorage,saveKey,snapshotCampaign()))saveWarning='存檔失敗：儲存空間不足或被封鎖，請勿關閉本頁。'; else saveWarning=''; }
   catch {saveWarning='存檔失敗：瀏覽器封鎖儲存，請勿關閉本頁。';}
 }
+function isCompatibleSave(s:Snapshot|null):s is Snapshot {
+  if(!s||s.status!=='alive'||s.hp<=0||s.shelterId!==shelter?.id||s.containers.length!==containers.length||s.enemies.length!==zombies.length||!ROSTER.some(c=>c.id===s.characterId))return false;
+  const onMap=(x:number,z:number)=>x>=bounds.minX-10&&x<=bounds.maxX+10&&z>=bounds.minY-10&&z<=bounds.maxY+10;
+  return s.containers.every(c=>onMap(c.x,c.z)&&!collides(c.x,c.z,.25))&&s.enemies.every((e,i)=>onMap(e.x,e.z)&&e.faction===profileFor(i).id);
+}
 function restoreCampaign(s:Snapshot) {
   elapsed=s.elapsed;timeLeft=NIGHT_SECONDS-elapsed;hp=s.hp;stamina=s.stamina;battery=s.battery;
   outbreak={...s.outbreak};Object.assign(inventory,s.inventory);stash={...s.stash};ammo=s.ammo;hasPistol=s.hasPistol;pistolEquipped=s.pistolEquipped;
-  [px,pz]=s.position;inShelter=s.inShelter;looted=s.looted;kills=s.kills;restCount=s.restCount;
-  s.containers.forEach((c,i)=>{Object.assign(containers[i],c);containers[i].mesh.position.set(c.x,.26,-c.z);containers[i].mesh.material=c.looted?containerUsed:containerMat;});
+  [px,pz]=s.position;
+  if(shelter&&(px<bounds.minX-8||px>bounds.maxX+8||pz<bounds.minY-8||pz>bounds.maxY+8||collides(px,pz,.36))){[px,pz]=shelter.outside;saveWarning='舊存檔位置在街區外或牆內，已移回安全屋門口；物資與進度保留。';}
+  inShelter=s.inShelter;looted=s.looted;kills=s.kills;restCount=s.restCount;
+  s.containers.forEach((c,i)=>{delete containers[i].cacheKind;delete containers[i].cacheDay;Object.assign(containers[i],c);paintContainer(containers[i]);});
   s.enemies.forEach((z,i)=>{Object.assign(zombies[i],z,{faction:profileFor(i),hx:z.x,hz:z.z,wx:z.x,wz:z.z});zombies[i].mesh.visible=z.state!=='dead';zombies[i].mesh.position.set(z.x,0,-z.z);});
   if(inShelter&&shelter)[px,pz]=shelter.inside;
   if(playerRoot)playerRoot.position.set(px,0,-pz);syncEyes();updateDaylight();
+}
+function paintContainer(c:Container) {
+  c.mesh.position.set(c.x,c.cacheKind ? .55 : .26,-c.z);
+  c.mesh.scale.set(1,c.cacheKind?1.6:1,1);
+  c.mesh.material=c.looted?containerUsed:c.cacheKind?cacheMaterials[c.cacheKind]:containerMat;
+}
+function installSupplySites() {
+  // Migrate old v1 in place: retain every box's looted flag; never refill during upgrade.
+  if(!containers.some(c=>c.cacheKind)) {
+    const ordered=[...containers].sort((a,b)=>Math.hypot(a.x-block.spawn[0],a.z-block.spawn[1])-Math.hypot(b.x-block.spawn[0],b.z-block.spawn[1]));
+    (['water','food','ammo'] as const).forEach((kind,i)=>{const c=ordered[i];if(c){c.cacheKind=kind;c.cacheDay=dayPhase(elapsed).day;}});
+  }
+  containers.forEach(paintContainer);
+}
+function refreshSupplySites() {
+  if(mode!=='sandbox')return;
+  if(replenishCaches(containers,elapsed)>0){containers.forEach(paintContainer);persistCampaign();flashHint('新的一天：三處交接箱已補給。普通搜刮點仍然耗盡。');}
+}
+function nearestSupplyHint() {
+  const c=containers.filter(c=>c.cacheKind&&!c.looted).sort((a,b)=>Math.hypot(a.x-px,a.z-pz)-Math.hypot(b.x-px,b.z-pz))[0];
+  if(!c)return '今日交接箱已領完，返回安全屋整理';
+  const right=(c.x-px)+(c.z-pz),up=(c.z-pz)-(c.x-px);
+  const dir=(Math.abs(up)>3?(up>0?'上':'下'):'')+(Math.abs(right)>3?(right>0?'右':'左'):'');
+  return `${ITEMS[c.cacheKind!].label}交接 ${Math.round(Math.hypot(c.x-px,c.z-pz))}m ${dir}`;
 }
 function updateDaylight() {
   const light=dayPhase(elapsed).daylight;
@@ -1210,7 +1253,7 @@ function showShelter() {
   }
   shelterPanel.append(controls);
   const rest=document.createElement('button');rest.textContent='休息：庫存 1水＋1罐頭';rest.disabled=stash.water<1||stash.food<1;
-  rest.onclick=()=>{const state={hp,stamina,outbreak,inventory,stash,elapsed,restCount};if(restAtShelter(state)){hp=state.hp;stamina=state.stamina;elapsed=state.elapsed;restCount=state.restCount;updateDaylight();persistCampaign();showShelter();flashHint('休息完成，補充體力與水分；街區時間已前進。');}};
+  rest.onclick=()=>{const state={hp,stamina,outbreak,inventory,stash,elapsed,restCount};if(restAtShelter(state)){hp=state.hp;stamina=state.stamina;elapsed=state.elapsed;restCount=state.restCount;updateDaylight();refreshSupplySites();persistCampaign();showShelter();flashHint('休息完成，補充體力與水分；街區時間已前進。');}};
   const exit=document.createElement('button');exit.textContent='返回街區';exit.onclick=leaveShelter;
   shelterPanel.append(rest,exit);
   const status=document.createElement('p');status.textContent=`HP ${Math.round(hp)} · 水分 ${Math.round(outbreak.hydration)} · 飽足 ${Math.round(outbreak.satiety)} · 第${dayPhase(elapsed).day}天 ${saveWarning}`;shelterPanel.append(status);
@@ -1225,8 +1268,8 @@ function installCampaignUI() {
   sand.onclick=()=>{mode='sandbox';sand.className='selected';quick.className='';};quick.onclick=()=>{mode='quick';quick.className='selected';sand.className='';};
   if(!shelter){mode='quick';quick.className='selected';sand.textContent='此地圖未找到安全門口';}
   modes.append(sand,quick);
-  const valid=savedGame&&savedGame.status==='alive'&&savedGame.hp>0&&savedGame.shelterId===shelter?.id&&savedGame.containers.length===containers.length&&savedGame.enemies.length===zombies.length&&ROSTER.some(c=>c.id===savedGame!.characterId);
-  if(valid){const resume=document.createElement('button');resume.textContent=`繼續第${dayPhase(savedGame!.elapsed).day}天存檔`;resume.onclick=()=>{let current:Snapshot|null=null;try{current=loadSnapshot(localStorage,saveKey,dataUrl);}catch{}if(!current||current.status!=='alive'||current.hp<=0){resume.disabled=true;resume.textContent='存檔已失效';return;}mode='sandbox';modes.hidden=true;start(ROSTER.find(c=>c.id===current!.characterId)??ROSTER[0],current);};modes.append(resume);}
+  const valid=isCompatibleSave(savedGame);
+  if(valid){const resume=document.createElement('button');resume.textContent=`繼續第${dayPhase(savedGame!.elapsed).day}天存檔`;resume.onclick=()=>{let current:Snapshot|null=null;try{current=loadSnapshot(localStorage,saveKey,dataUrl);}catch{}if(!isCompatibleSave(current)){resume.disabled=true;resume.textContent='存檔已失效';return;}mode='sandbox';modes.hidden=true;start(ROSTER.find(c=>c.id===current!.characterId)??ROSTER[0],current);};modes.append(resume);}
   const note=document.createElement('p');note.textContent=savedGame?.status==='dead'?'上一位倖存者已死亡；新沙盒會重設世界與庫存。':valid?'選角後開始新沙盒會覆寫此瀏覽器的舊進度；快速挑戰不影響存檔。':'沙盒：找藍色門標，按E／手機「家」進入。先帶一水一罐頭回家。';
   el.roster.before(modes,note);
   el.overlay.querySelector('.sub')!.textContent='上海病毒爆發。選角色後探索街區、搜刮並返回自己的安全屋；或選擇獨立八分鐘撤離挑戰。';
@@ -1239,7 +1282,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden&&phase==='p
 function frame(dt: number) {
   if (phase === 'play' && !paused && !bagOpen && !inShelter) {
     if(mode==='quick')timeLeft -= dt;
-    else { elapsed += dt; timeLeft = NIGHT_SECONDS - elapsed; updateDaylight(); }
+    else { elapsed += dt; timeLeft = NIGHT_SECONDS - elapsed; updateDaylight(); refreshSupplySites(); }
     const nearbyThreat = zombies.some(z => z.faction.id === 'infected' && z.state !== 'dead' && Math.hypot(z.x - px, z.z - pz) < 4 && canSee(z.x, z.z, px, pz));
     stepOutbreak(outbreak, dt, { running: !sneaking && stamina > 1 && action === 'none' && ['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].some(k => keys.has(k)) && (keys.has('ShiftLeft') || keys.has('ShiftRight')), nearbyThreat });
     if (outbreak.hydration <= 0 || outbreak.satiety <= 0) hp = Math.max(0, hp - dt * 1.5);

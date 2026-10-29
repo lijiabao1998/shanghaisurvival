@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { emptyInventory, parseSnapshot, saveSnapshot, loadSnapshot, transferItem, restAtShelter, dayPhase } from '../src/campaign.ts';
+import { emptyInventory, parseSnapshot, saveSnapshot, loadSnapshot, transferItem, restAtShelter, dayPhase, replenishCaches, applyCacheLoot } from '../src/campaign.ts';
 let passed = 0;
 const test = (name, run) => { run(); console.log(`PASS ${name}`); passed++; };
 const fresh = () => ({ version:1, mapId:'block.json', characterId:'guard', elapsed:10, hp:75, stamina:40, battery:80,
@@ -62,5 +62,52 @@ test('resource mutations persist without duplication across reload',()=>{
 test('day phase starts at 08 and changes at midnight without resetting elapsed',()=>{
  assert.equal(dayPhase(0).hour,8);assert.equal(dayPhase(0).day,1);assert.equal(dayPhase(480).hour,0);assert.equal(dayPhase(480).day,2);
  assert.equal(dayPhase(720).hour,8);assert.equal(dayPhase(720).day,2);assert.equal(dayPhase(300).daylight,0);assert.ok(dayPhase(120).daylight>.999);assert.deepEqual(dayPhase(NaN),dayPhase(0));
+});
+
+test('old version 1 without cache fields still loads unchanged',()=>{
+ const old=fresh(); const loaded=parseSnapshot(encode(old),'block.json'); assert.deepEqual(loaded,old); assert.equal('cacheKind' in loaded.containers[0],false);
+});
+test('cache kind and day must coexist and cannot claim a future or invalid day',()=>{
+ for(const fields of [{cacheKind:'water'},{cacheDay:1},{cacheKind:'fake',cacheDay:1},{cacheKind:'food',cacheDay:0},{cacheKind:'food',cacheDay:1.5},{cacheKind:'ammo',cacheDay:2},{cacheKind:'water',cacheDay:1000001},{cacheKind:null,cacheDay:null}]) {
+  const s=fresh();Object.assign(s.containers[0],fields);assert.equal(parseSnapshot(encode(s),'block.json'),null);
+ }
+ const s=fresh();Object.assign(s.containers[0],{cacheKind:'water',cacheDay:1});assert.deepEqual(parseSnapshot(encode(s),'block.json'),s);
+});
+test('each cache grants its fixed resource once and conserves other items',()=>{
+ for(const [id,amount] of [['water',2],['food',2],['ammo',1]]) {
+  const inv=emptyInventory(),c={x:1,z:2,looted:false,cacheKind:id,cacheDay:1};
+  assert.equal(applyCacheLoot(inv,c),true);assert.equal(inv[id],amount);assert.equal(c.looted,true);
+  assert.equal(applyCacheLoot(inv,c),false);assert.equal(inv[id],amount);
+ }
+});
+test('same-day reload cannot repeat a claimed cache',()=>{
+ const s=fresh();Object.assign(s.containers[0],{looted:false,cacheKind:'food',cacheDay:1});
+ assert.ok(applyCacheLoot(s.inventory,s.containers[0])); const store=memory();assert.ok(saveSnapshot(store,'save',s));
+ const loaded=loadSnapshot(store,'save','block.json');assert.equal(replenishCaches(loaded.containers,loaded.elapsed),0);
+ assert.equal(applyCacheLoot(loaded.inventory,loaded.containers[0]),false);assert.equal(loaded.inventory.food,2);
+});
+test('rest crossing midnight refreshes cache once but never ordinary depletion',()=>{
+ const s=fresh();s.elapsed=400;Object.assign(s.containers[0],{cacheKind:'water',cacheDay:1});s.containers[1].looted=true;
+ assert.ok(restAtShelter(s));assert.equal(dayPhase(s.elapsed).day,2);assert.equal(replenishCaches(s.containers,s.elapsed),1);
+ assert.equal(s.containers[0].looted,false);assert.equal(s.containers[0].cacheDay,2);assert.equal(s.containers[1].looted,true);
+ assert.equal(replenishCaches(s.containers,s.elapsed),0);
+});
+test('missed days only refresh once and time rollback does not replenish',()=>{
+ const c={x:0,z:0,looted:true,cacheKind:'ammo',cacheDay:1};assert.equal(replenishCaches([c],480+720*10),1);
+ assert.equal(c.cacheDay,12);const inv=emptyInventory();assert.ok(applyCacheLoot(inv,c));assert.equal(inv.ammo,1);
+ assert.equal(replenishCaches([c],480),0);assert.equal(c.looted,true);assert.equal(replenishCaches([c],480+720*10),0);
+});
+test('overflow or corrupt inventory never consumes a cache',()=>{
+ for(const [id,n] of [['water',999999],['food',1000000],['ammo',1000000],['water',-1],['water',0.5]]) {
+  const inv={...emptyInventory(),[id]:n},c={x:0,z:0,looted:false,cacheKind:id,cacheDay:1};const before=encode([inv,c]);
+  assert.equal(applyCacheLoot(inv,c),false);assert.equal(encode([inv,c]),before);
+ }
+ const inv={...emptyInventory(),water:999998},c={x:0,z:0,looted:false,cacheKind:'water',cacheDay:1};assert.ok(applyCacheLoot(inv,c));assert.equal(inv.water,1000000);
+});
+test('ordinary and malformed caches never mutate through cache APIs',()=>{
+ for(const c of [{x:0,z:0,looted:true},{x:0,z:0,looted:false,cacheKind:'water'},{x:0,z:0,looted:false,cacheKind:'food',cacheDay:0}]) {
+  const inv=emptyInventory(),before=encode([inv,c]);assert.equal(replenishCaches([c],2000),0);assert.equal(applyCacheLoot(inv,c),false);assert.equal(encode([inv,c]),before);
+ }
+ const c={x:0,z:0,looted:true,cacheKind:'food',cacheDay:1};for(const elapsed of [-1,NaN,Infinity])assert.equal(replenishCaches([c],elapsed),0);assert.equal(c.looted,true);
 });
 console.log(`${passed} campaign tests passed`);
