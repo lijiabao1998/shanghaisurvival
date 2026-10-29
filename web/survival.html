@@ -150,6 +150,10 @@
     #radio { color:#aebdb2; font-size:11px; line-height:1.8; margin-top:5px; }
     #needs { font-size:11px; color:#b7d8c2; margin-top:10px; line-height:1.8; }
     @media(max-width:600px) { #dispatch { bottom:80px; } #side { display:none; } }
+    #side .row { width:100%; font-family:inherit; color:inherit; background:none; border:0; cursor:pointer; text-align:left; }
+    #side { pointer-events:auto; } #side .side-title button { float:right; color:inherit; background:none; border:0; cursor:pointer; }
+    #side.bag-open { display:block; z-index:40; width:min(330px,calc(100vw - 48px)); right:24px; top:100px; padding:18px; background:#111d19; max-height:60vh; overflow:auto; }
+    @media(any-pointer:coarse) { #dispatch { bottom:166px; padding:8px 12px; } #hint { display:none; } #hud { top:65px; } #side:not(.bag-open) { display:none; } }
   </style>
 </head>
 <body>
@@ -169,7 +173,7 @@
   </div>
 
   <div id="side" class="panel">
-    <div class="side-title">背包</div>
+    <div class="side-title">背包 · 點物品使用 <button onclick="window.dispatchEvent(new KeyboardEvent('keydown',{code:'Tab'}))" aria-label="關閉背包">✕</button></div>
     <div id="bag"></div>
     <div class="sep"></div>
     <div id="tally"><span id="tally-kill">擊殺 0</span><span id="tally-loot">搜刮 0</span></div>
@@ -183,18 +187,20 @@
     <span id="prompt-text">搜刮</span>
   </div>
 
-  <div id="hint"><b>WASD</b> 移動 · <b>Shift</b> 跑 · <b>空白</b> 跳 · <b>T</b> 互助交換　<b>C</b> 潛行　<b>R</b> 接應　<b>Esc</b> 暫停　<b>J</b> 揮擊 · <b>K</b> 投擲 · <b>G</b> 開槍 · <b>E</b> 搜刮</div>
+  <div id="hint">WASD 移動 · Shift 跑 · C 潛行 · 左鍵攻擊 · E 互動 · Tab 背包 · Esc 暫停</div>
 
   <div id="overlay" class="on">
     <div class="card">
       <h1>上海倖存者</h1>
-      <p class="sub">上海，凌晨兩點。不明病毒爆發，街區斷電。<br>搜刮至少三處、維持水分與飽足，最後一分鐘回綠圈按 R 接應。<br>感染者追逐聲光，軍方封鎖、警察警戒、掠奪者搶補給。<br>綠圈的互助者可按 T 用罐頭換水；所有人物及疫情皆為虛構。</p>
+      <p class="sub">上海，凌晨兩點。不明病毒爆發，街區斷電。<br>搜刮至少三處、維持水分與飽足，最後一分鐘回綠圈按 E 接應。<br>感染者追逐聲光，軍方封鎖、警察警戒、掠奪者搶補給。<br>綠圈的互助者可按 E 用罐頭換水；所有人物及疫情皆為虛構。</p>
       <div id="roster" class="roster"></div>
       <div id="pick" class="empty">選一個角色。</div>
       <button id="ov-btn" disabled>開始</button>
       <div class="keys" id="legend">
-        <b>WASD</b> 移動　<b>Shift</b> 跑　<b>空白</b> 跳　<b>F</b> 手電筒　<b>E</b> 按住搜刮<br>
-        <b>T</b> 互助交換　<b>C</b> 潛行　<b>R</b> 接應　<b>Esc</b> 暫停　<b>J</b> 揮擊　<b>K</b> 投擲　<b>G</b> 開槍　｜　<b>1</b> 水　<b>2</b> 罐頭　<b>3</b> 醫療包　<b>4</b> 電池
+        <b>WASD</b> 移動　<b>Shift</b> 跑　<b>C</b> 潛行　<b>滑鼠</b> 瞄準／左鍵攻擊<br>
+        <b>E</b> 互動／按住搜刮　<b>Q</b> 推開　<b>F</b> 手電筒　<b>Tab / I</b> 背包　<b>Esc</b> 暫停<br>
+        手機：搖桿推滿奔跑，右側情境鍵互動／攻擊，蹲鍵切換潛行。空白鍵目前是跳躍，尚未做翻越。<br>
+        未實作地圖、避難所、封門、睡眠或時間倍率；不顯示不可用按鍵。
       </div>
     </div>
   </div>

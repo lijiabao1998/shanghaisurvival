@@ -1,3 +1,4 @@
+import { installTouchControls } from './touch-controls';
 import { profileFor, type FactionProfile } from './factions';
 import { createOutbreak, stepOutbreak, applySupply, canEvacuate } from './outbreak';
 /**
@@ -24,6 +25,15 @@ const NIGHT_SECONDS = 480;
 let outbreak = createOutbreak();
 let sneaking = false;
 let paused = false;
+let bagOpen = false;
+let attackHeld = false;
+let touchActionHeld = false;
+let pistolEquipped = false;
+let mouseAimActive = false;
+const inputAim = new THREE.Vector2();
+const aimRay = new THREE.Raycaster();
+const groundPlane = new THREE.Plane(new THREE.Vector3(0,1,0),0);
+const aimHit = new THREE.Vector3();
 let evacRing: THREE.Mesh | null = null;
 const mission = document.querySelector<HTMLElement>('#mission')!;
 const radio = document.querySelector<HTMLElement>('#radio')!;
@@ -32,7 +42,7 @@ const BROADCASTS = [
   [0, '02:00｜社區互助台：不明病毒爆發，感染者會追逐聲光。先搜集三處補給，再回綠圈接應點。'],
   [120, '02:45｜街區消息：供水已中斷。保留飲水與罐頭，C 潛行避開感染者。'],
   [270, '03:41｜社區互助台：接應隊正在清理通道。保持距離，暴露壓力太高時先脫離追逐。'],
-  [420, '04:37｜接應窗口開啟：帶回搜刮紀錄，回綠圈按 R 撤離。05:00 後通道關閉。'],
+  [420, '04:37｜接應窗口開啟：帶回搜刮紀錄，回綠圈按 E 撤離。05:00 後通道關閉。'],
 ] as const;
 const MAX_ZOMBIES = 240;
 const REF_AREA = 250 * 250;
@@ -71,6 +81,7 @@ type GameBlock = Block & { landmarks?: Landmark[]; shops?: Shop[] };
 const canvas = document.querySelector<HTMLCanvasElement>('#c')!;
 const q = <T extends Element>(sel: string) => document.querySelector<T>(sel)!;
 const el = {
+  side: q<HTMLElement>('#side'),
   clock: q<HTMLElement>('#clock'),
   phase: q<HTMLElement>('#phase'),
   nightFill: q<HTMLElement>('#night-fill'),
@@ -329,23 +340,15 @@ function canSee(ax: number, az: number, bx: number, bz: number): boolean {
 const keys = new Set<string>();
 const ATTACK_KEYS = ['KeyJ', 'KeyK', 'KeyG'];
 addEventListener('keydown', e => {
-  if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space'].includes(e.code)) e.preventDefault();
+  if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'Tab'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   keys.add(e.code);
   if (phase !== 'play') return;
-  if (e.code === 'Escape') { paused = !paused; keys.clear(); return; }
+  if (e.code === 'Escape') { if (bagOpen) toggleBag(false); else paused = !paused; keys.clear(); attackHeld = false; touchActionHeld = false; return; }
+  if (e.code === 'Tab' || e.code === 'KeyI') { toggleBag(!bagOpen); return; }
   if (paused) return;
-  if (e.code === 'KeyT') {
-    if (Math.hypot(px - block.spawn[0], pz - block.spawn[1]) > 5) flashHint('互助者在接應綠圈等你，靠近後按 T。');
-    else if (inventory.food < 1) flashHint('互助者：一份罐頭換一瓶水，帶補給回來吧。');
-    else { inventory.food--; inventory.water++; updateBag(); flashHint('互助者：罐頭收下，這瓶水給你。別把所有倖存者都當敵人。'); }
-  }
+  if (e.code === 'KeyE') contextualInteract();
   if (e.code === 'KeyC') sneaking = !sneaking;
-  if (e.code === 'KeyR') {
-    const distance = Math.hypot(px - block.spawn[0], pz - block.spawn[1]);
-    if (canEvacuate(outbreak, NIGHT_SECONDS - timeLeft, looted, distance)) win();
-    else flashHint('未達接應條件：最後一分鐘、搜刮 3 處、距綠圈 5m 內、暴露低於 85。');
-  }
   if (e.code === 'KeyF') {
     lightOn = !lightOn && battery > 0;
     if (torch) torch.visible = lightOn;
@@ -354,14 +357,62 @@ addEventListener('keydown', e => {
   if (e.code === 'Space' && grounded) { vy = 4.9; grounded = false; }
   if (e.code === 'KeyJ') startSwing();
   if (e.code === 'KeyK') startThrow();
-  if (e.code === 'KeyG') fire();
-  if (e.code === 'Digit1') useItem('water');
-  if (e.code === 'Digit2') useItem('food');
-  if (e.code === 'Digit3') useItem('medkit');
-  if (e.code === 'Digit4') useItem('battery');
+  if (e.code === 'KeyQ') shove();
 });
 addEventListener('keyup', e => keys.delete(e.code));
-addEventListener('blur', () => keys.clear());
+addEventListener('blur', () => { keys.clear(); attackHeld = false; touchActionHeld = false; });
+function toggleBag(open: boolean) {
+  bagOpen = open;
+  keys.clear(); attackHeld=false;touchActionHeld=false;
+  el.side.classList.toggle('bag-open', open);
+  el.side.setAttribute('aria-label', open ? '背包，點選物品使用；Esc關閉' : '背包');
+}
+function contextualInteract(): boolean {
+  if (phase !== 'play' || paused || bagOpen) return false;
+  if (lootTarget) return true;
+  if (Math.hypot(px - block.spawn[0], pz - block.spawn[1]) > 5) return false;
+  if (NIGHT_SECONDS - timeLeft >= 420) {
+    if (canEvacuate(outbreak, NIGHT_SECONDS - timeLeft, looted, Math.hypot(px-block.spawn[0],pz-block.spawn[1]))) win();
+    else flashHint('接應需搜刮3處、暴露低於85且窗口未關閉。');
+  } else if (inventory.food > 0) { inventory.food--; inventory.water++; updateBag(); flashHint('互助者：罐頭換飲水，保重。'); }
+  else flashHint('互助者：帶一份罐頭來換水。最後一分鐘在這裡接應。');
+  return true;
+}
+function shove() {
+  if (stamina < 10 || action !== 'none') return;
+  stamina -= 10;
+  for (const z of zombies) {
+    const dx = z.x-px, dz = z.z-pz, d=Math.hypot(dx,dz);
+    if (z.state === 'dead' || d > 2 || d < .01 || !canSee(px,pz,z.x,z.z)) continue;
+    const nx=z.x+dx/d*.7, nz=z.z+dz/d*.7;
+    if (!collides(nx,nz,.34)) {z.x=nx; z.z=nz;}
+    z.attackCd=Math.max(z.attackCd,1.5);
+  }
+  makeNoise(px,pz,8);
+}
+function aimNearest() {
+  let nearest: Zombie | undefined; let distance=25;
+  for (const z of zombies) { const d=Math.hypot(z.x-px,z.z-pz); if(z.state !== 'dead' && d<distance && canSee(px,pz,z.x,z.z)) {nearest=z;distance=d;} }
+  if (nearest) facing=Math.atan2(nearest.x-px,-(nearest.z-pz));
+}
+canvas.addEventListener('pointermove',e=>{
+  if (e.pointerType !== 'mouse' || phase !== 'play' || paused || bagOpen) return;
+  mouseAimActive = true;
+  inputAim.set(e.clientX/innerWidth*2-1,-e.clientY/innerHeight*2+1);
+  aimRay.setFromCamera(inputAim,camera);
+  if (aimRay.ray.intersectPlane(groundPlane,aimHit)) facing=Math.atan2(aimHit.x-px,aimHit.z+pz);
+});
+canvas.addEventListener('pointerdown',e=>{ if(e.pointerType === 'mouse' && e.button===0 && phase==='play' && !paused && !bagOpen) attackHeld=true; });
+addEventListener('pointerup',()=>{attackHeld=false;});
+addEventListener('pointercancel',()=>{attackHeld=false;touchActionHeld=false;keys.delete('KeyE');});
+addEventListener('survivor-action',e=>{
+  const start=(e as CustomEvent).detail.phase==='start';
+  if (!start) {touchActionHeld=false;keys.delete('KeyE');return;}
+  if (phase !== 'play' || paused || bagOpen) return;
+  if (contextualInteract()) keys.add('KeyE');
+  else {touchActionHeld=true;aimNearest();}
+});
+installTouchControls();
 
 // ---------------------------------------------------------------- 動作
 
@@ -425,7 +476,7 @@ function fire() {
     const along = dx * f.x + dz * f.z;
     if (along < 0.5 || along > bestD) continue;
     const perp = Math.abs(dx * f.z - dz * f.x);
-    if (perp > 0.85) continue;
+    if (perp > 0.85 || !canSee(px,pz,zb.x,zb.z)) continue;
     best = zb; bestD = along;
   }
   if (best) damageZombie(best, 200, f.x, f.z, 3);
@@ -447,7 +498,7 @@ function damageZombie(zb: Zombie, amount: number, nx: number, nz: number, knock:
 }
 
 function useItem(id: ItemId) {
-  if (phase !== 'play' || inventory[id] <= 0) return;
+  if (phase !== 'play' || paused || inventory[id] <= 0) return;
   inventory[id] -= 1;
   if (id === 'water' || id === 'food' || id === 'medkit') applySupply(outbreak, id);
   if (id === 'water') { stamina = Math.min(100, stamina + 35); flashHint('喝水補充水分，體力回復。'); }
@@ -464,7 +515,7 @@ function flashHint(text: string) {
   el.hint.textContent = text;
   hintTimer = 2.4;
 }
-const HINT_DEFAULT = 'T 互助交換 · C 潛行 · R 接應 · Esc 暫停 · F 手電筒 · Shift 跑 · 空白鍵跳 · J 揮擊 · K 投擲 · G 開槍 · E 搜刮';
+const HINT_DEFAULT = 'WASD 移動 · Shift 跑 · C 潛行 · 左鍵攻擊 · Q 推開 · E 互動 · Tab 背包 · F 燈 · Esc 暫停';
 
 // ---------------------------------------------------------------- 更新
 
@@ -485,7 +536,7 @@ function updatePlayer(dt: number) {
     if (!collides(nx, pz, 0.36)) px = nx;
     if (!collides(px, nz, 0.36)) pz = nz;
     // Model faces +Z, and world z is -data y.
-    facing = Math.atan2(dx, -dz);
+    if (!mouseAimActive && !touchActionHeld) facing = Math.atan2(dx, -dz);
     movedSpeed = speed;
     walkPhase += dt * speed * 2.5;
   }
@@ -795,8 +846,10 @@ function updatePlaceLabel() {
 function updateHud() {
   const elapsed = NIGHT_SECONDS - timeLeft;
   const distance = Math.hypot(px - block.spawn[0], pz - block.spawn[1]);
+  const touchButton = document.querySelector<HTMLElement>('#survivor-touch-action');
+  if(touchButton) touchButton.textContent = lootTarget ? '搜' : distance <= 5 ? (elapsed >= 420 ? '撤' : '換') : '打';
   needs.textContent = `水分 ${Math.round(outbreak.hydration)} · 飽足 ${Math.round(outbreak.satiety)} · 暴露 ${Math.round(outbreak.exposure)}${sneaking ? ' · 潛行' : ''}`;
-  mission.textContent = paused ? '已暫停｜Esc 繼續' : `接應點 ${Math.round(distance)}m · 搜刮 ${Math.min(looted, 3)}/3 · ${elapsed >= 480 ? '窗口已關閉' : elapsed >= 420 ? '窗口開啟，回綠圈按 R' : `接應倒數 ${Math.ceil(420 - elapsed)} 秒`} · 暴露須低於85`;
+  mission.textContent = bagOpen ? '背包已開啟（暫停）｜點物品使用，Tab / Esc 返回' : paused ? '已暫停｜Esc 繼續' : `接應點 ${Math.round(distance)}m · 搜刮 ${Math.min(looted, 3)}/3 · ${elapsed >= 480 ? '窗口已關閉' : elapsed >= 420 ? '窗口開啟，回綠圈按 E' : `接應倒數 ${Math.ceil(420 - elapsed)} 秒`} · 暴露須低於85`;
   radio.textContent = [...BROADCASTS].reverse().find(([at]) => elapsed >= at)?.[1] ?? '';
   if (evacRing) (evacRing.material as THREE.MeshBasicMaterial).color.setHex(elapsed >= 420 && elapsed < 480 ? 0x9fffc2 : 0x397959);
   const t = 1 - Math.max(0, timeLeft) / NIGHT_SECONDS;
@@ -846,8 +899,8 @@ const ITEM_COLOR: Record<ItemId, string> = {
   battery: '#d8b45f', ammo: '#9aa0a6', pistol: '#b8bcc2',
 };
 const BAG_ROWS: [ItemId | 'kill', string, string][] = [
-  ['water', '礦泉水', '1'], ['food', '罐頭', '2'], ['medkit', '醫療包', '3'],
-  ['battery', '電池', '4'], ['ammo', '彈藥', 'G'], ['pistol', '手槍', 'G'],
+  ['water', '礦泉水', '使用'], ['food', '罐頭', '使用'], ['medkit', '醫療包', '使用'],
+  ['battery', '電池', '使用'], ['ammo', '彈藥', '裝填'], ['pistol', '手槍', '裝備'],
 ];
 
 function updateBag() {
@@ -855,8 +908,11 @@ function updateBag() {
   for (const [id, label, key] of BAG_ROWS) {
     if (id === 'pistol' && !hasPistol) continue;
     if (id === 'ammo' && !hasPistol) continue;
-    const count = id === 'pistol' ? 1 : id === 'ammo' ? ammo : inventory[id as ItemId];
-    const row = document.createElement('div');
+    const count = id === 'pistol' ? 1 : id === 'ammo' ? inventory.ammo : inventory[id as ItemId];
+    const row = document.createElement('button');
+    row.type = 'button';
+    row.setAttribute('aria-label', `${label}，${id === 'pistol' ? '切換裝備' : '點擊使用'}`);
+    row.onclick = () => { if (id === 'pistol') { pistolEquipped = !pistolEquipped; flashHint(pistolEquipped ? '已裝備手槍，左鍵攻擊' : '已裝備鐵管，左鍵攻擊'); } else if (id !== 'kill') useItem(id); };
     row.className = `row ${count > 0 ? 'has' : 'empty'}`;
     row.innerHTML =
       `<span class="dot" style="background:${ITEM_COLOR[id as ItemId]}"></span>` +
@@ -936,7 +992,7 @@ function placeContainer(): { x: number; z: number } {
 function start(chosen: CharSpec) {
   spec = chosen;
   hp = 100; stamina = 100; battery = 100;
-  outbreak = createOutbreak(); sneaking = false; paused = false; keys.clear();
+  outbreak = createOutbreak(); sneaking = false; paused = false; attackHeld=false;touchActionHeld=false;pistolEquipped=false;mouseAimActive=false;toggleBag(false);keys.clear();
   lightOn = true; invuln = 0; timeLeft = NIGHT_SECONDS;
   kills = 0; hasPistol = false; ammo = 0;
   runNoiseTimer = 0; lootNoiseTimer = 0;
@@ -1052,12 +1108,14 @@ function buildMenu() {
 // ---------------------------------------------------------------- 主循環
 
 function frame(dt: number) {
-  if (phase === 'play' && !paused) {
+  if (phase === 'play' && !paused && !bagOpen) {
     timeLeft -= dt;
     const nearbyThreat = zombies.some(z => z.faction.id === 'infected' && z.state !== 'dead' && Math.hypot(z.x - px, z.z - pz) < 4 && canSee(z.x, z.z, px, pz));
     stepOutbreak(outbreak, dt, { running: !sneaking && stamina > 1 && action === 'none' && ['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].some(k => keys.has(k)) && (keys.has('ShiftLeft') || keys.has('ShiftRight')), nearbyThreat });
     if (outbreak.hydration <= 0 || outbreak.satiety <= 0) hp = Math.max(0, hp - dt * 1.5);
     if (hp <= 0) { lose('在耗盡補給後倒下。'); return; }
+    if (attackHeld || touchActionHeld) { if (touchActionHeld) aimNearest(); if (pistolEquipped && hasPistol) fire(); else if (action === 'none') startSwing(); }
+    if (mouseAimActive) { aimRay.setFromCamera(inputAim,camera); if(aimRay.ray.intersectPlane(groundPlane,aimHit)) facing=Math.atan2(aimHit.x-px,aimHit.z+pz); }
     updatePlayer(dt);
     updateZombies(dt);
     if (phase !== 'play') return;
@@ -1076,7 +1134,7 @@ function frame(dt: number) {
     if (phase === 'play' && timeLeft <= 0) lose('錯過接應窗口，街區通道已封閉。');
   }
 
-  if (paused) updateHud();
+  if (paused || bagOpen) updateHud();
   shake = Math.max(0, shake - dt * 2.4);
   camShake = Math.max(0, camShake - dt * 3);
   const jitter = camShake * 0.5;
@@ -1183,7 +1241,7 @@ fetch(dataUrl)
     if (params.has('debug')) {
       (window as unknown as { __modu: unknown }).__modu = {
         state: () => ({
-          phase, hp, battery, stamina, timeLeft, kills, paused, sneaking, looted, outbreak: { ...outbreak },
+          phase, hp, battery, stamina, timeLeft, kills, paused, bagOpen, sneaking, looted, outbreak: { ...outbreak },
           zombies: zombies.length, awake: zombies.filter(z => z.state === 'chase').length,
           dead: zombies.filter(z => z.state === 'dead').length,
           factions: Object.fromEntries(['infected','military','police','raider'].map(id => [id,zombies.filter(z => z.faction.id === id).length])),
