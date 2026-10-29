@@ -1,3 +1,5 @@
+import { WEAPONS, WEAPON_IDS, createLegacyArsenal, grantWeapon, grantAmmo, equipWeapon, consumeRound, type Arsenal, type WeaponId } from './arsenal';
+import { buildFirearm } from './weapon-visuals';
 import { planEncounters } from './encounters';
 import { decideEncounterBehavior } from './encounter-behavior';
 import { findLocalPath, type LocalWaypoint } from './navigation';
@@ -91,7 +93,7 @@ const ITEMS: Record<ItemId, { label: string; hint: string }> = {
   food: { label: '罐頭', hint: '飽足 +35、HP +14' },
   medkit: { label: '醫療包', hint: 'HP +45' },
   battery: { label: '電池', hint: '電量 +40' },
-  ammo: { label: '彈藥', hint: '手槍 +6' },
+  ammo: { label: '9毫米補給包', hint: '9毫米手槍彈 +6' },
   pistol: { label: '手槍', hint: '背包裝備後左鍵開槍' },
 };
 const LOOT_TABLE: [ItemId, number][] = [
@@ -287,7 +289,7 @@ function buildZombies() {
     if (faction.id !== 'infected') {
       const cap = new THREE.Mesh(new THREE.BoxGeometry(.6,.16,.4), new THREE.MeshStandardMaterial({color:faction.color}));
       cap.position.set(0,1.78,0); built.mesh.add(cap);
-      if (faction.id === 'military') { const rifle = new THREE.Mesh(new THREE.BoxGeometry(.12,.12,.8),new THREE.MeshStandardMaterial({color:0x20252a})); rifle.position.set(.28,.85,.2); built.mesh.add(rifle); }
+      if (faction.id === 'military') { const rifle=buildFirearm(i%12===1?'qbz95-1':'qbz191');rifle.rotation.x=-Math.PI/2;rifle.position.set(.28,.85,.2);built.mesh.add(rifle); }
     }
     zombies.push({
       ...built, faction, warning: 0, x: 0, z: 0, hx: 0, hz: 0, state: 'sleep',
@@ -333,11 +335,19 @@ let timeLeft = NIGHT_SECONDS;
 let kills = 0;
 let looted = 0;
 let hasPistol = false, ammo = 0;
+let arsenal:Arsenal=createLegacyArsenal(false,0)!;
+function syncArsenal(){hasPistol=arsenal.owned.length>0;pistolEquipped=arsenal.equipped!==null;ammo=arsenal.equipped?arsenal.rounds[WEAPONS[arsenal.equipped].calibre]:arsenal.rounds['9mm'];}
+function updateWeaponVisual(){
+  if(!rig)return;
+  if(weapon){rig.armR.remove(weapon);weapon.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>m.dispose());}});}
+  weapon=arsenal.equipped?buildFirearm(arsenal.equipped):buildWeapon('pipe');
+  weapon.position.set(0,-spec.height*.27,.03);rig.armR.add(weapon);
+}
 let runNoiseTimer = 0, lootNoiseTimer = 0;
 let lootTarget: Container | null = null;
 let lootProgress = 0;
 let walkPhase = 0;
-let action: 'none' | 'swing' | 'throw' | 'loot' = 'none';
+let action: 'none' | 'swing' | 'throw' | 'shoot' | 'loot' = 'none';
 let actionT = 0, actionDur = 0, actionFired = false;
 let muzzle: THREE.PointLight | null = null;
 let muzzleT = 0;
@@ -495,9 +505,10 @@ function throwBrick() {
 }
 
 function fire() {
-  if (!hasPistol || ammo <= 0 || action !== 'none') return;
-  ammo -= 1;
-  action = 'throw'; actionT = 0; actionDur = 0.22; actionFired = true;
+  if (!arsenal.equipped || action !== 'none') return;
+  const gun=WEAPONS[arsenal.equipped];
+  if(!consumeRound(arsenal))return;syncArsenal();
+  action = 'shoot'; actionT = 0; actionDur = gun.cooldown; actionFired = true;
   muzzleT = 0.07;
   camShake = Math.max(camShake, 0.7);
   makeNoise(px, pz, HEAR_GUN);
@@ -507,7 +518,7 @@ function fire() {
     muzzle.visible = true;
   }
   let best: Zombie | null = null;
-  let bestD = 30;
+  let bestD = gun.range;
   for (const zb of zombies) {
     if (zb.state === 'dead') continue;
     const dx = zb.x - px, dz = zb.z - pz;
@@ -517,7 +528,7 @@ function fire() {
     if (perp > 0.85 || !canSee(px,pz,zb.x,zb.z)) continue;
     best = zb; bestD = along;
   }
-  if (best) damageZombie(best, 200, f.x, f.z, 3);
+  if (best) damageZombie(best, gun.damage, f.x, f.z, gun.category==='rifle'?2.5:1.8);
   updateBag();
 }
 
@@ -537,15 +548,15 @@ function damageZombie(zb: Zombie, amount: number, nx: number, nz: number, knock:
 }
 
 function useItem(id: ItemId) {
-  if (phase !== 'play' || paused || helperOpen || inventory[id] <= 0) return;
+  if (phase !== 'play' || paused || helperOpen || inventory[id] <= 0 || id==='pistol') return;
+  if(id==='ammo'&&!grantAmmo(arsenal,'9mm',6)){flashHint('9毫米彈藥已滿，補給包保留。');return;}
   inventory[id] -= 1;
   if (id === 'water' || id === 'food' || id === 'medkit') applySupply(outbreak, id);
   if (id === 'water') { stamina = Math.min(100, stamina + 35); flashHint('喝水補充水分，體力回復。'); }
   if (id === 'food') { hp = Math.min(100, hp + 14); flashHint('吃了罐頭，補充飽足，HP +14。'); }
   if (id === 'medkit') { hp = Math.min(100, hp + 45); flashHint('處置傷口，暴露壓力降低，HP +45（虛構機制）。'); }
   if (id === 'battery') { battery = Math.min(100, battery + BATTERY_PICKUP); flashHint(`換了電池，電量 ${Math.round(battery)}%。`); }
-  if (id === 'ammo') { ammo += 6; flashHint('彈藥 +6。'); }
-  if (id === 'pistol') { hasPistol = true; ammo += 6; flashHint('撿到手槍。背包裝備後左鍵開槍，很吵。'); }
+  if (id === 'ammo') { syncArsenal();flashHint('9毫米手槍彈 +6（不可用於步槍）。'); }
   updateBag();persistCampaign();
 }
 
@@ -631,6 +642,7 @@ function animateRig(dt: number, speed: number) {
   armR.rotation.z = 0.05;
   torso.rotation.set(moving ? 0.05 + amp * 0.1 : Math.sin(walkPhase * 0.4) * 0.02, 0, 0);
 
+  if(arsenal.equipped){armR.rotation.set(-Math.PI/2,0,0);armL.rotation.x=WEAPONS[arsenal.equipped].category==='rifle'?-1.1:-.2;}
   if (!grounded) {
     legL.rotation.x = -0.55; legR.rotation.x = 0.35;
     armL.rotation.x = -0.8; armR.rotation.x = -0.6;
@@ -647,6 +659,9 @@ function animateRig(dt: number, speed: number) {
       torso.rotation.y = -0.45 * k;
       torso.rotation.x = 0.18 * k;
       if (!actionFired && t >= 0.38) { actionFired = true; meleeHit(); }
+    } else if(action==='shoot'){
+      armR.rotation.set(-Math.PI/2-.09*Math.sin(t*Math.PI),0,0);
+      torso.rotation.y=0;torso.rotation.x=0;
     } else if (action === 'throw') {
       const k = t < 0.45 ? t / 0.45 : 1 - (t - 0.45) / 0.55;
       armR.rotation.x = -1.6 * k;
@@ -873,10 +888,17 @@ function updateLoot(dt: number) {
         if(!applyCacheLoot(inventory,lootTarget)){flashHint('背包數量已滿，未領走補給。');lootProgress=0;return;}
         flashHint(`${CACHE_RULES[kind].name}：取得${kind==='ammo'?'1盒彈藥':'2份'+ITEMS[kind].label}。此點今天已領完。`);
       } else {
-        lootTarget.looted = true;
-        const item = rollLoot();inventory[item] += 1;
-        if(item==='pistol'){hasPistol=true;ammo+=6;}
-        flashHint(`撿到 ${ITEMS[item].label}（${ITEMS[item].hint}）`);
+        const item=rollLoot();
+        if(item==='pistol'){
+          const id=WEAPON_IDS[Math.floor(Math.random()*WEAPON_IDS.length)];
+          if(!grantWeapon(arsenal,id)){flashHint('彈藥容量已滿，箱子保留。');lootProgress=0;return;}
+          syncArsenal();flashHint(`找到 ${WEAPONS[id].name} 與同口徑6發；背包選擇裝備。`);
+        } else if(item==='ammo'){
+          const calibre=Math.random()<.5?'9mm':'5.8-rifle';
+          if(!grantAmmo(arsenal,calibre,6)){flashHint('此口徑彈藥容量已滿，箱子保留。');lootProgress=0;return;}
+          syncArsenal();flashHint(`找到 ${calibre==='9mm'?'9毫米手槍':'5.8毫米步槍'}彈6發；口徑不通用。`);
+        } else {inventory[item]+=1;flashHint(`撿到 ${ITEMS[item].label}（${ITEMS[item].hint}）`);}
+        lootTarget.looted=true;
       }
       paintContainer(lootTarget);
       looted += 1;
@@ -967,7 +989,7 @@ function updateMoodles() {
   if (battery <= 0) list.push(['全黑', 'bad']);
   else if (battery < 20) list.push(['快沒電', 'warn']);
   if (lightOn) list.push(['顯眼', '']);
-  if (hasPistol && ammo > 0) list.push([`彈藥 ${ammo}`, '']);
+  if(arsenal.equipped)list.push([`${WEAPONS[arsenal.equipped].name} · ${ammo}發`,ammo?'':'bad']);
   const key = list.map(([t]) => t).join('|');
   if (key === moodleKey) return;
   moodleKey = key;
@@ -982,7 +1004,7 @@ const ITEM_COLOR: Record<ItemId, string> = {
 };
 const BAG_ROWS: [ItemId | 'kill', string, string][] = [
   ['water', '礦泉水', '使用'], ['food', '罐頭', '使用'], ['medkit', '醫療包', '使用'],
-  ['battery', '電池', '使用'], ['ammo', '彈藥', '裝填'], ['pistol', '手槍', '裝備'],
+  ['battery', '電池', '使用'], ['ammo', '9毫米補給包', '取出6發'],
 ];
 
 function updateBag() {
@@ -1004,6 +1026,15 @@ function updateBag() {
       `<span class="hk">${key}</span>`;
     el.bag.appendChild(row);
   }
+  const selection=(id:WeaponId|null)=>{if(helperOpen)return;if(!equipWeapon(arsenal,id))return;syncArsenal();updateWeaponVisual();updateBag();flashHint(id?`已裝備 ${WEAPONS[id].name}；${ammo}發`:'已裝備鐵管');};
+  for(const id of [null,...arsenal.owned]){
+    const button=document.createElement('button');button.type='button';button.className='row has';button.disabled=helperOpen;
+    button.setAttribute('aria-pressed',String(arsenal.equipped===id));
+    const name=id?WEAPONS[id].name:'鐵管／近戰',count=id?`${arsenal.rounds[WEAPONS[id].calibre]}發`:'';
+    button.innerHTML=`<span class="dot" style="background:${arsenal.equipped===id?'#c9a15a':'#9aa0a6'}"></span><span class="nm">${name}</span><span class="ct">${count}</span><span class="hk">${arsenal.equipped===id?'使用中':'裝備'}</span>`;
+    button.onclick=()=>selection(id);el.bag.append(button);
+  }
+  const rounds=document.createElement('p');rounds.textContent=`9毫米手槍彈 ${arsenal.rounds['9mm']} · 5.8毫米步槍彈 ${arsenal.rounds['5.8-rifle']}（不通用）`;el.bag.append(rounds);
   el.kill.textContent = `擊殺 ${kills}`;
   el.loot.textContent = `搜刮 ${looted}`;
   persistCampaign();
@@ -1085,7 +1116,7 @@ function start(chosen: CharSpec, resume: Snapshot | null = null) {
   hp = 100; stamina = 100; battery = 100;
   outbreak = createOutbreak(); sneaking = false; paused = false; attackHeld=false;touchActionHeld=false;pistolEquipped=false;mouseAimActive=false;toggleBag(false);keys.clear();
   lightOn = true; invuln = 0; timeLeft = NIGHT_SECONDS;
-  kills = 0; hasPistol = false; ammo = 0;
+  kills = 0;arsenal=createLegacyArsenal(false,0)!;syncArsenal();
   runNoiseTimer = 0; lootNoiseTimer = 0;
   lootTarget = null; lootProgress = 0; shake = 0; camShake = 0;
   action = 'none'; actionT = 0; actionFired = false;
@@ -1103,6 +1134,7 @@ function start(chosen: CharSpec, resume: Snapshot | null = null) {
   moodleKey = '';
   resetWorld();
   if(resume) restoreCampaign(resume);
+  updateWeaponVisual();
   if(mode==='sandbox')installSupplySites();
   updateHelperAppearance();
   updateHud();
@@ -1209,7 +1241,7 @@ function buildMenu() {
 // Campaign persistence owns one atomic snapshot: loot depletion and inventory never save separately.
 function campaignElapsed() { return elapsed; }
 function snapshotCampaign(): Snapshot {
-  return { version:1,encounterVersion:1,mapId:dataUrl,characterId:spec.id,elapsed,hp:phase==='lose'?0:hp,stamina,battery,outbreak:{...outbreak},inventory:{...inventory},stash:{...stash},helper:{...helperState},ammo,hasPistol,pistolEquipped,position:[px,pz],shelterId:shelter?.id??'',inShelter,looted,kills,restCount,status:phase==='lose'?'dead':'alive',
+  return { version:1,encounterVersion:1,mapId:dataUrl,characterId:spec.id,elapsed,hp:phase==='lose'?0:hp,stamina,battery,outbreak:{...outbreak},inventory:{...inventory},stash:{...stash},helper:{...helperState},arsenal:structuredClone(arsenal),ammo,hasPistol,pistolEquipped,position:[px,pz],shelterId:shelter?.id??'',inShelter,looted,kills,restCount,status:phase==='lose'?'dead':'alive',
     containers:containers.map(c=>({x:c.x,z:c.z,looted:c.looted,...(c.cacheKind?{cacheKind:c.cacheKind,cacheDay:c.cacheDay}:{})})),
     enemies:zombies.map(z=>({x:z.x,z:z.z,hp:Math.max(0,z.hp),state:z.state,faction:z.faction.id,home:[z.hx,z.hz],patrol:[z.patrolX,z.patrolZ],lastKnown:[z.lastX,z.lastZ],returning:z.returning,retreat:z.retreat})) };
 }
@@ -1227,6 +1259,8 @@ function restoreCampaign(s:Snapshot) {
   elapsed=s.elapsed;timeLeft=NIGHT_SECONDS-elapsed;hp=s.hp;stamina=s.stamina;battery=s.battery;
   helperState=s.helper?{...s.helper}:createHelperState();
   outbreak={...s.outbreak};Object.assign(inventory,s.inventory);stash={...s.stash};ammo=s.ammo;hasPistol=s.hasPistol;pistolEquipped=s.pistolEquipped;
+  arsenal=s.arsenal?structuredClone(s.arsenal):createLegacyArsenal(s.hasPistol,s.ammo)!;
+  if(!s.arsenal&&s.pistolEquipped)equipWeapon(arsenal,'qsz92-9');syncArsenal();
   [px,pz]=s.position;
   if(shelter&&(px<bounds.minX-8||px>bounds.maxX+8||pz<bounds.minY-8||pz>bounds.maxY+8||collides(px,pz,.36))){[px,pz]=shelter.outside;saveWarning='舊存檔位置在街區外或牆內，已移回安全屋門口；物資與進度保留。';}
   inShelter=s.inShelter;looted=s.looted;kills=s.kills;restCount=s.restCount;
@@ -1535,7 +1569,7 @@ fetch(dataUrl)
         outbreakTest: (elapsed: number, searched: number, exposure = 0) => { timeLeft = NIGHT_SECONDS - elapsed; looted = searched; outbreak.exposure = exposure; px = block.spawn[0]; pz = block.spawn[1]; updateHud(); },
         swing: () => startSwing(),
         hurt: (n = 30) => { hp = Math.max(0, hp - n); if (hp <= 0) lose(); },
-        give: (id: ItemId, n = 1) => { inventory[id] += n; if (id === 'pistol') hasPistol = true; updateBag(); },
+        give: (id: ItemId, n = 1) => { inventory[id] += n; if (id === 'pistol'){grantWeapon(arsenal,'qsz92-9');syncArsenal();} updateBag(); },
       };
     }
 

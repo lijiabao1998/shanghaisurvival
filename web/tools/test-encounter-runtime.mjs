@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import vm from 'node:vm';
+import { createLegacyArsenal, equipWeapon } from '../src/arsenal.ts';
 import { sweepMove } from '../src/combat.ts';
 import { decideEncounterBehavior } from '../src/encounter-behavior.ts';
 const source = readFileSync(new URL('../src/survival.ts', import.meta.url), 'utf8');
@@ -85,11 +86,11 @@ test('actual restore keeps last-known/return state and migrates old chase safely
   ]) {
     const enemy={mesh:{visible:true,position:{set(){}}}};
     const c=vm.createContext({elapsed:0,timeLeft:0,NIGHT_SECONDS:480,hp:100,stamina:100,battery:100,
-      helperState:{},createHelperState:()=>({}),outbreak:{},inventory:{},stash:{},ammo:0,hasPistol:false,pistolEquipped:false,
+      arsenal:null,structuredClone,createLegacyArsenal,equipWeapon,syncArsenal(){},helperState:{},createHelperState:()=>({}),outbreak:{},inventory:{},stash:{},ammo:0,hasPistol:false,pistolEquipped:false,
       px:999,pz:999,shelter:null,inShelter:false,looted:0,kills:0,restCount:0,containers:[],zombies:[enemy],
       profileFor:()=>({id:'infected'}),playerRoot:null,syncEyes(){},updateDaylight(){},collides:()=>false});
     vm.runInContext(extract('restoreCampaign'),c);
-    c.restoreCampaign({elapsed:0,hp:100,stamina:100,battery:100,outbreak:{},inventory:{},stash:{},position:[999,999],
+    c.restoreCampaign({hasPistol:false,ammo:0,pistolEquipped:false,elapsed:0,hp:100,stamina:100,battery:100,outbreak:{},inventory:{},stash:{},position:[999,999],
       inShelter:false,containers:[],enemies:[saved],looted:0,kills:0,restCount:0});
     assert.equal(enemy.returning,true);assert.equal(enemy.state,'wander');
     assert.equal(enemy.lastX,saved.lastKnown?.[0]??saved.x);

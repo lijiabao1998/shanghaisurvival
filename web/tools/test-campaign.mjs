@@ -1,3 +1,4 @@
+import { createLegacyArsenal, grantWeapon, equipWeapon, consumeRound } from '../src/arsenal.ts';
 import assert from 'node:assert/strict';
 import { emptyInventory, parseSnapshot, saveSnapshot, loadSnapshot, transferItem, restAtShelter, dayPhase, replenishCaches, applyCacheLoot } from '../src/campaign.ts';
 let passed = 0;
@@ -139,5 +140,28 @@ test('enemy memory and retreat state roundtrip without changing chase or death',
 test('invalid memory coordinates return flags and retreat timers reject',()=>{
  for(const [field,values] of [['lastKnown',[null,{},[],[1],[1,2,3],[NaN,2],[1,Infinity],['1',2],[10000001,0]]],['returning',[null,0,1,'true',{}]],['retreat',[-1,60.001,NaN,Infinity,null,'2']]])for(const value of values){const s=fresh();s.enemies[1][field]=value;assert.equal(parseSnapshot(encode(s),'block.json'),null);}
  for(const retreat of [0,.01,60]){const s=fresh();s.enemies[1].retreat=retreat;assert.ok(parseSnapshot(encode(s),'block.json'));}
+});
+
+test('old snapshot without arsenal preserves legacy pistol rounds and inventory',()=>{
+ const s=fresh();s.ammo=0;s.inventory.pistol=2;const restored=parseSnapshot(encode(s),'block.json');assert.deepEqual(restored,s);assert.equal('arsenal' in restored,false);assert.equal(restored.hasPistol,true);assert.equal(restored.inventory.pistol,2);
+});
+test('arsenal roundtrip preserves independently consumed calibres and equipment',()=>{
+ const s=fresh();s.arsenal=createLegacyArsenal(true,13);grantWeapon(s.arsenal,'qbz95-1');grantWeapon(s.arsenal,'qbz191');equipWeapon(s.arsenal,'qbz191');consumeRound(s.arsenal);
+ const store=memory();assert.ok(saveSnapshot(store,'save',s));const loaded=loadSnapshot(store,'save','block.json');assert.deepEqual(loaded,s);
+ assert.equal(loaded.arsenal.rounds['9mm'],13);assert.equal(loaded.arsenal.rounds['5.8-rifle'],11);assert.equal(loaded.arsenal.equipped,'qbz191');
+ equipWeapon(loaded.arsenal,'qsz92-9');consumeRound(loaded.arsenal);assert.equal(loaded.arsenal.rounds['9mm'],12);assert.equal(loaded.arsenal.rounds['5.8-rifle'],11);
+});
+test('corrupt or unknown arsenal rejects entire snapshot rather than resetting weapons',()=>{
+ const good=createLegacyArsenal(true,10);
+ for(const arsenal of [null,{},[],{...good,version:2},{...good,owned:['unknown']},{...good,owned:['qsz92-9','qsz92-9']},{...good,equipped:'qbz191'},{...good,rounds:{'9mm':1,'5.8-rifle':-1}},{...good,rounds:{'9mm':Infinity,'5.8-rifle':0}},{...good,rounds:{'9mm':0,'5.8-rifle':0,'other':10}}])assert.equal(parseSnapshot(encode({...fresh(),arsenal}),'block.json'),null);
+});
+test('rejected arsenal write leaves previous full save untouched',()=>{
+ const s=fresh(),store=memory();s.arsenal=createLegacyArsenal(true,7);grantWeapon(s.arsenal,'qbz191');assert.ok(saveSnapshot(store,'save',s));const before=store.getItem('save');
+ const corrupt=structuredClone(s);corrupt.arsenal.rounds['5.8-rifle']=NaN;corrupt.inventory.water=99;
+ assert.equal(saveSnapshot(store,'save',corrupt),false);assert.equal(store.getItem('save'),before);assert.deepEqual(loadSnapshot(store,'save','block.json'),s);
+});
+test('death persists arsenal and spent rounds without revival or duplicate awards',()=>{
+ const s={...fresh(),status:'dead',hp:0};s.arsenal=createLegacyArsenal(true,0);grantWeapon(s.arsenal,'qbz95-1');equipWeapon(s.arsenal,'qbz95-1');consumeRound(s.arsenal);
+ const store=memory();assert.ok(saveSnapshot(store,'save',s));const r=loadSnapshot(store,'save','block.json');assert.deepEqual(r,s);assert.equal(r.status,'dead');assert.equal(r.hp,0);assert.equal(r.arsenal.rounds['5.8-rifle'],5);assert.equal(r.arsenal.rounds['9mm'],0);
 });
 console.log(`${passed} campaign tests passed`);
