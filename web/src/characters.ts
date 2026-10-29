@@ -86,11 +86,12 @@ const hang = (mesh: THREE.Mesh, y: number, x = 0, z = 0) => {
 
 export function buildRig(spec: CharSpec): Rig {
   const h = spec.height;
-  const legLen = h * 0.46;
-  const torsoLen = h * 0.30;
+  const legLen = h * 0.50;
+  // Hair top is 1.23 head units above the neck. Match declared standing height.
+  const torsoLen = h * (1 - 0.50 - 0.115 * 1.23);
   const headSize = h * 0.115;
-  const shoulder = h * 0.115 * spec.build;
-  const depth = h * 0.062;
+  const shoulder = h * 0.23 * spec.build;
+  const depth = h * 0.12;
   const armLen = h * 0.29;
 
   const root = new THREE.Group();
@@ -100,13 +101,13 @@ export function buildRig(spec: CharSpec): Rig {
   const legL = new THREE.Group();
   legL.position.set(-shoulder * 0.32, legLen, 0);
   legL.add(hang(box(shoulder * 0.34, legLen, depth * 0.86, spec.bottom), -legLen / 2));
-  legL.children[0].add(hang(box(shoulder * 0.34, h * 0.03, depth * 0.9, 0x23262a), -legLen + h * 0.012));
+  legL.add(hang(box(shoulder * 0.34, h * 0.03, depth * 0.9, 0x23262a), -legLen + h * 0.015));
   body.add(legL);
 
   const legR = new THREE.Group();
   legR.position.set(shoulder * 0.32, legLen, 0);
   legR.add(hang(box(shoulder * 0.34, legLen, depth * 0.86, spec.bottom), -legLen / 2));
-  legR.children[0].add(hang(box(shoulder * 0.34, h * 0.03, depth * 0.9, 0x23262a), -legLen + h * 0.012));
+  legR.add(hang(box(shoulder * 0.34, h * 0.03, depth * 0.9, 0x23262a), -legLen + h * 0.015));
   body.add(legR);
 
   const torso = new THREE.Group();

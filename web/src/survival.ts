@@ -1,4 +1,8 @@
+import { viewHeight } from './view';
+import { emptyInventory, loadSnapshot, saveSnapshot, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
+import { selectShelter, type Shelter } from './shelter';
 import { installTouchControls } from './touch-controls';
+import { sweepMove, segmentClear } from './combat';
 import { profileFor, type FactionProfile } from './factions';
 import { createOutbreak, stepOutbreak, applySupply, canEvacuate } from './outbreak';
 /**
@@ -23,6 +27,17 @@ import { ROSTER, buildRig, buildWeapon, type CharSpec, type Rig } from './charac
 
 const NIGHT_SECONDS = 480;
 let outbreak = createOutbreak();
+let mode: 'sandbox' | 'quick' = 'sandbox';
+let elapsed = 0;
+let inShelter = false;
+let shelter: Shelter | null = null;
+let shelterRoof: THREE.Mesh | null = null;
+let stash = emptyInventory();
+let restCount = 0;
+let saveTimer = 0;
+let saveWarning = '';
+let savedGame: Snapshot | null = null;
+let shelterPanel: HTMLElement;
 let sneaking = false;
 let paused = false;
 let bagOpen = false;
@@ -66,7 +81,7 @@ const ITEMS: Record<ItemId, { label: string; hint: string }> = {
   medkit: { label: '醫療包', hint: 'HP +45' },
   battery: { label: '電池', hint: '電量 +40' },
   ammo: { label: '彈藥', hint: '手槍 +6' },
-  pistol: { label: '手槍', hint: '按 G 開槍' },
+  pistol: { label: '手槍', hint: '背包裝備後左鍵開槍' },
 };
 const LOOT_TABLE: [ItemId, number][] = [
   ['water', 28], ['food', 24], ['battery', 22], ['medkit', 10], ['ammo', 10], ['pistol', 6],
@@ -124,6 +139,7 @@ addEventListener('error', e => {
 const params = new URLSearchParams(location.search);
 const rawData = params.get('data');
 const dataUrl = rawData ? (rawData.includes('/') ? rawData : `./data/${rawData}`) : './data/block.json';
+const saveKey = `shanghai-survivors:v1:${dataUrl}`;
 
 // ---------------------------------------------------------------- 渲染
 
@@ -147,7 +163,7 @@ moon.position.set(70, 95, 20);
 scene.add(moon);
 
 const camera = new THREE.OrthographicCamera(-30, 30, 22, -22, 0.1, 2400);
-let viewSize = 17;
+let viewZoom = 1;
 
 // ---------------------------------------------------------------- 玩家
 
@@ -328,11 +344,7 @@ function wake(zb: Zombie) {
 }
 /** Cheap line of sight: sample the wall grid along the segment. */
 function canSee(ax: number, az: number, bx: number, bz: number): boolean {
-  for (let i = 1; i < 10; i++) {
-    const t = i / 10;
-    if (collides(ax + (bx - ax) * t, az + (bz - az) * t, 0.15)) return false;
-  }
-  return true;
+  return segmentClear(ax, az, bx, bz, collides);
 }
 
 // ---------------------------------------------------------------- 輸入
@@ -342,11 +354,12 @@ const ATTACK_KEYS = ['KeyJ', 'KeyK', 'KeyG'];
 addEventListener('keydown', e => {
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'Tab'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
-  keys.add(e.code);
   if (phase !== 'play') return;
+  if(inShelter) { if(e.code==='Escape')leaveShelter(); return; }
   if (e.code === 'Escape') { if (bagOpen) toggleBag(false); else paused = !paused; keys.clear(); attackHeld = false; touchActionHeld = false; return; }
   if (e.code === 'Tab' || e.code === 'KeyI') { toggleBag(!bagOpen); return; }
-  if (paused) return;
+  if (paused || bagOpen || inShelter) return;
+  keys.add(e.code);
   if (e.code === 'KeyE') contextualInteract();
   if (e.code === 'KeyC') sneaking = !sneaking;
   if (e.code === 'KeyF') {
@@ -360,7 +373,12 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyQ') shove();
 });
 addEventListener('keyup', e => keys.delete(e.code));
-addEventListener('blur', () => { keys.clear(); attackHeld = false; touchActionHeld = false; });
+function releaseGameplayInput() {
+  keys.clear(); attackHeld = false; touchActionHeld = false;
+  if (action === 'loot') { action = 'none'; lootProgress = 0; setRing(0); }
+}
+addEventListener('blur', releaseGameplayInput);
+document.addEventListener('visibilitychange', () => { if (document.hidden) releaseGameplayInput(); });
 function toggleBag(open: boolean) {
   bagOpen = open;
   keys.clear(); attackHeld=false;touchActionHeld=false;
@@ -368,13 +386,14 @@ function toggleBag(open: boolean) {
   el.side.setAttribute('aria-label', open ? '背包，點選物品使用；Esc關閉' : '背包');
 }
 function contextualInteract(): boolean {
-  if (phase !== 'play' || paused || bagOpen) return false;
+  if (phase !== 'play' || paused || bagOpen || inShelter) return false;
+  if (mode === 'sandbox' && shelter && Math.hypot(px-shelter.outside[0],pz-shelter.outside[1]) < 2.5 && canSee(px,pz,...shelter.outside)) { enterShelter(); return true; }
   if (lootTarget) return true;
   if (Math.hypot(px - block.spawn[0], pz - block.spawn[1]) > 5) return false;
-  if (NIGHT_SECONDS - timeLeft >= 420) {
+  if (mode === 'quick' && NIGHT_SECONDS - timeLeft >= 420) {
     if (canEvacuate(outbreak, NIGHT_SECONDS - timeLeft, looted, Math.hypot(px-block.spawn[0],pz-block.spawn[1]))) win();
     else flashHint('接應需搜刮3處、暴露低於85且窗口未關閉。');
-  } else if (inventory.food > 0) { inventory.food--; inventory.water++; updateBag(); flashHint('互助者：罐頭換飲水，保重。'); }
+  } else if (inventory.food > 0) { inventory.food--; inventory.water++; updateBag(); persistCampaign(); flashHint('互助者：罐頭換飲水，保重。'); }
   else flashHint('互助者：帶一份罐頭來換水。最後一分鐘在這裡接應。');
   return true;
 }
@@ -441,7 +460,7 @@ function meleeHit() {
     const d = Math.hypot(dx, dz);
     if (d > 2.4 || d < 0.01) continue;
     const dot = (dx / d) * f.x + (dz / d) * f.z;
-    if (dot < 0.45) continue;
+    if (dot < 0.45 || !canSee(px, pz, zb.x, zb.z)) continue;
     damageZombie(zb, 45, dx / d, dz / d, 1.6);
   }
 }
@@ -451,7 +470,8 @@ function throwBrick() {
   const mesh = new THREE.Mesh(brickGeo, brickMat);
   scene.add(mesh);
   projectiles.push({
-    mesh, x: px + f.x * 0.5, z: pz + f.z * 0.5, y: py + 1.35,
+    // Sweep from the player's clear position; an offset could spawn beyond a wall.
+    mesh, x: px, z: pz, y: py + 1.35,
     vx: f.x * 13, vz: f.z * 13, vy: 3.4, life: 3, kind: 'brick',
   });
 }
@@ -493,8 +513,9 @@ function damageZombie(zb: Zombie, amount: number, nx: number, nz: number, knock:
     return;
   }
   zb.state = 'chase';
-  zb.x += nx * knock * 0.4;
-  zb.z += nz * knock * 0.4;
+  const pushed = sweepMove(zb.x, zb.z, nx * knock * 0.4, nz * knock * 0.4, 0.34, collides);
+  zb.x = pushed.x;
+  zb.z = pushed.z;
 }
 
 function useItem(id: ItemId) {
@@ -506,8 +527,8 @@ function useItem(id: ItemId) {
   if (id === 'medkit') { hp = Math.min(100, hp + 45); flashHint('處置傷口，暴露壓力降低，HP +45（虛構機制）。'); }
   if (id === 'battery') { battery = Math.min(100, battery + BATTERY_PICKUP); flashHint(`換了電池，電量 ${Math.round(battery)}%。`); }
   if (id === 'ammo') { ammo += 6; flashHint('彈藥 +6。'); }
-  if (id === 'pistol') { hasPistol = true; ammo += 6; flashHint('撿到手槍。按 G 開槍，很吵。'); }
-  updateBag();
+  if (id === 'pistol') { hasPistol = true; ammo += 6; flashHint('撿到手槍。背包裝備後左鍵開槍，很吵。'); }
+  updateBag();persistCampaign();
 }
 
 let hintTimer = 0;
@@ -641,7 +662,7 @@ function updateZombies(dt: number) {
       zb.think -= dt;
       if (zb.think <= 0) {
         zb.think = 0.35;
-        const sense = (lightOn ? SENSE_LIGHT : SENSE_DARK) * (sneaking ? 0.6 : 1);
+        const sense = (lightOn ? SENSE_LIGHT : SENSE_DARK) * (sneaking ? 0.6 : 1) * (mode==='sandbox' && zb.faction.id==='infected' && dayPhase(elapsed).daylight<.25 ? 1.35 : 1);
         if (dist < sense && canSee(zb.x, zb.z, px, pz)) wake(zb);
       }
       zb.mesh.position.set(zb.x, 0, -zb.z);
@@ -734,22 +755,29 @@ function updateProjectiles(dt: number) {
     const p = projectiles[i];
     p.life -= dt;
     p.vy -= 18 * dt;
-    p.x += p.vx * dt;
-    p.z += p.vz * dt;
+    let target: Zombie | null = null;
+    const oldY = p.y;
+    const swept = sweepMove(p.x, p.z, p.vx * dt, p.vz * dt, 0.12, (x, z, radius) => {
+      if (collides(x, z, radius)) return true;
+      const travelled = Math.hypot(x - p.x, z - p.z);
+      const total = Math.hypot(p.vx * dt, p.vz * dt);
+      const height = oldY + p.vy * dt * (total > 0 ? travelled / total : 0);
+      if (height >= 2 || height < 0) return false;
+      for (const zb of zombies) {
+        if (zb.state !== 'dead' && Math.hypot(zb.x - x, zb.z - z) < 0.6) { target = zb; return true; }
+      }
+      return false;
+    });
+    p.x = swept.x;
+    p.z = swept.z;
     p.y += p.vy * dt;
     p.mesh.position.set(p.x, p.y, -p.z);
     p.mesh.rotation.x += dt * 9;
     p.mesh.rotation.z += dt * 7;
 
-    let hit = false;
-    for (const zb of zombies) {
-      if (zb.state === 'dead') continue;
-      if (Math.hypot(zb.x - p.x, zb.z - p.z) < 0.6 && p.y < 2) {
-        damageZombie(zb, 60, p.vx * 0.05, p.vz * 0.05, 1.2);
-        hit = true;
-        break;
-      }
-    }
+    let hit = swept.blocked;
+    if (target) damageZombie(target, 60, p.vx * 0.05, p.vz * 0.05, 1.2);
+    if (swept.blocked) makeNoise(p.x, p.z, 12);
     if (p.y <= 0.08) { hit = true; makeNoise(p.x, p.z, 12); }
     if (hit || p.life <= 0) {
       scene.remove(p.mesh);
@@ -770,7 +798,7 @@ function updateLoot(dt: number) {
   for (const c of containers) {
     if (c.looted) continue;
     const d = Math.hypot(c.x - px, c.z - pz);
-    if (d < best) { best = d; nearest = c; }
+    if (d < best && canSee(px, pz, c.x, c.z)) { best = d; nearest = c; }
   }
 
   if (nearest !== lootTarget) {
@@ -809,7 +837,7 @@ function updateLoot(dt: number) {
       lootProgress = 0;
       action = 'none'; actionT = 0;
       setRing(0);
-      el.prompt.classList.remove('on');
+      el.prompt.classList.remove('on');persistCampaign();
     }
   } else {
     if (action === 'loot') { action = 'none'; actionT = 0; }
@@ -844,21 +872,25 @@ function updatePlaceLabel() {
 }
 
 function updateHud() {
-  const elapsed = NIGHT_SECONDS - timeLeft;
+  const elapsed = mode === 'quick' ? NIGHT_SECONDS - timeLeft : campaignElapsed();
   const distance = Math.hypot(px - block.spawn[0], pz - block.spawn[1]);
   const touchButton = document.querySelector<HTMLElement>('#survivor-touch-action');
-  if(touchButton) touchButton.textContent = lootTarget ? '搜' : distance <= 5 ? (elapsed >= 420 ? '撤' : '換') : '打';
+  if(touchButton) touchButton.textContent = mode==='sandbox' && shelter && Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])<2.5 ? '家' : lootTarget ? '搜' : distance <= 5 ? (mode==='quick' && elapsed >= 420 ? '撤' : '換') : '打';
   needs.textContent = `水分 ${Math.round(outbreak.hydration)} · 飽足 ${Math.round(outbreak.satiety)} · 暴露 ${Math.round(outbreak.exposure)}${sneaking ? ' · 潛行' : ''}`;
   mission.textContent = bagOpen ? '背包已開啟（暫停）｜點物品使用，Tab / Esc 返回' : paused ? '已暫停｜Esc 繼續' : `接應點 ${Math.round(distance)}m · 搜刮 ${Math.min(looted, 3)}/3 · ${elapsed >= 480 ? '窗口已關閉' : elapsed >= 420 ? '窗口開啟，回綠圈按 E' : `接應倒數 ${Math.ceil(420 - elapsed)} 秒`} · 暴露須低於85`;
-  radio.textContent = [...BROADCASTS].reverse().find(([at]) => elapsed >= at)?.[1] ?? '';
+  if(mode==='sandbox') {
+    const day=dayPhase(elapsed);
+    mission.textContent = inShelter ? '安全屋｜存放物資、休息或返回街區' : bagOpen ? '背包（暫停）｜點擊使用／裝備' : paused ? '已暫停｜Esc 繼續' : `第 ${day.day} 天 · 安全屋 ${shelter ? Math.round(Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])) : '?'}m · 已搜 ${looted}/${containers.length} · 回家存放補給`;
+    radio.textContent = saveWarning || (inShelter ? '休息花費庫存1水＋1罐頭，時間推進2分鐘。物資有限，不會重生。' : day.daylight<.25 ? '夜間感染者更敏銳。慢行、關燈；帶回一水一食便能在家休息。' : '互助台：藍色門標是你的安全屋。物資與已搜地點自動保存。');
+  } else radio.textContent = [...BROADCASTS].reverse().find(([at]) => elapsed >= at)?.[1] ?? '';
   if (evacRing) (evacRing.material as THREE.MeshBasicMaterial).color.setHex(elapsed >= 420 && elapsed < 480 ? 0x9fffc2 : 0x397959);
-  const t = 1 - Math.max(0, timeLeft) / NIGHT_SECONDS;
+  const t = mode==='sandbox' ? (dayPhase(elapsed).hour-2)/3 : 1 - Math.max(0, timeLeft) / NIGHT_SECONDS;
   const minutes = 120 + t * 180;
   const hh = Math.floor(minutes / 60);
   const mm = Math.floor(minutes % 60);
-  el.clock.textContent = `0${hh}:${mm.toString().padStart(2, '0')}`;
+  el.clock.textContent = `${hh.toString().padStart(2,'0')}:${mm.toString().padStart(2, '0')}`;
   el.nightFill.style.width = `${Math.min(100, t * 100)}%`;
-  el.phase.textContent = t > 0.82 ? 'dawn' : 'night';
+  el.phase.textContent = mode==='sandbox' ? `day ${dayPhase(elapsed).day}` : t > 0.82 ? 'dawn' : 'night';
 
   el.hp.style.width = `${hp}%`;
   el.sta.style.width = `${stamina}%`;
@@ -923,6 +955,7 @@ function updateBag() {
   }
   el.kill.textContent = `擊殺 ${kills}`;
   el.loot.textContent = `搜刮 ${looted}`;
+  persistCampaign();
 }
 
 // ---------------------------------------------------------------- 流程
@@ -989,8 +1022,13 @@ function placeContainer(): { x: number; z: number } {
   return { x: px + 4, z: pz + 4 };
 }
 
-function start(chosen: CharSpec) {
+function start(chosen: CharSpec, resume: Snapshot | null = null) {
+  if(mode==='sandbox'&&!resume&&savedGame?.status==='alive'&&!confirm('開始新沙盒會覆寫這個瀏覽器的舊進度。確定開始新遊戲？')) {el.overlay.classList.add('on');return;}
+  if(!resume)savedGame=null;
+  elapsed=0; inShelter=false; stash=emptyInventory(); restCount=0; saveTimer=0; saveWarning='';
+  shelterPanel.hidden=true; if(shelterRoof)shelterRoof.visible=true;
   spec = chosen;
+  document.querySelector<HTMLElement>('#campaign-mode')?.setAttribute('hidden','');
   hp = 100; stamina = 100; battery = 100;
   outbreak = createOutbreak(); sneaking = false; paused = false; attackHeld=false;touchActionHeld=false;pistolEquipped=false;mouseAimActive=false;toggleBag(false);keys.clear();
   lightOn = true; invuln = 0; timeLeft = NIGHT_SECONDS;
@@ -1011,6 +1049,7 @@ function start(chosen: CharSpec) {
   looted = 0;
   moodleKey = '';
   resetWorld();
+  if(resume) restoreCampaign(resume);
   updateHud();
   updateBag();
   el.hint.textContent = HINT_DEFAULT;
@@ -1018,9 +1057,13 @@ function start(chosen: CharSpec) {
   setRing(0);
   el.prompt.classList.remove('on');
   phase = 'play';
+  if(mode==='sandbox')updateDaylight();
+  if(inShelter) showShelter();
+  persistCampaign();
 }
 
 function showOverlay(title: string, body: string, button: string, stats?: [string, string][]) {
+  document.querySelector<HTMLElement>('#campaign-mode')?.setAttribute('hidden','');
   const card = el.overlay.querySelector<HTMLElement>('.card')!;
   el.overlay.querySelector('h1')!.textContent = title;
   el.overlay.querySelector('.sub')!.innerHTML = body;
@@ -1051,7 +1094,7 @@ function showOverlay(title: string, body: string, button: string, stats?: [strin
 
 function win() {
   phase = 'win';
-  const secs = Math.floor(NIGHT_SECONDS - timeLeft);
+  const secs = Math.floor(mode==='sandbox'?elapsed:NIGHT_SECONDS-timeLeft);
   showOverlay('抵達安全接應點', `<b>${spec.name}</b>（${spec.job}）帶回街區補給情報，登上接應車。病毒危機尚未結束。`, '再守一夜', [
     ['存活', `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`],
     ['擊殺', String(kills)],
@@ -1062,7 +1105,8 @@ function win() {
 
 function lose(reason = '沒能走出這條弄堂。') {
   phase = 'lose';
-  const secs = Math.floor(NIGHT_SECONDS - timeLeft);
+  persistCampaign();
+  const secs = Math.floor(mode==='sandbox'?elapsed:NIGHT_SECONDS-timeLeft);
   showOverlay('你死了', `<b>${spec.name}</b>${reason}`, '再試一次', [
     ['撐了', `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`],
     ['擊殺', String(kills)],
@@ -1074,6 +1118,7 @@ function lose(reason = '沒能走出這條弄堂。') {
 // ---------------------------------------------------------------- 選單
 
 function buildMenu() {
+  installCampaignUI();
   el.roster.style.display = '';
   el.pick.style.display = '';
   el.roster.innerHTML = '';
@@ -1105,11 +1150,96 @@ function buildMenu() {
   el.ovBtn.onclick = () => { el.overlay.classList.remove('on'); start(spec); };
 }
 
+// Campaign persistence owns one atomic snapshot: loot depletion and inventory never save separately.
+function campaignElapsed() { return elapsed; }
+function snapshotCampaign(): Snapshot {
+  return { version:1,mapId:dataUrl,characterId:spec.id,elapsed,hp:phase==='lose'?0:hp,stamina,battery,outbreak:{...outbreak},inventory:{...inventory},stash:{...stash},ammo,hasPistol,pistolEquipped,position:[px,pz],shelterId:shelter?.id??'',inShelter,looted,kills,restCount,status:phase==='lose'?'dead':'alive',
+    containers:containers.map(c=>({x:c.x,z:c.z,looted:c.looted})),
+    enemies:zombies.map(z=>({x:z.x,z:z.z,hp:Math.max(0,z.hp),state:z.state,faction:z.faction.id})) };
+}
+function persistCampaign() {
+  if(mode!=='sandbox'||!shelter||(phase!=='play'&&phase!=='lose'))return;
+  try { if(!saveSnapshot(localStorage,saveKey,snapshotCampaign()))saveWarning='存檔失敗：儲存空間不足或被封鎖，請勿關閉本頁。'; else saveWarning=''; }
+  catch {saveWarning='存檔失敗：瀏覽器封鎖儲存，請勿關閉本頁。';}
+}
+function restoreCampaign(s:Snapshot) {
+  elapsed=s.elapsed;timeLeft=NIGHT_SECONDS-elapsed;hp=s.hp;stamina=s.stamina;battery=s.battery;
+  outbreak={...s.outbreak};Object.assign(inventory,s.inventory);stash={...s.stash};ammo=s.ammo;hasPistol=s.hasPistol;pistolEquipped=s.pistolEquipped;
+  [px,pz]=s.position;inShelter=s.inShelter;looted=s.looted;kills=s.kills;restCount=s.restCount;
+  s.containers.forEach((c,i)=>{Object.assign(containers[i],c);containers[i].mesh.position.set(c.x,.26,-c.z);containers[i].mesh.material=c.looted?containerUsed:containerMat;});
+  s.enemies.forEach((z,i)=>{Object.assign(zombies[i],z,{faction:profileFor(i),hx:z.x,hz:z.z,wx:z.x,wz:z.z});zombies[i].mesh.visible=z.state!=='dead';zombies[i].mesh.position.set(z.x,0,-z.z);});
+  if(inShelter&&shelter)[px,pz]=shelter.inside;
+  if(playerRoot)playerRoot.position.set(px,0,-pz);syncEyes();updateDaylight();
+}
+function updateDaylight() {
+  const light=dayPhase(elapsed).daylight;
+  hemi.intensity=1.1+light*1.5;moon.intensity=.4+light*1.4;
+  const color=new THREE.Color(0x0a1017).lerp(new THREE.Color(0x829da3),light);
+  scene.background=color;if(scene.fog instanceof THREE.Fog)scene.fog.color.copy(color);
+}
+function clearControlState(){keys.clear();attackHeld=false;touchActionHeld=false;action='none';lootTarget=null;lootProgress=0;setRing(0);el.prompt.classList.remove('on');}
+function enterShelter() {
+  if(!shelter||mode!=='sandbox')return;
+  const chasing=zombies.some(z=>z.state!=='dead'&&Math.hypot(z.x-px,z.z-pz)<6&&canSee(px,pz,z.x,z.z));
+  if(chasing){flashHint('敵人太近，先甩開追逐才能開安全屋門。');return;}
+  inShelter=true;[px,pz]=shelter.inside;py=0;vy=0;grounded=true;clearControlState();toggleBag(false);
+  if(playerRoot)playerRoot.position.set(px,0,-pz);showShelter();persistCampaign();
+}
+function leaveShelter() {
+  if(!shelter)return;
+  inShelter=false;paused=false;[px,pz]=shelter.outside;if(playerRoot)playerRoot.position.set(px,0,-pz);
+  shelterPanel.hidden=true;if(shelterRoof)shelterRoof.visible=true;
+  document.querySelector<HTMLElement>('#survivor-touch-controls')?.removeAttribute('hidden');
+  clearControlState();invuln=1.5;persistCampaign();flashHint('離開安全屋。先找水與罐頭，別把所有物資帶出去。');
+}
+function showShelter() {
+  shelterPanel.hidden=false;if(shelterRoof)shelterRoof.visible=false;
+  const touch=document.querySelector<HTMLElement>('#survivor-touch-controls');if(touch)touch.hidden=true;
+  shelterPanel.replaceChildren();
+  const title=document.createElement('h2');title.textContent='弄堂安全屋';shelterPanel.append(title);
+  const info=document.createElement('p');info.textContent='門已關好。物品可逐個存取；休息消耗庫存一水一罐頭，推進2分鐘。';shelterPanel.append(info);
+  const controls=document.createElement('div');controls.className='shelter-stock';
+  for(const id of Object.keys(ITEMS) as ItemId[]) {
+    if(id==='pistol')continue; // The equipped weapon stays on the survivor; supplies are transferable.
+    const row=document.createElement('div');const label=document.createElement('span');label.textContent=`${ITEMS[id].label}：隨身 ${inventory[id]} ／庫存 ${stash[id]}`;
+    const put=document.createElement('button');put.textContent='存1';put.disabled=inventory[id]<1;
+    const take=document.createElement('button');take.textContent='取1';take.disabled=stash[id]<1;
+    put.onclick=()=>{if(transferItem(inventory,stash,id)){persistCampaign();updateBag();showShelter();}};
+    take.onclick=()=>{if(transferItem(stash,inventory,id)){persistCampaign();updateBag();showShelter();}};
+    row.append(label,put,take);controls.append(row);
+  }
+  shelterPanel.append(controls);
+  const rest=document.createElement('button');rest.textContent='休息：庫存 1水＋1罐頭';rest.disabled=stash.water<1||stash.food<1;
+  rest.onclick=()=>{const state={hp,stamina,outbreak,inventory,stash,elapsed,restCount};if(restAtShelter(state)){hp=state.hp;stamina=state.stamina;elapsed=state.elapsed;restCount=state.restCount;updateDaylight();persistCampaign();showShelter();flashHint('休息完成，補充體力與水分；街區時間已前進。');}};
+  const exit=document.createElement('button');exit.textContent='返回街區';exit.onclick=leaveShelter;
+  shelterPanel.append(rest,exit);
+  const status=document.createElement('p');status.textContent=`HP ${Math.round(hp)} · 水分 ${Math.round(outbreak.hydration)} · 飽足 ${Math.round(outbreak.satiety)} · 第${dayPhase(elapsed).day}天 ${saveWarning}`;shelterPanel.append(status);
+}
+function installCampaignUI() {
+  const style=document.createElement('style');style.textContent=`#campaign-mode[hidden]{display:none}#campaign-mode{margin:12px 0;display:flex;gap:8px;flex-wrap:wrap}#campaign-mode button,#shelter-panel button{min-height:44px;padding:8px 12px;border:1px solid #93b6ad;background:#203631;color:#f4ecda;border-radius:6px;font:inherit;cursor:pointer}#campaign-mode button:disabled,#shelter-panel button:disabled{opacity:.4;cursor:default}#shelter-panel{position:fixed;z-index:60;right:3vw;top:10vh;width:min(430px,88vw);max-height:78vh;overflow:auto;background:#142422f5;color:#f4ecda;border:1px solid #70b4ac;padding:16px;border-radius:10px;font:14px system-ui}#shelter-panel[hidden]{display:none}.shelter-stock>div{display:flex;align-items:center;gap:7px;margin:7px 0}.shelter-stock span{flex:1}#shelter-panel>button{margin:10px 8px 0 0}#campaign-mode .selected{background:#486354}`;document.head.append(style);
+  shelterPanel=document.createElement('section');shelterPanel.id='shelter-panel';shelterPanel.hidden=true;shelterPanel.setAttribute('aria-label','安全屋物資與休息');document.body.append(shelterPanel);
+  new MutationObserver(()=>{const touch=document.querySelector<HTMLElement>('#survivor-touch-controls');if(touch)touch.hidden=!shelterPanel.hidden||el.overlay.classList.contains('on');}).observe(shelterPanel,{attributes:true,attributeFilter:['hidden']});
+  const modes=document.createElement('div');modes.id='campaign-mode';
+  const sand=document.createElement('button');sand.textContent='生存沙盒（持久存檔）';sand.className='selected';sand.disabled=!shelter;
+  const quick=document.createElement('button');quick.textContent='8分鐘快速撤離（獨立）';
+  sand.onclick=()=>{mode='sandbox';sand.className='selected';quick.className='';};quick.onclick=()=>{mode='quick';quick.className='selected';sand.className='';};
+  if(!shelter){mode='quick';quick.className='selected';sand.textContent='此地圖未找到安全門口';}
+  modes.append(sand,quick);
+  const valid=savedGame&&savedGame.status==='alive'&&savedGame.hp>0&&savedGame.shelterId===shelter?.id&&savedGame.containers.length===containers.length&&savedGame.enemies.length===zombies.length&&ROSTER.some(c=>c.id===savedGame!.characterId);
+  if(valid){const resume=document.createElement('button');resume.textContent=`繼續第${dayPhase(savedGame!.elapsed).day}天存檔`;resume.onclick=()=>{let current:Snapshot|null=null;try{current=loadSnapshot(localStorage,saveKey,dataUrl);}catch{}if(!current||current.status!=='alive'||current.hp<=0){resume.disabled=true;resume.textContent='存檔已失效';return;}mode='sandbox';modes.hidden=true;start(ROSTER.find(c=>c.id===current!.characterId)??ROSTER[0],current);};modes.append(resume);}
+  const note=document.createElement('p');note.textContent=savedGame?.status==='dead'?'上一位倖存者已死亡；新沙盒會重設世界與庫存。':valid?'選角後開始新沙盒會覆寫此瀏覽器的舊進度；快速挑戰不影響存檔。':'沙盒：找藍色門標，按E／手機「家」進入。先帶一水一罐頭回家。';
+  el.roster.before(modes,note);
+  el.overlay.querySelector('.sub')!.textContent='上海病毒爆發。選角色後探索街區、搜刮並返回自己的安全屋；或選擇獨立八分鐘撤離挑戰。';
+}
+addEventListener('pagehide',persistCampaign);
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&phase==='play'){persistCampaign();clearControlState();paused=true;}});
+
 // ---------------------------------------------------------------- 主循環
 
 function frame(dt: number) {
-  if (phase === 'play' && !paused && !bagOpen) {
-    timeLeft -= dt;
+  if (phase === 'play' && !paused && !bagOpen && !inShelter) {
+    if(mode==='quick')timeLeft -= dt;
+    else { elapsed += dt; timeLeft = NIGHT_SECONDS - elapsed; updateDaylight(); }
     const nearbyThreat = zombies.some(z => z.faction.id === 'infected' && z.state !== 'dead' && Math.hypot(z.x - px, z.z - pz) < 4 && canSee(z.x, z.z, px, pz));
     stepOutbreak(outbreak, dt, { running: !sneaking && stamina > 1 && action === 'none' && ['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].some(k => keys.has(k)) && (keys.has('ShiftLeft') || keys.has('ShiftRight')), nearbyThreat });
     if (outbreak.hydration <= 0 || outbreak.satiety <= 0) hp = Math.max(0, hp - dt * 1.5);
@@ -1131,10 +1261,11 @@ function frame(dt: number) {
       muzzleT -= dt;
       if (muzzle && muzzleT <= 0) muzzle.visible = false;
     }
-    if (phase === 'play' && timeLeft <= 0) lose('錯過接應窗口，街區通道已封閉。');
+    saveTimer += dt; if(saveTimer>=3) {saveTimer=0;persistCampaign();}
+    if (mode==='quick' && phase === 'play' && timeLeft <= 0) lose('錯過接應窗口，街區通道已封閉。');
   }
 
-  if (paused || bagOpen) updateHud();
+  if (paused || bagOpen || inShelter) updateHud();
   shake = Math.max(0, shake - dt * 2.4);
   camShake = Math.max(0, camShake - dt * 3);
   const jitter = camShake * 0.5;
@@ -1158,6 +1289,7 @@ function animate() {
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
   const a = innerWidth / innerHeight;
+  const viewSize = viewHeight(a,matchMedia('(any-pointer:coarse)').matches,viewZoom);
   camera.left = -viewSize * a / 2;
   camera.right = viewSize * a / 2;
   camera.top = viewSize / 2;
@@ -1167,7 +1299,7 @@ function resize() {
 addEventListener('resize', resize);
 addEventListener('wheel', e => {
   e.preventDefault();
-  viewSize = THREE.MathUtils.clamp(viewSize * (e.deltaY < 0 ? 0.9 : 1.1), 9, 200);
+  viewZoom = THREE.MathUtils.clamp(viewZoom * (e.deltaY < 0 ? 1.1 : .9), .5, 2.2);
   resize();
 }, { passive: false });
 resize();
@@ -1200,11 +1332,19 @@ fetch(dataUrl)
       cityWalls(data.buildings),
       new THREE.MeshStandardMaterial({ color: 0x9c968a, roughness: 1, side: THREE.DoubleSide }),
     ));
+    shelter = selectShelter(data.buildings, data.spawn, collides, insideBuilding);
     scene.add(new THREE.Mesh(
-      roofGeometry(data.buildings),
+      roofGeometry(data.buildings.filter(b=>b.id!==shelter?.id)),
       new THREE.MeshStandardMaterial({ color: 0x9c968a, roughness: 1, side: THREE.DoubleSide }),
     ));
 
+    if(shelter) {
+      shelterRoof = new THREE.Mesh(roofGeometry(data.buildings.filter(b=>b.id===shelter?.id)),new THREE.MeshStandardMaterial({color:0x9c968a,side:THREE.DoubleSide})); scene.add(shelterRoof);
+      const marker=new THREE.Mesh(new THREE.BoxGeometry(1.2,2.4,.25),new THREE.MeshStandardMaterial({color:0x49c8d8,emissive:0x166c7a,emissiveIntensity:.8}));
+      marker.position.set(shelter.outside[0],1.2,-shelter.outside[1]); marker.scale.set(.4,1,.4);scene.add(marker);
+      const floor=new THREE.Mesh(new THREE.CircleGeometry(2,24),new THREE.MeshStandardMaterial({color:0x9f956d,side:THREE.DoubleSide}));floor.rotation.x=-Math.PI/2;floor.position.set(shelter.inside[0],.03,-shelter.inside[1]);scene.add(floor);
+      for(const [dx,dz,color] of [[.7,0,0x976731],[-.7,0,0x536d67]]){const prop=new THREE.Mesh(new THREE.BoxGeometry(.5,.45,1),new THREE.MeshStandardMaterial({color}));prop.position.set(shelter.inside[0]+dx,.25,-shelter.inside[1]+dz);scene.add(prop);}
+    }
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(
         bounds.maxX - bounds.minX + 320,
@@ -1236,6 +1376,7 @@ fetch(dataUrl)
     px = data.spawn[0];
     pz = data.spawn[1];
     buildZombies();
+    try {savedGame=loadSnapshot(localStorage,saveKey,dataUrl);}catch {saveWarning='瀏覽器封鎖儲存；本局無法持久存檔。';}
     buildMenu();
 
     if (params.has('debug')) {
