@@ -35,6 +35,11 @@
     #prompt.on { opacity: 1; }
     #prompt b { color: #f0c96e; }
 
+    #place { position: fixed; top: 18px; left: 50%; transform: translateX(-50%); padding: 6px 14px;
+      border-radius: 999px; background: #121a18dd; border: 1px solid #ffffff1f; font-size: 12px;
+      letter-spacing: .04em; opacity: 0; transition: opacity .2s; pointer-events: none; }
+    #place.on { opacity: 1; }
+
     #progress { position: fixed; left: 50%; bottom: 60px; transform: translateX(-50%);
       width: 190px; height: 5px; border-radius: 99px; background: #ffffff1f; overflow: hidden;
       opacity: 0; transition: opacity .15s; }
@@ -72,6 +77,7 @@
   </div>
 
   <div id="prompt">按住 <b>E</b> 搜刮</div>
+  <div id="place"></div>
   <div id="progress"><i></i></div>
   <div id="flash"></div>
   <div id="hint">F 手電筒 · Shift 跑 · 按住 E 搜刮</div>

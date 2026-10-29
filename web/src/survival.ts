@@ -13,6 +13,12 @@ import {
   type Block, type Building,
 } from './world';
 
+/** A named place from OSM: hospitals, schools, temples, parks. Real names. */
+type Landmark = { x: number; y: number; label: string; cn: string };
+/** A commercial POI with the brand stripped, leaving only its category. */
+type Shop = { x: number; y: number; label: string };
+type GameBlock = Block & { landmarks?: Landmark[]; shops?: Shop[] };
+
 // ---------------------------------------------------------------- 參數
 
 const NIGHT_SECONDS = 480;      // 現實 8 分鐘 = 遊戲內 02:00 → 05:00
@@ -53,6 +59,7 @@ const el = {
   ovBtn: document.querySelector<HTMLButtonElement>('#ov-btn')!,
   flash: document.querySelector<HTMLElement>('#flash')!,
   hint: document.querySelector<HTMLElement>('#hint')!,
+  place: document.querySelector<HTMLElement>('#place')!,
 };
 
 // ?data=block_250m.json swaps the block without touching code.
@@ -208,7 +215,8 @@ function buildZombies() {
 
 // ---------------------------------------------------------------- 世界
 
-let block: Block;
+let block: GameBlock;
+let landmarks: Landmark[] = [];
 let collides: (x: number, z: number, r?: number) => boolean;
 let insideBuilding: (x: number, z: number) => boolean;
 let bounds = { minX: 0, maxX: 250, minY: 0, maxY: 250 };
@@ -469,6 +477,22 @@ function updateLoot(dt: number) {
   }
 }
 
+/** Nearest named place within 46 m: the only wayfinding cue in the dark. */
+function updatePlaceLabel() {
+  let best: Landmark | null = null;
+  let bestDistance = 46;
+  for (const l of landmarks) {
+    const d = Math.hypot(l.x - px, l.y - pz);
+    if (d < bestDistance) { bestDistance = d; best = l; }
+  }
+  if (best) {
+    el.place.textContent = `${best.label}　${best.cn}`;
+    el.place.classList.add('on');
+  } else {
+    el.place.classList.remove('on');
+  }
+}
+
 function updateHud() {
   const t = 1 - Math.max(0, timeLeft) / NIGHT_SECONDS;
   const minutes = 120 + t * 180;
@@ -513,6 +537,19 @@ function resetWorld() {
 }
 
 function placeContainer(): { x: number; z: number } {
+  // Prefer a real shopfront: loot belongs where the OSM POIs put the shops.
+  const anchors = block.shops ?? [];
+  if (anchors.length && Math.random() < 0.6) {
+    const anchor = anchors[Math.floor(Math.random() * anchors.length)];
+    for (let i = 0; i < 10; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const radius = 1.8 + Math.random() * 5.5;
+      const x = anchor.x + Math.cos(angle) * radius;
+      const z = anchor.y + Math.sin(angle) * radius;
+      if (!insideBuilding(x, z) && !collides(x, z, 0.5)) return { x, z };
+    }
+  }
+  // Otherwise: a point just off a random facade, still on the street.
   for (let i = 0; i < 80; i++) {
     const b: Building = block.buildings[Math.floor(Math.random() * block.buildings.length)];
     const ring = b.footprint;
@@ -574,6 +611,7 @@ function frame(dt: number) {
     updateZombies(dt);
     updateLoot(dt);
     updateHud();
+    updatePlaceLabel();
     if (timeLeft <= 0 && phase === 'play') win();
   }
 
@@ -612,9 +650,10 @@ resize();
 // ---------------------------------------------------------------- 啟動
 
 fetch(dataUrl)
-  .then(r => { if (!r.ok) throw new Error(`資料載入失敗 ${r.status}`); return r.json() as Promise<Block>; })
+  .then(r => { if (!r.ok) throw new Error(`資料載入失敗 ${r.status}`); return r.json() as Promise<GameBlock>; })
   .then(data => {
     block = data;
+    landmarks = data.landmarks ?? [];
     const grid = wallGridOf(data);
     collides = makeCollider(grid);
     insideBuilding = makeInsideTest(data);
