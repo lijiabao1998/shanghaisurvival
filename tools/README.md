@@ -17,3 +17,13 @@ python -m venv .venv
 ```
 
 來源與授權資訊見 `data/sources/cmab-v7/SOURCE.md`。實際 SHP 的 `Height` 原值保存在 `source_attributes`，但因尚未確認其欄位單位及缺失值約定，輸出的 `height_m` 保持 null。`validate_cmab_sample.py` 核對輸出與原始檔案的散列及幾何；它不驗證原始資料與現地是否一致，也不驗證道路或可玩性。
+
+`extract_osm_roads.py` 從 OSM 上海快照產生 `data/samples/shanghai_huangpu_roads.json`，投影至同一 UTM 51N 座標系。
+
+## 產生 Web 場景資料
+
+```powershell
+.\.venv\Scripts\python.exe tools\build_demo_data.py
+```
+
+讀取 `data/samples/` 的建築與道路樣本，輸出 `web/public/data/block.json`（直接寫入，不需手動複製）。它會挑一棟完全落在範圍內的建築，在可用的邊上開門，並發明入口與室內供試玩；幾何本身不改動。`Height` 在此按米解讀，落在 2–250 m 之外的值以 12 m 代替，屬預覽假設，單位仍待作者確認。重跑後輸出應與 `web/public/data/block.json` 逐位元組相同（Shapely 2.1.2 / pyproj 3.8.0 下已驗證）。

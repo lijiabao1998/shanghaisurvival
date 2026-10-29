@@ -1,4 +1,4 @@
-# Godot
+# Godot（早期原型已歸檔至 commit cd32f57；規則保留，取回後仍可運作）
 .godot/
 game/.tools/
 *.translation
@@ -25,6 +25,8 @@ __pycache__/
 *.py[cod]
 .venv/
 *.egg-info/
+# pip 在專案根目錄留下的暫存目錄（權限所限無法刪除，僅忽略）
+pip-*/
 
 # Web
 node_modules/

@@ -22,13 +22,12 @@
 │   ├── tech-stack.md        # 技術決策與被否決的方案
 │   └── asset-license.md     # 素材授權紅線與白名單
 ├── data/
-│   ├── sample_block.json    # 城市區塊資料格式範例，非真實上海資料
-│   ├── samples/             # 上海候選街區資料樣本
-│   ├── sources/cmab-v7/     # CMAB 來源與校驗紀錄、原始資料
+│   ├── samples/             # 上海候選街區資料樣本（版本化）
+│   ├── sources/cmab-v7/     # CMAB 來源、校驗紀錄與原始資料
+│   ├── sources/osm-shanghai-20261029/   # OSM 道路快照與來源紀錄
 │   └── city/                # 烘焙產物（不進 git）
-├── tools/                   # 離線烘焙器（Python）
-├── web/                     # Three.js 斜俯視第三人稱街區原型（現行）
-└── game/                    # 保留的 Godot 原型，供對照
+├── tools/                   # 離線資料管線（Python）
+└── web/                     # Three.js 斜俯視第三人稱街區原型（現行）
 ```
 
 ## 目前狀態
@@ -37,17 +36,17 @@
 - [x] 資料格式 v1
 - [x] 選定真實上海街區與 CMAB 作為首批資料方向
 - [x] 取得 CMAB 上海資料並核對發布方雜湊；產生黃浦區初始 250 m 樣本
-- [x] 取得 OSM 道路快照並生成首個 Godot 可行走白模
-- [x] 依《保衛台北》技術棧建立 Three.js 街區原型
+- [x] 取得 OSM 道路快照並生成首個可行走白模
+- [x] 依《保衛台北》技術棧建立 Three.js 街區原型（現行版本）
 - [ ] 評估樣本品質與遊戲適用性，確定最終街區
-- [x] Godot 專案骨架
+- [x] 原型骨架（早期 Godot 版已歸檔，見下）
 - [ ] 第一個可玩垂直切片（見下方里程碑）
 
 初始樣本見 [shanghai_huangpu_250m.json](data/samples/shanghai_huangpu_250m.json)：以 250 × 250 m 視窗選取相交建築，完整保留跨視窗的原始多邊形，故部分建築會超出範圍。來源 SHP 座標系為 EPSG:3857，已轉換為 UTM 51N（EPSG:32651）的局部公尺座標。來源與校驗資訊見 [CMAB 來源](data/sources/cmab-v7/SOURCE.md)。
 
 原始樣本保留高度欄位原值，單位對應尚未獲作者明確證實；白模暫按米解讀，詳見[樓高核對](docs/cmab-height.md)。樣本是推算的屋頂輪廓，與現地地面範圍是否一致尚未驗證。[OSM 道路](data/sources/osm-shanghai-20261029/SOURCE.md)使用同一座標系，路寬是估計值，部分路線與建築輪廓重疊，原因未確認。
 
-目前本機已安裝依賴，可雙擊 [web/start.cmd](web/start.cmd) 啟動網頁原型，或在 `web/` 執行 `npm install` 和 `npm run dev`。WASD 按螢幕方向移動，滑鼠滾輪縮放；一棟建築有測試用示意門洞和空白室內，並非真實門位。街區另有程序生成的店面、招牌、陽台及路邊物件，並非實景紀錄。操作及資料限制見 [web/README.md](web/README.md)。原 Godot 原型仍保留於 `game/`。目前尚未實作喪屍或生存循環。
+目前本機已安裝依賴，可雙擊 [web/start.cmd](web/start.cmd) 啟動網頁原型，或在 `web/` 執行 `npm install` 和 `npm run dev`。WASD 按螢幕方向移動，滑鼠滾輪縮放；一棟建築有測試用示意門洞和空白室內，並非真實門位。街區另有程序生成的店面、招牌、陽台及路邊物件，並非實景紀錄。操作及資料限制見 [web/README.md](web/README.md)。早期 Godot 原型已自工作區移除（連同 241.9 MB 的引擎與快取），需要對照時可從 commit `cd32f57` 取回。目前尚未實作喪屍或生存循環。
 
 ## 里程碑：7 天垂直切片
 

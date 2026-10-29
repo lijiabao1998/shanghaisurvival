@@ -1,6 +1,7 @@
 """Build the preview data from the versioned sample, without editing the source.
 
-Run from repository root with .venv/Scripts/python.exe game/build_demo_data.py.
+Run from repository root with .venv/Scripts/python.exe tools/build_demo_data.py.
+Writes straight to web/public/data/block.json, so no manual copy step is needed.
 Shapely is already specified in tools/requirements.txt.
 """
 import json
@@ -11,7 +12,7 @@ from shapely.geometry import LineString, Point, Polygon, box
 from shapely.geometry.polygon import orient
 
 ROOT = Path(__file__).resolve().parent.parent
-GAME = ROOT / 'game'
+OUT = ROOT / 'web/public/data'
 src = ROOT / 'data/samples/shanghai_huangpu_250m.json'
 roads_src = ROOT / 'data/samples/shanghai_huangpu_roads.json'
 data = json.loads(src.read_text(encoding='utf-8'))
@@ -81,6 +82,6 @@ if roads_src.exists():
     out['road_source'] = road_data.get('source', {})
 else:
     out['roads'] = []
-(GAME / 'data').mkdir(parents=True, exist_ok=True)
-(GAME / 'data/block.json').write_text(json.dumps(out, ensure_ascii=False, separators=(',', ':')) + '\n', encoding='utf-8')
-print(f"Built {len(processed)} buildings, {len(out['roads'])} roads; invented entrance {selected_id}, edge {entrance_edge}; spawn {spawn}.")
+OUT.mkdir(parents=True, exist_ok=True)
+(OUT / 'block.json').write_text(json.dumps(out, ensure_ascii=False, separators=(',', ':')) + '\n', encoding='utf-8')
+print(f"Built {len(processed)} buildings, {len(out['roads'])} roads; invented entrance {selected_id}, edge {entrance_edge}; spawn {spawn}; wrote {OUT / 'block.json'}.")

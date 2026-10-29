@@ -12,7 +12,7 @@ Windows 已安裝依賴後也可雙擊 `start.cmd` 啟動，再在瀏覽器開�
 
 依終端機顯示的本機網址進入；WASD 移動、Shift 奔跑、空白鍵跳躍、滑鼠滾輪縮放、F 開關手電筒。觸控螢幕可使用畫面左下角方向鍵移動。建築的門洞和室內為測試示意；進入建築或被前景遮住時屋頂和遮擋立面會隱藏或淡出。
 
-`npm run build` 做 TypeScript 型別檢查及正式建置。若上游街區資料更新，先在專案根目錄執行 `.\.venv\Scripts\python.exe game\build_demo_data.py`，再將 `game/data/block.json` 複製至 `web/public/data/block.json`，然後重建。
+`npm run build` 做 TypeScript 型別檢查及正式建置。若上游街區資料更新，先在專案根目錄執行 `.\.venv\Scripts\python.exe tools\build_demo_data.py`（直接寫入 `web/public/data/block.json`，不需手動複製），然後重建。
 
 ## 渲染取捨
 
