@@ -7,6 +7,21 @@ export type Building = { id: string; footprint: Point[]; holes: Point[][]; heigh
 export type Block = { buildings: Building[]; spawn: Point };
 export type Wall = { a: Point; b: Point };
 
+/** Preserve real concave footprints and courtyards; a triangle fan fills both incorrectly. */
+function footprintTriangles(building: Building): Point[][] {
+  const copyRing = (ring: Point[]) => {
+    const points = ring.map(([x, y]) => new THREE.Vector2(x, y));
+    if (points.length > 1 && points[0].equals(points[points.length - 1])) points.pop();
+    return points;
+  };
+  const outline = copyRing(building.footprint);
+  const holes = building.holes.map(copyRing).filter(r => r.length >= 3);
+  if (outline.length < 3) return [];
+  const points = [...outline, ...holes.flat()];
+  return THREE.ShapeUtils.triangulateShape(outline, holes).map(face =>
+    face.map(i => [points[i].x, points[i].y] as Point));
+}
+
 /** 把建築輪廓擠成一個合併 mesh（牆 + 屋頂），一整片街區只有 1 個 draw call。 */
 export function cityGeometry(block: Block): THREE.BufferGeometry {
   const verts: number[] = [];
@@ -22,7 +37,7 @@ export function cityGeometry(block: Block): THREE.BufferGeometry {
     for (const hole of b.holes) {
       for (let i = 0; i < hole.length; i++) quad(hole[i], hole[(i + 1) % hole.length], 0, h);
     }
-    for (let i = 1; i < ring.length - 1; i++) { v(ring[0], h); v(ring[i], h); v(ring[i + 1], h); }
+    for (const triangle of footprintTriangles(b)) for (const p of triangle) v(p, h);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
@@ -228,10 +243,7 @@ export function roofGeometry(bs: Building[]): THREE.BufferGeometry {
   const pos: number[] = [];
   for (const b of bs) {
     const h = Number.isFinite(b.height_m) && b.height_m > 2 && b.height_m < 250 ? b.height_m : 12;
-    const ring = b.footprint;
-    for (let i = 1; i < ring.length - 1; i++) {
-      for (const p of [ring[0], ring[i], ring[i + 1]]) pos.push(p[0], h, -p[1]);
-    }
+    for (const triangle of footprintTriangles(b)) for (const p of triangle) pos.push(p[0], h, -p[1]);
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
@@ -250,10 +262,7 @@ export function interiorGeometry(bs: Building[]): THREE.BufferGeometry {
     col.push(c.r, c.g, c.b);
   };
   for (const b of bs) {
-    const ring = b.footprint;
-    for (let i = 1; i < ring.length - 1; i++) {
-      for (const p of [ring[0], ring[i], ring[i + 1]]) add(p, 0.035, floor);
-    }
+    for (const triangle of footprintTriangles(b)) for (const p of triangle) add(p, 0.035, floor);
     for (const w of interiorWalls(b)) {
       const a = w.a, c = w.b;
       add(a, 0, part); add(c, 0, part); add(c, PART_H, part);

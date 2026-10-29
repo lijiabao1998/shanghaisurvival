@@ -1,3 +1,4 @@
+import { roadGeometries, nearbyRoadName, type StreetRoad } from './road-geometry';
 import { viewHeight } from './view';
 import { emptyInventory, replenishCaches, applyCacheLoot, loadSnapshot, saveSnapshot, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
 import { selectShelter, type Shelter } from './shelter';
@@ -89,7 +90,7 @@ const LOOT_TABLE: [ItemId, number][] = [
 
 type Landmark = { x: number; y: number; label: string; cn: string };
 type Shop = { x: number; y: number; label: string };
-type GameBlock = Block & { landmarks?: Landmark[]; shops?: Shop[] };
+type GameBlock = Block & { landmarks?: Landmark[]; shops?: Shop[]; roads?:StreetRoad[] };
 
 // ---------------------------------------------------------------- DOM
 
@@ -876,7 +877,9 @@ function updatePlaceLabel() {
     el.place.textContent = `${best.label}　${best.cn}`;
     el.place.classList.add('on');
   } else {
-    el.place.classList.remove('on');
+    const street=nearbyRoadName(block.roads??[],px,pz);
+    el.place.textContent=street?`${street} · OSM街道`:'';
+    el.place.classList.toggle('on',!!street);
   }
 }
 
@@ -1398,6 +1401,11 @@ fetch(dataUrl)
     ground.rotation.x = -Math.PI / 2;
     ground.position.set((bounds.minX + bounds.maxX) / 2, -0.02, -(bounds.minY + bounds.maxY) / 2);
     scene.add(ground);
+    // Render the already bundled real OSM network; preserve CMAB/OSM positions.
+    const streets=roadGeometries(data.roads??[]);
+    scene.add(new THREE.Mesh(streets.surface,new THREE.MeshStandardMaterial({vertexColors:true,roughness:1,side:THREE.DoubleSide})));
+    scene.add(new THREE.Mesh(streets.edges,new THREE.MeshStandardMaterial({color:0x9b9a87,roughness:1,side:THREE.DoubleSide})));
+
 
     for (let i = 0; i < containerCount; i++) {
       const mesh = new THREE.Mesh(containerGeo, containerMat);
