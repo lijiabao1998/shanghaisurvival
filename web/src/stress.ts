@@ -1,13 +1,17 @@
 /**
  * 屍群壓力測試台（獨立於 main.ts，不動現有原型）。
  *
- * 目的：在同一份上海街區資料上，量測三種實作方式的實際成本——
- *   1. instanced  InstancedMesh × N     → 1 個 draw call，無骨骼
- *   2. mesh       獨立 Mesh × N         → N 個 draw call，無骨骼
- *   3. skinned    SkinnedMesh × N       → N 個 draw call，三骨蒙皮
+ *   instanced  InstancedMesh × N   → 1 個 draw call，無骨骼
+ *   mesh       獨立 Mesh × N       → N 個 draw call，無骨骼
+ *   skinned    SkinnedMesh × N     → N 個 draw call，三骨蒙皮
  *
  * 用法：/stress.html?mode=skinned&n=150
- *       /stress.html?bench=1   自動跑完三種模式的爬坡，輸出表格
+ *       /stress.html?bench=1   自動跑完三種模式並鎖住 UI
+ *
+ * 量測規則（v2）：
+ *   - 爬坡期間 UI 全部鎖住，避免中途換模式污染數據
+ *   - 關閉視錐剔除，N 隻一律全部繪製，draw call 必須等於預期值，否則該列標 ✗ 並中止
+ *   - 以「收集 90 幀」計時，不用牆上時鐘；樣本不足視為無效
  */
 import * as THREE from 'three';
 import { UniformGrid } from './spatial';
@@ -24,6 +28,7 @@ const MODE_LABEL: Record<Mode, string> = {
   mesh: '獨立 Mesh × N（無骨骼）',
   skinned: 'SkinnedMesh × N（三骨蒙皮）',
 };
+const BASE_CALLS = 4; // 街區 + 地面 + 玩家 + 地面標記
 
 const canvas = document.querySelector<HTMLCanvasElement>('#c')!;
 const ui = {
@@ -35,6 +40,8 @@ const ui = {
   rows: document.querySelector<HTMLTableSectionElement>('#rows')!,
   status: document.querySelector<HTMLElement>('#status')!,
 };
+addEventListener('error', e => { ui.status.textContent = `JS 錯誤：${e.message}`; });
+addEventListener('unhandledrejection', e => { ui.status.textContent = `未處理錯誤：${String(e.reason)}`; });
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.6));
@@ -193,6 +200,7 @@ function buildZombies(n: number) {
   if (mode === 'instanced') {
     instanced = new THREE.InstancedMesh(plainGeo, zombieMat, n);
     instanced.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    instanced.frustumCulled = false;
     scene.add(instanced);
     spots.forEach((s, i) => {
       dummy.position.set(s.x, 0, -s.z);
@@ -208,6 +216,7 @@ function buildZombies(n: number) {
   for (const s of spots) {
     if (mode === 'mesh') {
       const m = new THREE.Mesh(plainGeo, zombieMat);
+      m.frustumCulled = false;
       m.position.set(s.x, 0, -s.z);
       scene.add(m);
       zombies.push({ obj: m, x: s.x, z: s.z, phase: Math.random() * 6.28 });
@@ -223,6 +232,7 @@ function buildZombies(n: number) {
       mesh.add(hips);
       mesh.updateMatrixWorld(true);
       mesh.bind(new THREE.Skeleton([hips, chest, head]));
+      mesh.frustumCulled = false;
       mesh.position.set(s.x, 0, -s.z);
       scene.add(mesh);
       zombies.push({ obj: mesh, x: s.x, z: s.z, phase: Math.random() * 6.28, hips, chest, head });
@@ -253,7 +263,7 @@ function refreshHud() {
   ui.count.textContent = `${count} 隻`;
   ui.fps.textContent = st.samples > 10 ? fmt(st.fps, 0) : '—';
   ui.ms.textContent = st.samples > 10 ? `平均 ${fmt(st.avg, 1)} ms · p95 ${fmt(st.p95, 1)} ms` : '暖機中…';
-  ui.info.textContent = `draw calls ${calls} · triangles ${tris.toLocaleString()} · ${fmt(time, 0)} s`;
+  ui.info.textContent = `draw calls ${calls} · triangles ${tris.toLocaleString()} · 預期 ${mode === 'instanced' ? BASE_CALLS + 1 : count + BASE_CALLS} calls`;
 }
 
 // ---------------------------------------------------------------- 輸入
@@ -262,12 +272,13 @@ const keys = new Set<string>();
 addEventListener('keydown', e => {
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code)) e.preventDefault();
   keys.add(e.code);
+  if (ramping) return;
   if (e.code === 'Digit1') setMode('instanced');
   if (e.code === 'Digit2') setMode('mesh');
   if (e.code === 'Digit3') setMode('skinned');
   if (e.code === 'Minus') buildZombies(Math.max(0, count - 25));
   if (e.code === 'Equal') buildZombies(count + 25);
-  if (e.code === 'KeyR' && !ramping) void runRamp(mode);
+  if (e.code === 'KeyR') void runRamp(mode);
 });
 addEventListener('keyup', e => keys.delete(e.code));
 addEventListener('blur', () => keys.clear());
@@ -275,6 +286,9 @@ addEventListener('blur', () => keys.clear());
 function setMode(m: Mode) {
   mode = m;
   buildZombies(count);
+  document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(b => {
+    b.classList.toggle('on', b.dataset.mode === m);
+  });
   refreshHud();
 }
 
@@ -336,17 +350,18 @@ function frame(dt: number) {
 
 function animate(now: number) {
   requestAnimationFrame(animate);
-  const dt = Math.min((now - last) / 1000, 0.05);
+  const raw = (now - last) / 1000;
   last = now;
-  if (dt > 0.2) return; // 分頁切換等異常幀不計入
+  if (raw > 0.2) return; // 分頁切換等異常幀不計入
+  const dt = Math.min(raw, 0.05);
 
   frame(dt);
   renderer.render(scene, camera);
 
   calls = renderer.info.render.calls;
   tris = renderer.info.render.triangles;
-  frameTimes.push(dt * 1000);
-  if (frameTimes.length > 180) frameTimes.shift();
+  frameTimes.push(raw * 1000); // 真實幀長，不受模擬步長夾限影響
+  if (frameTimes.length > 200) frameTimes.shift();
 
   uiTimer += dt;
   if (uiTimer > 0.2) { uiTimer = 0; refreshHud(); }
@@ -354,45 +369,100 @@ function animate(now: number) {
 
 // ---------------------------------------------------------------- 爬坡與報告
 
-type Row = { mode: Mode; count: number; fps: number; avg: number; p95: number; calls: number; tris: number };
+type Row = {
+  mode: Mode; count: number; objects: number; fps: number; avg: number; p95: number;
+  calls: number; tris: number; valid: boolean;
+};
 const results: Row[] = [];
 let ramping = false;
 
 function addRow(r: Row) {
   results.push(r);
   const tr = document.createElement('tr');
-  tr.innerHTML = `<td>${r.mode}</td><td>${r.count}</td><td>${fmt(r.fps, 0)}</td><td>${fmt(r.avg, 1)}</td><td>${fmt(r.p95, 1)}</td><td>${r.calls}</td>`;
+  if (!r.valid) tr.className = 'bad';
+  tr.innerHTML = `<td>${r.mode}</td><td>${r.count}</td><td>${fmt(r.fps, 0)}</td><td>${fmt(r.avg, 1)}</td>`
+    + `<td>${fmt(r.p95, 1)}</td><td>${r.calls}</td><td>${r.valid ? '✓' : '✗'}</td>`;
   ui.rows.appendChild(tr);
 }
 
 const wait = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
+/** 等動畫迴圈真的跑滿 n 幀，或超時。 */
+function collect(n: number, timeoutMs: number) {
+  return new Promise<void>(resolve => {
+    const t0 = performance.now();
+    const tick = () => {
+      if (frameTimes.length >= n || performance.now() - t0 > timeoutMs) resolve();
+      else requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+}
+
+function lockUi(on: boolean) {
+  document.querySelectorAll<HTMLButtonElement>('[data-mode], #less, #more, #ramp, #bench, #save')
+    .forEach(b => { b.disabled = on; });
+}
+
+function summaryLine(m: Mode): string {
+  const rows = results.filter(r => r.mode === m && r.valid);
+  const n120 = rows.filter(r => r.avg <= 9.5).reduce((a, r) => Math.max(a, r.count), 0);
+  const n60 = rows.filter(r => r.avg <= 17).reduce((a, r) => Math.max(a, r.count), 0);
+  return `${m}: 120fps@${n120 || '—'} / 60fps@${n60 || '—'}`;
+}
+
 async function runRamp(m: Mode, start = 25, step = 25, cap = 400) {
   if (ramping) return;
   ramping = true;
-  ui.status.textContent = '爬坡中…（每階 1.8 秒）';
-  setMode(m);
-  for (let n = start; n <= cap; n += step) {
-    buildZombies(n);
-    frameTimes.length = 0;
-    await wait(1800);
-    const st = stats();
-    addRow({ mode: m, count: n, fps: st.fps, avg: st.avg, p95: st.p95, calls, tris });
-    refreshHud();
-    if (st.avg > 20) break;
+  lockUi(true);
+  try {
+    setMode(m);
+    const buf = renderer.getDrawingBufferSize(new THREE.Vector2());
+    for (let n = start; n <= cap; n += step) {
+      buildZombies(n);
+      await wait(400);
+      frameTimes.length = 0;
+      await collect(60, 8000);
+      let st = stats();
+      if (st.samples < 20) {
+        // 多半是切到別的視窗讓 rAF 停住；等回來後再收一次
+        await wait(800);
+        frameTimes.length = 0;
+        await collect(60, 8000);
+        st = stats();
+      }
+      const expected = m === 'instanced' ? BASE_CALLS + 1 : n + BASE_CALLS;
+      const valid = Math.abs(calls - expected) <= 1 && zombies.length === n && st.samples >= 20;
+      addRow({ mode: m, count: n, objects: zombies.length, fps: st.fps, avg: st.avg, p95: st.p95, calls, tris, valid });
+      refreshHud();
+      if (!valid) {
+        ui.status.textContent = `數據自檢失敗：${n} 隻時 calls=${calls}、場景物件=${zombies.length}、樣本=${st.samples}（預期 calls=${expected}），已中止`;
+        break;
+      }
+      if (st.avg > 17) break;
+    }
+    ui.status.textContent = `${summaryLine(m)}｜緩衝 ${buf.x}×${buf.y}`;
+  } finally {
+    ramping = false;
+    lockUi(false);
   }
-  ui.status.textContent = `完成：${m} 的最高可持續數量見表格（判定：平均 > 20 ms 即停止）`;
-  ramping = false;
 }
 
 async function runBench() {
-  for (const m of MODES) await runRamp(m);
-  ui.status.textContent = '三種模式都跑完了。', 
-  (window as unknown as { __stress: unknown }).__stress = api;
+  if (ramping) return;
+  for (const m of MODES) {
+    await runRamp(m);
+    await wait(300);
+  }
+  const buf = renderer.getDrawingBufferSize(new THREE.Vector2());
+  ui.status.textContent = `完成｜${MODES.map(summaryLine).join('；')}｜緩衝 ${buf.x}×${buf.y}`;
 }
 
 function download() {
-  const blob = new Blob([JSON.stringify({ gpu, pixelRatio: renderer.getPixelRatio(), results }, null, 2)], { type: 'application/json' });
+  const buf = renderer.getDrawingBufferSize(new THREE.Vector2());
+  const blob = new Blob([JSON.stringify({
+    gpu, pixelRatio: renderer.getPixelRatio(), buffer: [buf.x, buf.y], results,
+  }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = 'stress-results.json';
@@ -405,13 +475,17 @@ const dbg = gl.getExtension('WEBGL_debug_renderer_info');
 const gpu = dbg ? String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL)) : String(gl.getParameter(gl.RENDERER));
 
 const api = {
-  report: () => ({ gpu, pixelRatio: renderer.getPixelRatio(), results }),
+  report: () => {
+    const buf = renderer.getDrawingBufferSize(new THREE.Vector2());
+    return { gpu, pixelRatio: renderer.getPixelRatio(), buffer: [buf.x, buf.y], results };
+  },
   mode: setMode,
   count: buildZombies,
   ramp: runRamp,
   bench: runBench,
   download,
 };
+(window as unknown as { __stress: unknown }).__stress = api;
 
 // ---------------------------------------------------------------- 啟動
 
@@ -433,10 +507,10 @@ addEventListener('wheel', e => {
 resize();
 
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(btn => {
-  btn.addEventListener('click', () => setMode(btn.dataset.mode as Mode));
+  btn.addEventListener('click', () => { if (!ramping) setMode(btn.dataset.mode as Mode); });
 });
-document.querySelector<HTMLButtonElement>('#less')!.addEventListener('click', () => buildZombies(Math.max(0, count - 25)));
-document.querySelector<HTMLButtonElement>('#more')!.addEventListener('click', () => buildZombies(count + 25));
+document.querySelector<HTMLButtonElement>('#less')!.addEventListener('click', () => { if (!ramping) buildZombies(Math.max(0, count - 25)); });
+document.querySelector<HTMLButtonElement>('#more')!.addEventListener('click', () => { if (!ramping) buildZombies(count + 25); });
 document.querySelector<HTMLButtonElement>('#ramp')!.addEventListener('click', () => void runRamp(mode));
 document.querySelector<HTMLButtonElement>('#bench')!.addEventListener('click', () => void runBench());
 document.querySelector<HTMLButtonElement>('#save')!.addEventListener('click', download);
@@ -461,8 +535,11 @@ fetch('./data/block.json')
     mode = m && MODES.includes(m) ? m : 'instanced';
     const n = Number(p.get('n') ?? 100);
     buildZombies(Math.max(0, Math.min(600, Number.isFinite(n) ? n : 100)));
+    document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(b => {
+      b.classList.toggle('on', b.dataset.mode === mode);
+    });
 
-    ui.status.textContent = `GPU：${gpu}｜按 1/2/3 切換模式、- / + 調整數量、R 爬坡`;
+    ui.status.textContent = `GPU：${gpu}｜按 1/2/3 切模式、−/+ 調數量、R 爬坡；爬坡時 UI 會自動鎖住`;
     requestAnimationFrame(animate);
 
     if (p.has('bench')) void runBench();

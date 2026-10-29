@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#070b12" />
+  <title>魔都生存 · 天亮之前</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; overflow: hidden; background: #070b12; color: #e8eae2;
+      font-family: "Microsoft JhengHei", "PingFang TC", sans-serif; user-select: none; }
+    #c { position: fixed; inset: 0; display: block; width: 100%; height: 100%; }
+    #vignette { position: fixed; inset: 0; pointer-events: none;
+      background: radial-gradient(ellipse at center, transparent 45%, #0009 78%, #000d 100%); }
+
+    #hud { position: fixed; top: 16px; left: 18px; min-width: 250px; }
+    #clock { font-size: 34px; font-weight: 800; letter-spacing: .06em; font-variant-numeric: tabular-nums;
+      color: #dfe6dc; text-shadow: 0 2px 10px #000; }
+    .meters { margin-top: 8px; display: grid; gap: 6px; }
+    .meter { display: grid; grid-template-columns: 34px 1fr; align-items: center; gap: 8px; }
+    .meter span { font-size: 10px; letter-spacing: .1em; color: #93a296; }
+    .track { height: 7px; background: #ffffff14; border-radius: 99px; overflow: hidden; }
+    .track i { display: block; height: 100%; width: 100%; border-radius: 99px;
+      background: #9fc0a8; transition: width .12s linear, background .3s; }
+    #hp { background: #c96a5e; }
+    #bat { background: #d8b45f; }
+    .track i.low, #bat.low, #sta.low { background: #d4563f; }
+
+    #hint { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%);
+      font-size: 11px; color: #b9c4ba; text-shadow: 0 1px 4px #000; opacity: .85; }
+
+    #prompt { position: fixed; left: 50%; bottom: 82px; transform: translateX(-50%);
+      padding: 7px 13px; border-radius: 5px; background: #121a18dd; border: 1px solid #ffffff1f;
+      font-size: 12px; opacity: 0; transition: opacity .15s; }
+    #prompt.on { opacity: 1; }
+    #prompt b { color: #f0c96e; }
+
+    #progress { position: fixed; left: 50%; bottom: 60px; transform: translateX(-50%);
+      width: 190px; height: 5px; border-radius: 99px; background: #ffffff1f; overflow: hidden;
+      opacity: 0; transition: opacity .15s; }
+    #progress.on { opacity: 1; }
+    #progress i { display: block; height: 100%; width: 0; background: #f0c96e; }
+
+    #flash { position: fixed; inset: 0; pointer-events: none; opacity: 0; transition: opacity .12s;
+      background: radial-gradient(ellipse at center, transparent 30%, #b02a1a66 70%, #b02a1aa8 100%); }
+    #flash.on { opacity: 1; }
+
+    #overlay { position: fixed; inset: 0; display: grid; place-items: center;
+      background: #060a10d9; backdrop-filter: blur(3px); opacity: 0; pointer-events: none; transition: opacity .25s; }
+    #overlay.on { opacity: 1; pointer-events: auto; }
+    .card { width: min(90vw, 430px); padding: 30px 32px 26px; border-radius: 8px;
+      background: #111917f2; border: 1px solid #ffffff1a; box-shadow: 0 20px 60px #000a; text-align: center; }
+    .card h1 { margin: 0 0 14px; font-size: 30px; letter-spacing: .12em; color: #f0e8d6; }
+    .card p { margin: 0 0 22px; font-size: 12.5px; line-height: 2; color: #b9c4ba; }
+    .card p b { color: #f0c96e; font-weight: 600; }
+    .card button { padding: 10px 30px; border: 1px solid #f0c96e66; border-radius: 5px;
+      background: #f0c96e; color: #171d1a; font-size: 13px; font-weight: 700; letter-spacing: .1em; cursor: pointer; }
+    .card button:hover { background: #ffd97e; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <div id="vignette"></div>
+
+  <div id="hud">
+    <div id="clock">02:00</div>
+    <div class="meters">
+      <div class="meter"><span>HP</span><div class="track"><i id="hp" style="width:100%"></i></div></div>
+      <div class="meter"><span>體力</span><div class="track"><i id="sta" style="width:100%"></i></div></div>
+      <div class="meter"><span>電池</span><div class="track"><i id="bat" style="width:100%"></i></div></div>
+    </div>
+  </div>
+
+  <div id="prompt">按住 <b>E</b> 搜刮</div>
+  <div id="progress"><i></i></div>
+  <div id="flash"></div>
+  <div id="hint">F 手電筒 · Shift 跑 · 按住 E 搜刮</div>
+
+  <div id="overlay" class="on">
+    <div class="card">
+      <h1 id="ov-title">魔都生存</h1>
+      <p id="ov-body">載入街區中…</p>
+      <button id="ov-btn">開始</button>
+    </div>
+  </div>
+
+  <script type="module" src="/src/survival.ts"></script>
+</body>
+</html>

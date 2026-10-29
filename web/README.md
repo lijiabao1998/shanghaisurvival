@@ -14,6 +14,19 @@ Windows 已安裝依賴後也可雙擊 `start.cmd` 啟動，再在瀏覽器開�
 
 `npm run build` 做 TypeScript 型別檢查及正式建置。若上游街區資料更新，先在專案根目錄執行 `.\.venv\Scripts\python.exe tools\build_demo_data.py`（直接寫入 `web/public/data/block.json`，不需手動複製），然後重建。
 
+## 生存循環切片（`survival.html`）
+
+`survival.html` 是獨立的 10 分鐘生存切片，跑在同一份街區資料上，不改動 `index.html` 的行為。三個頁面都是 Vite 的建置入口。
+
+- WASD 移動、Shift 跑（耗體力，噪音半徑 20 m）、F 手電筒、按住 E 搜刮
+- 手電筒是唯一主動光源，也是唯一消耗電池的地方；開燈感應半徑 22 m，關燈 9 m
+- 目標：撐到 05:00（現實 8 分鐘）。被抓三次死亡，撐到天亮即勝利
+- 80 隻喪屍，26 m 外生成、休眠中；跑步與搜刮都會把牠們引來
+- 眼睛顏色代表狀態：暗綠休眠、黃綠遊蕩、紅色追擊
+- `?play` 跳過開場直接開始，`?debug` 暴露 `__modu.state()` 與 `swarm()` / `wakeAll()` / `hurt()`
+
+`stress.html` 是屍群壓力測試台（`?bench=1` 依序跑三種渲染模式），與玩法無關，結論見 `docs/tech-stack.md` 的 ADR-010。
+
 ## 渲染取捨
 
 - **窗戶是貼圖不是幾何**（`src/windows.ts`）。每個牆面只有一個四邊形，UV 以 3.2 m × 3.1 m 平鋪；`alphaTest` 讓它留在不透明批次，`polygonOffset` 處理與牆面共面的深度競爭。改之前每棟樓的窗戶四邊形是牆面三角形的 7.4 倍。

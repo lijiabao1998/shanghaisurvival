@@ -40,13 +40,14 @@
 - [x] 依《保衛台北》技術棧建立 Three.js 街區原型（現行版本）
 - [ ] 評估樣本品質與遊戲適用性，確定最終街區
 - [x] 原型骨架（早期 Godot 版已歸檔，見下）
-- [ ] 第一個可玩垂直切片（見下方里程碑）
+- [x] 10 分鐘生存循環切片：夜間、電池、噪音、80 隻喪屍、搜刮、勝敗結算（`web/survival.html`）
+- [ ] 第一個可玩垂直切片（見下方里程碑；戰鬥手感、音效與存檔尚未做）
 
 初始樣本見 [shanghai_huangpu_250m.json](data/samples/shanghai_huangpu_250m.json)：以 250 × 250 m 視窗選取相交建築，完整保留跨視窗的原始多邊形，故部分建築會超出範圍。來源 SHP 座標系為 EPSG:3857，已轉換為 UTM 51N（EPSG:32651）的局部公尺座標。來源與校驗資訊見 [CMAB 來源](data/sources/cmab-v7/SOURCE.md)。
 
 原始樣本保留高度欄位原值，單位對應尚未獲作者明確證實；白模暫按米解讀，詳見[樓高核對](docs/cmab-height.md)。樣本是推算的屋頂輪廓，與現地地面範圍是否一致尚未驗證。[OSM 道路](data/sources/osm-shanghai-20261029/SOURCE.md)使用同一座標系，路寬是估計值，部分路線與建築輪廓重疊，原因未確認。
 
-目前本機已安裝依賴，可雙擊 [web/start.cmd](web/start.cmd) 啟動網頁原型，或在 `web/` 執行 `npm install` 和 `npm run dev`。WASD 按螢幕方向移動，滑鼠滾輪縮放；一棟建築有測試用示意門洞和空白室內，並非真實門位。街區另有程序生成的店面、招牌、陽台及路邊物件，並非實景紀錄。操作及資料限制見 [web/README.md](web/README.md)。早期 Godot 原型已自工作區移除（連同 241.9 MB 的引擎與快取），需要對照時可從 commit `cd32f57` 取回。目前尚未實作喪屍或生存循環。
+目前本機已安裝依賴，可雙擊 [web/start.cmd](web/start.cmd) 啟動網頁原型，或在 `web/` 執行 `npm install` 和 `npm run dev`。WASD 按螢幕方向移動，滑鼠滾輪縮放；一棟建築有測試用示意門洞和空白室內，並非真實門位。街區另有程序生成的店面、招牌、陽台及路邊物件，並非實景紀錄。操作及資料限制見 [web/README.md](web/README.md)。早期 Godot 原型已自工作區移除（連同 241.9 MB 的引擎與快取），需要對照時可從 commit `cd32f57` 取回。喪屍與生存循環在 `web/survival.html`，`web/index.html` 仍是純街區瀏覽原型。
 
 ## 里程碑：7 天垂直切片
 
