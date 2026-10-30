@@ -21,6 +21,19 @@ async function record(p,prefix,ms=6500){
  await c.send('Page.startScreencast',{format:'jpeg',quality:85,maxWidth:1280,maxHeight:800,everyNthFrame:1});
  await wait(ms);await c.send('Page.stopScreencast');await Promise.all(pending);await c.detach();assert.ok(i>=3,'at least three real rendered frames');
 }
+async function checkCombatLayout(p,label){
+ const geometry=await p.evaluate(()=>{
+  const box=selector=>{const e=document.querySelector(selector);if(!e)return null;const r=e.getBoundingClientRect(),c=getComputedStyle(e);return {x:r.x,y:r.y,width:r.width,height:r.height,visible:c.display!=='none'&&c.visibility!=='hidden'&&r.width>0&&r.height>0,text:e.textContent,font:parseFloat(c.fontSize)};};
+  const controls=['#survivor-touch-menu','#survivor-touch-bag','#survivor-touch-action','#survivor-touch-crouch','#survivor-joystick'].map(selector=>{const b=box(selector);const e=b&&document.elementFromPoint(b.x+b.width/2,b.y+b.height/2);return {selector,...b,reachable:!!e?.closest(selector)};});
+  return {width:innerWidth,height:innerHeight,overflow:document.documentElement.scrollWidth>innerWidth,panels:['#hud','#dispatch'].map(selector=>({selector,...box(selector)})),bars:['#bar-hp','#bar-sta','#bar-bat'].map(selector=>({selector,...box(selector)})),who:box('#who'),radio:box('#radio'),controls};
+ });
+ report.layouts??=[];report.layouts.push({label,...geometry});assert.equal(geometry.overflow,false,`${label} no document overflow`);
+ const cx=geometry.width/2,cy=geometry.height/2,halfWidth=geometry.width<600?65:80,halfHeight=55;
+ for(const r of geometry.panels)if(r.visible)assert.ok(r.x+r.width<=cx-halfWidth||r.x>=cx+halfWidth||r.y+r.height<=cy-halfHeight||r.y>=cy+halfHeight,`${label} ${r.selector} must leave central combat rectangle clear`);
+ for(const b of geometry.bars)assert.ok(b.visible&&b.width>0&&b.height>0,`${label} ${b.selector} remains visible`);
+ for(const b of geometry.controls)assert.ok(b.visible&&b.reachable&&b.x>=0&&b.y>=0&&b.x+b.width<=geometry.width+1&&b.y+b.height<=geometry.height+1,`${label} ${b.selector} remains reachable on screen`);
+ return geometry;
+}
 async function equipment(p,primary,secondary){await p.keyboard.press('Tab');await p.click('#survivor-kit-tab-equipment');if(await p.$('[data-focus-key="unequip-secondary"]'))await p.click('[data-focus-key="unequip-secondary"]');await p.click(`[data-focus-key="primary-${primary}"]`);if(secondary)await p.click(`[data-focus-key="secondary-${secondary}"]`);await p.keyboard.press('Escape');}
 try{
  let p=await init({width:1280,height:800,deviceScaleFactor:1});
@@ -48,6 +61,7 @@ try{
  report.checks.push('Offhand pipe animates left and spends no pistol ammunition; bag/pause block attack');
  await p.reload({waitUntil:'networkidle0'});const resume=await p.$('#campaign-mode button');if(resume){for(const b of await p.$$('#campaign-mode button')){if((await b.evaluate(e=>e.textContent)).includes('繼續')){await b.click();break;}}await p.waitForFunction(()=>window.__modu.state().phase==='play');assert.equal((await state(p)).survivorSystems.hands.secondary,'pipe');report.checks.push('Saved dual-hand equipment survives reload');}
  const mobile=await init({width:844,height:390,isMobile:true,hasTouch:true});
+ await checkCombatLayout(mobile,'844x390 landscape');
  // Use observed travel rather than assuming real time equals simulated time on software GPU.
  assert.equal(await mobile.evaluate(()=>window.__modu.combatFixture()),true);
  const mobileOrigin=(await state(mobile)).spawn;const joy=await (await mobile.$('#survivor-joystick')).boundingBox();const moveClient=await mobile.createCDPSession();
@@ -71,6 +85,14 @@ try{
  await client.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+box.width/2,y:box.y+box.height/2}]});await wait(70);await client.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});await wait(1000);assert.equal((await state(mobile)).touchActionHeld,false);
  assert.ok(report.frames.filter(f=>f.name.startsWith('mobile-strike-')).some(f=>f.state.combatTargets[0].hp<=55),'real touch strike must damage fixture target');
  report.checks.push('Real emulated touch hold/end/cancel; chronological mobile motion frames');
+ await mobile.tap('#survivor-touch-menu');assert.equal((await state(mobile)).paused,true);await mobile.tap('#survivor-touch-menu');assert.equal((await state(mobile)).paused,false);
+ await mobile.tap('#survivor-touch-bag');assert.equal((await state(mobile)).bagOpen,true);await mobile.tap('.survivor-kit__close');assert.equal((await state(mobile)).bagOpen,false);
+ await mobile.setViewport({width:390,height:844,isMobile:true,hasTouch:true});await wait(200);
+ const portrait=await mobile.evaluate(()=>{const visible=s=>{const e=document.querySelector(s),r=e.getBoundingClientRect();return getComputedStyle(e).display!=='none'&&r.width>0&&r.height>0;};return {overflow:document.documentElement.scrollWidth>innerWidth,who:visible('#who'),radio:visible('#radio'),hp:visible('#bar-hp'),stamina:visible('#bar-sta'),battery:visible('#bar-bat')};});
+ assert.deepEqual(portrait,{overflow:false,who:true,radio:true,hp:true,stamina:true,battery:true});report.portrait=portrait;await frame(mobile,'30-mobile-portrait-restored');
+ await mobile.setViewport({width:568,height:320,isMobile:true,hasTouch:true});await wait(200);await checkCombatLayout(mobile,'568x320 landscape');await frame(mobile,'31-mobile-small-landscape');
+ await mobile.setViewport({width:844,height:390,isMobile:true,hasTouch:true});await wait(200);await checkCombatLayout(mobile,'844x390 rotated back');await frame(mobile,'32-mobile-landscape-clear');
+ report.checks.push('Landscape HUD leaves central combat area clear at 844x390 and568x320; all touch controls reachable; real pause/bag work; portrait restores full HUD without overflow');
  assert.deepEqual(report.errors,[]);report.passed=true;
 }catch(e){report.passed=false;report.failure=e.stack;console.error(e);process.exitCode=1;for(const [i,p] of (await browser.pages()).entries()){try{await p.screenshot({path:`${out}/failure-${i}.png`});}catch{}}}
 finally{await writeFile(`${out}/report.json`,JSON.stringify(report,null,2));await browser.close();}
