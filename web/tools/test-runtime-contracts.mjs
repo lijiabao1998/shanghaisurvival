@@ -25,14 +25,21 @@ assert.ok(s.includes('helper:{...helperState}'),'NPC memory saved with inventory
 assert.ok(s.includes('helperState=s.helper?{...s.helper}:createHelperState()'),'old save gets default only when absent');
 assert.ok(s.includes('!helperOpen'),'dialogue pauses game simulation');
 assert.ok(t.includes('!helper.hidden'),'touch controls hidden for NPC panel');
-assert.ok(s.includes('const saveKey = `shanghai-survivors:systems-v1:${dataUrl}`'),'candidate uses isolated key');
+assert.ok(s.includes('const saveKey = `shanghai-survivors:arsenal-v2:${dataUrl}`'),'candidate uses isolated key');
 assert.ok(s.includes('const legacySaveKey = `shanghai-survivors:v1:${dataUrl}`'),'legacy key is preserved for read-only import');
 assert.ok(s.includes('saveSnapshot(localStorage,saveKey,snapshotCampaign())'),'writes target only candidate snapshot');
 assert.equal(/(?:setItem|saveSnapshot)\([^;\n]*legacySaveKey/.test(s),false,'no writes to legacy storage key');
 const start=s.indexOf('function loadCandidateSave('),end=s.indexOf('\n}',start)+2;
 assert.ok(start>=0&&end>start);const fn=stripTypeScriptTypes(s.slice(start,end));
-for(const scenario of [{raw:null,expected:'legacy',result:{legacy:true}},{raw:'candidate',expected:'candidate',result:{candidate:true}},{raw:'corrupt',expected:'candidate',result:null}]){
- const reads=[],writes=[];const c=vm.createContext({saveKey:'candidate',legacySaveKey:'legacy',dataUrl:'map',localStorage:{getItem:key=>{reads.push(key);return scenario.raw;},setItem:(...args)=>writes.push(args)},loadSnapshot:(storage,key,map)=>{assert.equal(map,'map');reads.push(key);return scenario.result;}});vm.runInContext(fn,c);assert.equal(c.loadCandidateSave(),scenario.result);assert.deepEqual(reads,['candidate',scenario.expected]);assert.equal(writes.length,0);
+for(const scenario of [
+ {raw:{candidate:null,systems:null},reads:['candidate','systems','legacy'],result:{legacy:true}},
+ {raw:{candidate:null,systems:'old'},reads:['candidate','systems','systems'],result:{systems:true}},
+ {raw:{candidate:null,systems:'corrupt'},reads:['candidate','systems','systems'],result:null},
+ {raw:{candidate:'new'},reads:['candidate','candidate'],result:{candidate:true}},
+ {raw:{candidate:'corrupt'},reads:['candidate','candidate'],result:null},
+]){
+ const reads=[],writes=[];const c=vm.createContext({saveKey:'candidate',systemsSaveKey:'systems',legacySaveKey:'legacy',dataUrl:'map',localStorage:{getItem:key=>{reads.push(key);return scenario.raw[key];},setItem:(...args)=>writes.push(args)},loadSnapshot:(storage,key,map)=>{assert.equal(map,'map');reads.push(key);return scenario.result;}});vm.runInContext(fn,c);assert.equal(c.loadCandidateSave(),scenario.result);assert.deepEqual(reads,scenario.reads);assert.equal(writes.length,0);
 }
+assert.equal(/(?:setItem|saveSnapshot)\([^;\n]*systemsSaveKey/.test(s),false,'no writes to previous production systems storage');
 const denied=vm.createContext({saveKey:'candidate',localStorage:{getItem(){throw new Error('denied');}}});vm.runInContext(fn,denied);assert.equal(denied.loadCandidateSave(),null);
 console.log('PASS 21 static contracts plus actual candidate/legacy read-only loading cases (not browser tests)');

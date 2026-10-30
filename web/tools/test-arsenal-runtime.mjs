@@ -60,4 +60,14 @@ test('actual secondary firearm dispatch consumes once without replacing primary 
  c.action='none';for(const flag of ['paused','bagOpen','inShelter','helperOpen']){c[flag]=true;c.dispatchHandAttack('secondary');assert.equal(c.arsenal.rounds['9mm'],5);c[flag]=false;}c.phase='lose';c.dispatchHandAttack('secondary');assert.equal(c.arsenal.rounds['9mm'],5);c.phase='play';c.dispatchHandAttack('primary');assert.deepEqual(swings,['right']);
  assert.ok(equipHand(c.survivorSystems,c.arsenal,'secondary',null));c.dispatchHandAttack('secondary');assert.equal(c.arsenal.rounds['9mm'],5);assert.equal(c.action,'none');
 });
+test('two rounds in one frame do not collide with a target killed by the first',()=>{
+ const hits=[],near={x:1.2,z:0,state:'sleep',hp:20},far={x:4,z:0,state:'sleep',hp:100};
+ const c=runtime({damageZombie:(target,damage)=>{hits.push(target);target.hp-=damage;if(target.hp<=0)target.state='dead';}});
+ grantWeapon(c.arsenal,'qsz92-9');equipWeapon(c.arsenal,'qsz92-9');c.zombies=[near,far];c.fire();c.action='none';c.fire();c.updateFirearmRounds(.1);
+ assert.deepEqual(hits,[near,far]);assert.equal(c.firearmRounds.length,0);assert.equal(c.arsenal.rounds['9mm'],4);
+});
+test('all secondary pistols use the shared left-hand firearm pose',()=>{
+ const start=source.indexOf('function animateRig('),end=source.indexOf('function ',start+12);const animation=source.slice(start,end);
+ assert.ok(!animation.includes("secondary==='qsz92-9'"));assert.equal((animation.match(/secondary!==null&&survivorSystems.hands.secondary!=='pipe'/g)??[]).length,2);
+});
 console.log(`${tests} arsenal runtime checks passed (no browser/CI; not a playtest)`);

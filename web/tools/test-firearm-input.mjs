@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import vm from 'node:vm';
+import {stripTypeScriptTypes} from 'node:module';
+const source=readFileSync(new URL('../src/survival.ts',import.meta.url),'utf8');
+const start=source.indexOf("addEventListener('keydown', e => {");
+const end=source.indexOf("addEventListener('keyup'",start);
+let callback;const calls=[],hints=[];
+const context={addEventListener:(event,fn)=>callback=fn,phase:'play',helperOpen:false,inShelter:false,paused:false,bagOpen:false,keys:new Set(),arsenal:{equipped:'qbz191'},survivorSystems:{hands:{secondary:null}},dispatchHandAttack:hand=>calls.push(hand),flashHint:text=>hints.push(text)};
+vm.runInNewContext(stripTypeScriptTypes(source.slice(start,end)),context);
+const press=(repeat=false)=>callback({code:'KeyG',repeat,preventDefault(){}});
+press();assert.deepEqual(calls,['primary']);
+context.arsenal.equipped=null;context.survivorSystems.hands.secondary='qsz92-9';press();assert.deepEqual(calls,['primary','secondary']);
+context.survivorSystems.hands.secondary='pipe';press();assert.equal(calls.length,2);assert.equal(hints.length,1);
+context.arsenal.equipped='qbz191';for(const flag of ['paused','bagOpen','helperOpen','inShelter']){context[flag]=true;press();context[flag]=false;}press(true);assert.equal(calls.length,2);
+context.phase='lose';press();assert.equal(calls.length,2);
+console.log('PASS actual G key dispatch chooses equipped firearm and respects pause, panels, repeats and game-over');

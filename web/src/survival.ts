@@ -164,9 +164,11 @@ const rawData = params.get('data');
 const dataUrl = rawData ? (rawData.includes('/') ? rawData : `./data/${rawData}`) : './data/block.json';
 // Candidate writes are isolated: old production cannot erase the new extension.
 const legacySaveKey = `shanghai-survivors:v1:${dataUrl}`;
-const saveKey = `shanghai-survivors:systems-v1:${dataUrl}`;
+const systemsSaveKey = `shanghai-survivors:systems-v1:${dataUrl}`;
+const saveKey = `shanghai-survivors:arsenal-v2:${dataUrl}`;
 function loadCandidateSave(): Snapshot | null {
-  try { return localStorage.getItem(saveKey) === null ? loadSnapshot(localStorage,legacySaveKey,dataUrl) : loadSnapshot(localStorage,saveKey,dataUrl); } catch { return null; }
+  try { if(localStorage.getItem(saveKey)!==null)return loadSnapshot(localStorage,saveKey,dataUrl);
+    return localStorage.getItem(systemsSaveKey)!==null ? loadSnapshot(localStorage,systemsSaveKey,dataUrl) : loadSnapshot(localStorage,legacySaveKey,dataUrl); } catch { return null; }
 }
 
 // ---------------------------------------------------------------- 渲染
@@ -344,8 +346,7 @@ const roundGeo=new THREE.SphereGeometry(.065,4,3);
 const roundMaterial=new THREE.MeshBasicMaterial({color:0xffdd87});
 function clearFirearmRounds(){for(const p of firearmRounds)scene.remove(p.mesh);firearmRounds.length=0;}
 function updateFirearmRounds(dt:number){
-  const targets=zombies.flatMap((z,id)=>z.state==='dead'?[]:[{id,x:z.x,z:z.z,radius:.48,bottom:0,top:1.85}]);
-  for(let i=firearmRounds.length-1;i>=0;i--){const p=firearmRounds[i];const hit=stepRound(p.round,dt,targets,(x,_y,z,r)=>collides(x,z,r));const pos=p.round.position;p.mesh.position.set(pos.x,pos.y,-pos.z);
+  for(let i=firearmRounds.length-1;i>=0;i--){const targets=zombies.flatMap((z,id)=>z.state==='dead'?[]:[{id,x:z.x,z:z.z,radius:.48,bottom:0,top:1.85}]);const p=firearmRounds[i];const hit=stepRound(p.round,dt,targets,(x,_y,z,r)=>collides(x,z,r));const pos=p.round.position;p.mesh.position.set(pos.x,pos.y,-pos.z);
     if(hit?.kind==='target'){const target=zombies[Number(hit.targetId)];if(target&&target.state!=='dead')damageZombie(target,hit.damage,p.dx,p.dz,p.knock);}
     if(!p.round.alive){scene.remove(p.mesh);firearmRounds.splice(i,1);}
   }
@@ -705,7 +706,7 @@ function animateRig(dt: number, speed: number) {
   torso.rotation.set(moving ? 0.05 + amp * 0.1 : Math.sin(walkPhase * 0.4) * 0.02, 0, 0);
 
   if(arsenal.equipped){armR.rotation.set(-Math.PI/2,0,0);armL.rotation.x=WEAPONS[arsenal.equipped].category==='rifle'?-1.1:-.2;}
-  if(survivorSystems.hands.secondary==='qsz92-9')armL.rotation.set(-Math.PI/2,0,0);
+  if((survivorSystems.hands.secondary!==null&&survivorSystems.hands.secondary!=='pipe'))armL.rotation.set(-Math.PI/2,0,0);
   if (!grounded) {
     legL.rotation.x = -0.55; legR.rotation.x = 0.35;
     armL.rotation.x = -0.8; armR.rotation.x = -0.6;
@@ -713,7 +714,7 @@ function animateRig(dt: number, speed: number) {
   }
   applyLocomotionJoints(rig, walkPhase, moving, grounded);
   if (arsenal.equipped) rig.elbowR.rotation.x = 0;
-  if(survivorSystems.hands.secondary==='qsz92-9')rig.elbowL.rotation.x=0;
+  if((survivorSystems.hands.secondary!==null&&survivorSystems.hands.secondary!=='pipe'))rig.elbowL.rotation.x=0;
 
   if (action !== 'none') {
     const previousT = actionT;
