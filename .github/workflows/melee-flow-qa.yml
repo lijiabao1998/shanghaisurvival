@@ -1,7 +1,7 @@
 name: Melee flow isolated dynamic QA
 on:
   push:
-    branches: [feat/melee-flow-20261030]
+    branches: [feat/motion-fluid-20261030]
 permissions:
   contents: read
 jobs:
@@ -37,7 +37,7 @@ jobs:
           p=pathlib.Path('evidence/melee-flow')
           if not (p/'report.json').exists(): raise SystemExit(0)
           r=json.loads((p/'report.json').read_text())
-          for prefix in ['desktop-strike','mobile-strike']:
+          for prefix in ['desktop-strike','mobile-strike','moving-strike']:
             frames=sorted([f for f in r['frames'] if f['name'].startswith(prefix)],key=lambda f:f['time'])
             if not frames:continue
             lines=[]

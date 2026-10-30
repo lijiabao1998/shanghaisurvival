@@ -13,7 +13,7 @@ export function resetRigJoints(rig: Rig): void {
   rig.elbowR.rotation.set(0, 0, 0);
   rig.kneeL.rotation.set(0, 0, 0);
   rig.kneeR.rotation.set(0, 0, 0);
-  rig.body.position.y = 0;
+  rig.body.position.set(0, 0, 0);
 }
 
 /** Apply a committed swing over the normal locomotion pose. */
@@ -27,10 +27,11 @@ export function applyMeleePose(rig: Rig, pose: MeleePose, hand: 'left' | 'right'
   const baseArmX = strikingArm.rotation.x, baseOffX = offArm.rotation.x;
   torso.rotation.y = torso.rotation.y * blendOut + pose.torsoYaw;
   torso.rotation.x = torso.rotation.x * blendOut + pose.lean;
+  torso.rotation.z = torso.rotation.z * blendOut + pose.torsoRoll;
   // Counter-rotate at the shoulder so the hand continues to sweep across the
   // intended facing-relative arc while the torso contributes its own twist.
   const weight = pose.weight;
-  const elbowBend = -0.35 * weight;
+  const elbowBend = pose.elbowBend;
   // YXZ makes yaw a turn about the upright axis after raising the arm. Correct
   // for the sideways contribution of roll, including the bent forearm.
   const forward = -0.52 * Math.sin(pose.armX) * Math.cos(pose.armZ)
@@ -42,11 +43,15 @@ export function applyMeleePose(rig: Rig, pose: MeleePose, hand: 'left' | 'right'
   offArm.rotation.x = pose.offArmX + (baseOffX + .12) * blendOut;
   strikingElbow.rotation.x = strikingElbow.rotation.x * blendOut + elbowBend;
   offElbow.rotation.x = offElbow.rotation.x * blendOut - 0.22 * weight;
-  legL.rotation.x = legL.rotation.x * (1 - pose.weight) - pose.kneeBend;
-  legR.rotation.x = legR.rotation.x * (1 - pose.weight) - pose.kneeBend * 0.7;
-  kneeL.rotation.x = kneeL.rotation.x * (1 - pose.weight) + pose.kneeBend * 1.8;
-  kneeR.rotation.x = kneeR.rotation.x * (1 - pose.weight) + pose.kneeBend * 1.4;
-  body.position.y = -pose.kneeBend * 0.09;
+  // Retain a supporting stride through contact; freezing both legs made moving
+  // attacks slide like a statue. Crouch is additive, not a replacement gait.
+  const strideWeight = 1 - .28 * pose.weight;
+  legL.rotation.x = legL.rotation.x * strideWeight - pose.kneeBend;
+  legR.rotation.x = legR.rotation.x * strideWeight - pose.kneeBend * 0.7;
+  kneeL.rotation.x = kneeL.rotation.x * strideWeight + pose.kneeBend * 1.8;
+  kneeR.rotation.x = kneeR.rotation.x * strideWeight + pose.kneeBend * 1.4;
+  body.position.y -= pose.kneeBend * 0.09;
+  body.position.x += pose.weightShift;
 }
 
 /** Follow-through at the elbows and knees during gait and in the air. */

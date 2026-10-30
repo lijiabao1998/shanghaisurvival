@@ -58,6 +58,18 @@ try{
  assert.ok(report.desktopAfter.swingCount>=2);
  report.checks.push('Actual browser target HP falls 100→55 or lower; held attacks produce reverse stroke');
  report.checks.push('Desktop real held mouse attack input recorded using nonblocking CDP screencast frames');
+ // Separate continuous walking/attack record: same real keyboard controls, no
+ // animation-clock manipulation or synthetic pose sequence.
+ await p.evaluate(()=>window.__modu.combatFixture());
+ const movingBefore=await state(p);
+ await p.keyboard.down('KeyD'); await p.keyboard.down('KeyJ');
+ await record(p,'moving-strike',5500);
+ await p.keyboard.up('KeyJ'); await p.keyboard.up('KeyD');
+ const movingAfter=await state(p);
+ report.motion={before:movingBefore,after:movingAfter};
+ assert.ok(Math.hypot(movingAfter.spawn[0]-movingBefore.spawn[0],movingAfter.spawn[1]-movingBefore.spawn[1])>.1,'held attack allows collision-checked combat steps');
+ report.checks.push('Continuous real moving+attack inputs recorded separately from stationary target HP verification');
+
  await p.close();p=await init({width:1280,height:800,deviceScaleFactor:1});
  await p.evaluate(()=>window.__modu.give('pistol'));await equipment(p,'qsz92-9','pipe');
  assert.equal(await p.evaluate(()=>window.__modu.combatFixture()),true);await assertHealthySave(p,'offhand fixture');const beforeOff=await state(p);await p.keyboard.press('KeyR');await wait(100);const off=await frame(p,'20-left-pipe');assert.equal(off.swingHand,'left');assert.equal(off.arsenal.rounds['9mm'],beforeOff.arsenal.rounds['9mm']);await wait(800);assert.ok((await state(p)).combatTargets[0].hp<=55,'left-hand strike actually damages target');

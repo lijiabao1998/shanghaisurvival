@@ -26,7 +26,7 @@ function runtime(extra={}) {
     rig:buildRig(ROSTER[0]), arsenal:createLegacyArsenal(false,0), stamina:100,action:'none',actionT:0,actionDur:0,actionFired:false,
     swingCount:0,swingHand:'right',swingStroke:0,comboWindow:0,impactPause:0,bufferedHand:null,swingHits:new Set(),px:0,pz:0,facing:0,zombies:[],collides:()=>false,
     HEAR_SWING:1,makeNoise(){},damageZombie(z,damage){hits.push(z);z.hp-=damage;},camShake:0,
-    walkPhase:0,RUN_SPEED:5.9,grounded:true,WEAPONS,throwBrick(){},...extra});
+    visualMove:0,breathPhase:0,walkPhase:0,RUN_SPEED:5.9,grounded:true,WEAPONS,throwBrick(){},...extra});
   for(const name of ['canSee','startSwing','meleeHit','animateRig']) vm.runInContext(extract(name),c);
   return {c,hits};
 }
