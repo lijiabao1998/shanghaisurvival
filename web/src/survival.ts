@@ -1025,6 +1025,7 @@ function updateHud() {
     mission.textContent = helperOpen ? '阿梅・互助站｜對話暫停，Esc 或按鈕離開' : inShelter ? '安全屋｜存放物資、休息或返回街區' : bagOpen ? '背包（暫停）｜點擊使用／裝備' : paused ? '已暫停｜Esc 繼續' : `第 ${day.day} 天 · 安全屋 ${shelter ? Math.round(Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])) : '?'}m · 已搜 ${looted}次 · ${nearestSupplyHint()}`;
     radio.textContent = saveWarning || (inShelter ? '休息花費庫存1水＋1罐頭，時間推進2分鐘。物資有限，不會重生。' : day.daylight<.25 ? '夜間感染者更敏銳。慢行、關燈；帶回一水一食便能在家休息。' : '互助台：藍門回家；水／食／封鎖物資箱每日交接一次，普通搜刮點不重生。紅箱聲響最遠。');
   } else radio.textContent = [...BROADCASTS].reverse().find(([at]) => elapsed >= at)?.[1] ?? '';
+  radio.classList.toggle('critical', Boolean(saveWarning));
   if (evacRing) (evacRing.material as THREE.MeshBasicMaterial).color.setHex(elapsed >= 420 && elapsed < 480 ? 0x9fffc2 : 0x397959);
   const t = mode==='sandbox' ? (dayPhase(elapsed).hour-2)/3 : 1 - Math.max(0, timeLeft) / NIGHT_SECONDS;
   const minutes = 120 + t * 180;
@@ -1682,7 +1683,7 @@ fetch(dataUrl)
         combatFixture: () => {
           releaseGameplayInput(); mouseAimActive = false;
           // Isolated debug sparring: remove unrelated threats, never mutate normal sessions.
-          for(const other of zombies.slice(1)){other.state='dead';other.mesh.visible=false;}
+          for(const other of zombies.slice(1)){other.state='dead';other.hp=0;other.mesh.visible=false;}
           for (let i=0;i<32;i++) { const a=i*Math.PI/16,x=px+Math.sin(a)*1.1,z=pz-Math.cos(a)*1.1; if(collides(x,z,.34)||!canSee(px,pz,x,z))continue; facing=a; const zb=zombies[0]; zb.x=x;zb.z=z;zb.hp=100;zb.state='chase';zb.think=60;zb.attackCd=60;zb.lose=0;zb.flashT=0;zb.mesh.visible=true;zb.mesh.rotation.set(0,a,0);return true; } return false;
         },
         swing: () => startSwing(),

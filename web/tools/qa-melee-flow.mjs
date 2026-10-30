@@ -21,6 +21,11 @@ async function record(p,prefix,ms=6500){
  await c.send('Page.startScreencast',{format:'jpeg',quality:85,maxWidth:1280,maxHeight:800,everyNthFrame:1});
  await wait(ms);await c.send('Page.stopScreencast');await Promise.all(pending);await c.detach();assert.ok(i>=3,'at least three real rendered frames');
 }
+async function assertHealthySave(p,label){
+ await p.evaluate(()=>dispatchEvent(new Event('pagehide')));await wait(350);
+ const text=await p.$eval('#radio',e=>e.textContent);assert.ok(!text.includes('存檔失敗'),`${label} fixture must produce a valid autosave`);
+ report.saveChecks??=[];report.saveChecks.push({label,text});
+}
 async function checkCombatLayout(p,label){
  const geometry=await p.evaluate(()=>{
   const box=selector=>{const e=document.querySelector(selector);if(!e)return null;const r=e.getBoundingClientRect(),c=getComputedStyle(e);return {x:r.x,y:r.y,width:r.width,height:r.height,visible:c.display!=='none'&&c.visibility!=='hidden'&&r.width>0&&r.height>0,text:e.textContent,font:parseFloat(c.fontSize)};};
@@ -42,7 +47,7 @@ try{
  await frame(p,'00-desktop-ready');
  // Implemented by the game only behind ?debug. The isolated browser context has its own local QA autosave.
  assert.equal(await p.evaluate(()=>typeof window.__modu.combatFixture),'function','debug combatFixture required');
- assert.equal(await p.evaluate(()=>window.__modu.combatFixture()),true);report.fixtures.push('combatFixture: debug-only sparring removes unrelated enemies without awarding kills; arranges one target with delayed attacks in clear space');
+ assert.equal(await p.evaluate(()=>window.__modu.combatFixture()),true);report.fixtures.push('combatFixture: debug-only sparring removes unrelated enemies without awarding kills; arranges one target with delayed attacks in clear space');await assertHealthySave(p,'desktop fixture');
  await (await p.createCDPSession()).send('Input.dispatchMouseEvent',{type:'mousePressed',x:640,y:400,button:'left',clickCount:1});
  await record(p,'desktop-strike',9000);
  await (await p.createCDPSession()).send('Input.dispatchMouseEvent',{type:'mouseReleased',x:640,y:400,button:'left',clickCount:1});await wait(1000);
@@ -55,7 +60,7 @@ try{
  report.checks.push('Desktop real held mouse attack input recorded using nonblocking CDP screencast frames');
  await p.close();p=await init({width:1280,height:800,deviceScaleFactor:1});
  await p.evaluate(()=>window.__modu.give('pistol'));await equipment(p,'qsz92-9','pipe');
- assert.equal(await p.evaluate(()=>window.__modu.combatFixture()),true);const beforeOff=await state(p);await p.keyboard.press('KeyR');await wait(100);const off=await frame(p,'20-left-pipe');assert.equal(off.swingHand,'left');assert.equal(off.arsenal.rounds['9mm'],beforeOff.arsenal.rounds['9mm']);await wait(800);assert.ok((await state(p)).combatTargets[0].hp<=55,'left-hand strike actually damages target');
+ assert.equal(await p.evaluate(()=>window.__modu.combatFixture()),true);await assertHealthySave(p,'offhand fixture');const beforeOff=await state(p);await p.keyboard.press('KeyR');await wait(100);const off=await frame(p,'20-left-pipe');assert.equal(off.swingHand,'left');assert.equal(off.arsenal.rounds['9mm'],beforeOff.arsenal.rounds['9mm']);await wait(800);assert.ok((await state(p)).combatTargets[0].hp<=55,'left-hand strike actually damages target');
  await p.keyboard.press('Tab');assert.equal((await state(p)).bagOpen,true);const n=(await state(p)).swingCount;await p.keyboard.press('KeyR');await wait(300);assert.equal((await state(p)).swingCount,n);await p.keyboard.press('Escape');
  await p.keyboard.press('Escape');assert.equal((await state(p)).paused,true);await p.keyboard.press('KeyJ');await wait(200);assert.equal((await state(p)).swingCount,n);await p.keyboard.press('Escape');
  report.checks.push('Offhand pipe animates left and spends no pistol ammunition; bag/pause block attack');
@@ -78,6 +83,7 @@ try{
  await moveClient.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
  assert.ok(walked,'naturally walk away from contextual helper first');
  assert.equal(await mobile.evaluate(()=>window.__modu.combatFixture()),true);
+ await assertHealthySave(mobile,'mobile fixture after travel');
  const box=await (await mobile.$('#survivor-touch-action')).boundingBox();const client=await mobile.createCDPSession();
  await client.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+box.width/2,y:box.y+box.height/2}]});
  await record(mobile,'mobile-strike',6500);
@@ -93,6 +99,16 @@ try{
  await mobile.setViewport({width:568,height:320,isMobile:true,hasTouch:true});await wait(200);await checkCombatLayout(mobile,'568x320 landscape');await frame(mobile,'31-mobile-small-landscape');
  await mobile.setViewport({width:844,height:390,isMobile:true,hasTouch:true});await wait(200);await checkCombatLayout(mobile,'844x390 rotated back');await frame(mobile,'32-mobile-landscape-clear');
  report.checks.push('Landscape HUD leaves central combat area clear at 844x390 and568x320; all touch controls reachable; real pause/bag work; portrait restores full HUD without overflow');
+ // Isolated storage failure must be visible, not mistaken for decorative radio text.
+ await mobile.evaluate(()=>{window.__qaStorageSetItem=Storage.prototype.setItem;Storage.prototype.setItem=function(){throw new DOMException('QA simulated full storage','QuotaExceededError');};dispatchEvent(new Event('pagehide'));});
+ try{
+  await mobile.waitForFunction(()=>{const e=document.querySelector('#radio');return e.classList.contains('critical')&&e.textContent.includes('存檔失敗')&&getComputedStyle(e).display!=='none'&&e.getBoundingClientRect().height>0;});
+  await checkCombatLayout(mobile,'844x390 critical save warning');await frame(mobile,'33-mobile-storage-warning');
+  await mobile.setViewport({width:568,height:320,isMobile:true,hasTouch:true});await wait(200);await checkCombatLayout(mobile,'568x320 critical save warning');await frame(mobile,'34-mobile-small-storage-warning');
+ }finally{await mobile.evaluate(()=>{Storage.prototype.setItem=window.__qaStorageSetItem;delete window.__qaStorageSetItem;dispatchEvent(new Event('pagehide'));});}
+ await mobile.waitForFunction(()=>!document.querySelector('#radio').classList.contains('critical'));await assertHealthySave(mobile,'storage recovered');
+ report.checks.push('Valid fixture autosaves; simulated storage failure stays visible as critical right-column warning in both landscape sizes, then clears after recovery');
+
  assert.deepEqual(report.errors,[]);report.passed=true;
 }catch(e){report.passed=false;report.failure=e.stack;console.error(e);process.exitCode=1;for(const [i,p] of (await browser.pages()).entries()){try{await p.screenshot({path:`${out}/failure-${i}.png`});}catch{}}}
 finally{await writeFile(`${out}/report.json`,JSON.stringify(report,null,2));await browser.close();}

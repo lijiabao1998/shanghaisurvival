@@ -217,7 +217,8 @@
       #dispatch { top:max(66px,env(safe-area-inset-top)); bottom:auto; left:auto;
         right:max(8px,env(safe-area-inset-right)); width:min(200px,28vw); padding:6px 8px; }
       #mission { font-size:10px; line-height:1.4; }
-      #radio, #place { display:none; }
+      #radio:not(.critical), #place { display:none; }
+      #radio.critical { display:block; font-size:10px; line-height:1.4; color:#f0b3a8; margin-top:4px; }
     }
   </style>
 </head>
