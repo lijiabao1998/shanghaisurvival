@@ -1,4 +1,4 @@
-name: Shanghai live entry recovery check
+name: Shanghai released survivor systems verification
 on:
   push:
     branches: [test/live-entry-recovery-20261030]
@@ -31,11 +31,12 @@ jobs:
             let html;
             do {
               html=await (await fetch(url+'?recovery='+Date.now())).text();
-              if(!html.includes('src="/assets/')&&html.includes('src="./assets/'))break;
+              if(html.includes('survival-DzjyM__P.js'))break;
               if(Date.now()>deadline)throw Error('Deployment recovery did not reach relative asset references in observation window');
               await new Promise(r=>setTimeout(r,15000));
             } while(true);
             report.version=await (await fetch(url+'version.json?recovery='+Date.now())).json();
+            assert.equal(report.version.source_commit,'f59881ba99684523648cd526785a1a4b5f6555b8');
             const browser=await chromium.launch({args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
             try {
               for(const mobile of [false,true]){
@@ -51,7 +52,7 @@ jobs:
                 await page.locator('#ov-btn').click();
                 await page.waitForFunction(()=>window.__modu?.state().phase==='play',{timeout:45000});
                 await page.screenshot({path:'evidence/'+name+'-started.png'});
-                const key='shanghai-survivors:v1:./data/block.json';
+                const key='shanghai-survivors:systems-v1:./data/block.json';
                 const before=await page.evaluate(k=>localStorage.getItem(k),key);
                 assert.ok(before);
                 const snapshot=JSON.parse(before);
@@ -64,6 +65,22 @@ jobs:
                 assert.equal(after.mapId,snapshot.mapId);
                 await page.screenshot({path:'evidence/'+name+'-resumed.png'});
                 report.checks.push(name+': reload and natural continue reached play; character and map preserved');
+                // Derived legacy fixture in isolated profile; production user data is never accessed.
+                const legacyKey='shanghai-survivors:v1:./data/block.json';
+                const legacy=JSON.stringify({...snapshot,survivorSystems:undefined});
+                await page.evaluate(({key,legacyKey,legacy})=>{localStorage.setItem(legacyKey,legacy);localStorage.removeItem(key);},{key,legacyKey,legacy});
+                await page.reload({waitUntil:'networkidle'});
+                await page.getByRole('button',{name:/繼續第.*天存檔/}).click();
+                await page.waitForFunction(()=>window.__modu?.state().phase==='play',{timeout:45000});
+                assert.equal(await page.evaluate(k=>localStorage.getItem(k),legacyKey),legacy);
+                const migrated=JSON.parse(await page.evaluate(k=>localStorage.getItem(k),key));
+                assert.equal(migrated.characterId,snapshot.characterId);
+                assert.equal(migrated.mapId,snapshot.mapId);
+                assert.equal(migrated.survivorSystems.version,1);
+                await page.keyboard.press('Tab');
+                await page.locator('#survivor-kit-tab-equipment').waitFor();
+                await page.screenshot({path:'evidence/'+name+'-migrated-equipment.png'});
+                report.checks.push(name+': legacy fixture migrates to systems-v1 without changing old save; equipment UI visible');
                 await context.close();
               }
               assert.deepEqual(report.errors,[]);
