@@ -48,7 +48,8 @@ async function corridor(p,from,to){if(!(await state(p)).sneaking){if(p.viewport(
 
 try{for(const mobile of [false,true]){
  const device=mobile?'mobile':'desktop',context=await browser.createBrowserContext(),p=await context.newPage();await p.setViewport(mobile?{width:390,height:844,isMobile:true,hasTouch:true}:{width:1440,height:900});
- p.on('pageerror',e=>report.errors.push({device,message:e.message}));p.on('console',m=>{if(m.type()==='error'&&!m.text().includes('favicon'))report.errors.push({device,message:m.text()});});
+ p.on('pageerror',e=>report.errors.push({device,message:e.message}));p.on('console',m=>{const source=m.location().url??'';if(m.type()==='error'&&!new URL(source||url,url).pathname.endsWith('/favicon.ico'))report.errors.push({device,message:m.text(),source});});
+ p.on('response',r=>{if(r.status()>=400&&!new URL(r.url()).pathname.endsWith('/favicon.ico'))report.errors.push({device,status:r.status(),source:r.url(),message:'HTTP resource error'});});
  await p.goto(url,{waitUntil:'networkidle0'});await ready(p);if(mobile){await p.tap('.who');await p.tap('#ov-btn');}else{await p.click('.who');await p.click('#ov-btn');}await p.waitForFunction(()=>window.__modu.state().phase==='play');
  const initial=await state(p);assertLayout(initial,true);await sampleRender(p,device,'new');await p.waitForFunction(()=>Object.keys(localStorage).some(k=>k.startsWith('shanghai-survivors:systems-v1:')));const seed=await saved(p);assert.equal(seed.data.worldLayout,'menghua-infill-v1');
  // A short real walk starts at the actual natural spawn, not a position fixture.
