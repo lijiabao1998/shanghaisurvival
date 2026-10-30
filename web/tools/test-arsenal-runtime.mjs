@@ -2,12 +2,13 @@
 import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import {stripTypeScriptTypes} from 'node:module';import vm from 'node:vm';
 import {WEAPONS,WEAPON_IDS,createLegacyArsenal,grantWeapon,grantAmmo,equipWeapon,consumeRound} from '../src/arsenal.ts';
 import {createSurvivorSystems,equipHand,migrateSurvivorSystems,treatBody} from '../src/survivor-systems.ts';
+import {weaponAtSite} from '../src/weapon-acquisition.ts';
 import {segmentClear} from '../src/combat.ts';
 import {applyCacheLoot,emptyInventory} from '../src/campaign.ts';
 const source=readFileSync(new URL('../src/survival.ts',import.meta.url),'utf8');
 function extract(name){const start=source.indexOf(`function ${name}(`);assert.ok(start>=0);const body=source.indexOf('{',start);let end=body+1,depth=1;while(depth&&end<source.length){if(source[end]==='{')depth++;if(source[end]==='}')depth--;end++;}assert.equal(depth,0);return stripTypeScriptTypes(source.slice(start,end));}
 const classes={add(){},remove(){},toggle(){}};
-function runtime(extra={}){const c=vm.createContext({WEAPONS,WEAPON_IDS,createLegacyArsenal,grantWeapon,grantAmmo,equipWeapon,consumeRound,segmentClear,applyCacheLoot,structuredClone,createSurvivorSystems,equipHand,migrateSurvivorSystems,treatBody,
+function runtime(extra={}){const c=vm.createContext({weaponAtSite,WEAPONS,WEAPON_IDS,createLegacyArsenal,grantWeapon,grantAmmo,equipWeapon,consumeRound,segmentClear,applyCacheLoot,structuredClone,createSurvivorSystems,equipHand,migrateSurvivorSystems,treatBody,
  survivorSystems:createSurvivorSystems(createLegacyArsenal(false,0)),bagOpen:false,inShelter:false,survivorPanel:null,shootHand:'right',
  arsenal:createLegacyArsenal(false,0),hasPistol:false,pistolEquipped:false,ammo:0,action:'none',actionT:0,actionDur:0,actionFired:false,muzzleT:0,camShake:0,px:0,pz:0,py:0,HEAR_GUN:70,muzzle:null,zombies:[],collides:()=>false,forwardXZ:()=>({x:1,z:0}),makeNoise(){},updateBag(){},persistCampaign(){},flashHint(){},damageZombie(){},phase:'play',paused:false,helperOpen:false,inventory:emptyInventory(),...extra});if(!('survivorSystems' in extra))c.survivorSystems=createSurvivorSystems(c.arsenal);for(const name of ['syncArsenal','canSee','fire','useItem'])vm.runInContext(extract(name),c);return c;}
 let tests=0;function test(name,fn){fn();tests++;console.log(`PASS ${name}`);}
@@ -26,7 +27,7 @@ test('actual useItem consumes legacy/daily ammo pack once; old pistol token give
  c.useItem('pistol');assert.equal(c.inventory.pistol,3);assert.equal(c.arsenal.owned.length,0);assert.equal(c.arsenal.rounds['9mm'],6);
  c.inventory.ammo=1;c.arsenal.rounds['9mm']=999999;c.useItem('ammo');assert.equal(c.inventory.ammo,1);assert.equal(c.arsenal.rounds['9mm'],999999);
 });
-function lootRuntime(item,random=.1,cacheKind){const target={x:1,z:0,looted:false,...(cacheKind?{cacheKind,cacheDay:1}:{})},math=Object.create(Math);math.random=()=>random;const c=runtime({Math:math,containers:[target],lootTarget:target,lootProgress:0,lootNoiseTimer:0,LOOT_SECONDS:1.3,HEAR_LOOT:26,keys:new Set(['KeyE']),setRing(){},paintContainer(){},looted:0,CACHE_RULES:{ammo:{name:'cache',seconds:1.3,noise:26}},ITEMS:{water:{label:'water',hint:''}},el:{prompt:{classList:classes},promptText:{textContent:''}},rollLoot:()=>item});vm.runInContext(extract('updateLoot'),c);return {c,target};}
+function lootRuntime(item,random=.1,cacheKind){const target={x:1,z:0,looted:false,...(cacheKind?{cacheKind,cacheDay:1}:{})},math=Object.create(Math);math.random=()=>random;const c=runtime({Math:math,containers:[...Array.from({length:3},()=>({x:99,z:99,looted:true})),target],lootTarget:target,lootProgress:0,lootNoiseTimer:0,LOOT_SECONDS:1.3,HEAR_LOOT:26,keys:new Set(['KeyE']),setRing(){},paintContainer(){},looted:0,CACHE_RULES:{ammo:{name:'cache',seconds:1.3,noise:26}},ITEMS:{water:{label:'water',hint:''}},el:{prompt:{classList:classes},promptText:{textContent:''}},rollLoot:()=>item});vm.runInContext(extract('updateLoot'),c);return {c,target};}
 test('ordinary weapon cache grants exactly six once, no inventory pistol bonus',()=>{
  const {c,target}=lootRuntime('pistol',.8);c.updateLoot(1.4);assert.ok(target.looted);assert.equal(c.arsenal.owned[0],'qbz191');assert.equal(c.arsenal.rounds['5.8-rifle'],6);assert.equal(c.inventory.pistol,0);c.updateLoot(1.4);assert.equal(c.arsenal.rounds['5.8-rifle'],6);
 });

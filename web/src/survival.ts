@@ -1,6 +1,7 @@
 import { createSurvivorSystems, migrateSurvivorSystems, equipHand, carriedWeight, loadEffects, injureBody, stepBody, treatBody } from './survivor-systems';
 import { installSurvivorPanel } from './survivor-panel';
 import { WEAPONS, WEAPON_IDS, createLegacyArsenal, grantWeapon, grantAmmo, equipWeapon, consumeRound, type Arsenal, type WeaponId } from './arsenal';
+import { weaponAtSite, nearestWeaponSite, exchangeWeapon } from './weapon-acquisition';
 import { buildFirearm } from './weapon-visuals';
 import { planEncounters } from './encounters';
 import { decideEncounterBehavior } from './encounter-behavior';
@@ -941,7 +942,8 @@ function updateLoot(dt: number) {
 
   el.prompt.classList.add('on');
   const rule=lootTarget.cacheKind?CACHE_RULES[lootTarget.cacheKind]:null;
-  el.promptText.textContent=rule?`${rule.name}｜按住${rule.seconds}秒，聲響${rule.noise}m`:'按住 E 搜刮';
+  const guaranteedWeapon=weaponAtSite(containers,lootTarget);
+  el.promptText.textContent=guaranteedWeapon?`${WEAPONS[guaranteedWeapon].name} 武器箱｜按住 E 搜刮` : rule?`${rule.name}｜按住${rule.seconds}秒，聲響${rule.noise}m`:'按住 E 搜刮';
   const holding = keys.has('KeyE');
   if (holding) {
     if (action !== 'loot') { action = 'loot'; actionT = 0; actionDur = 1e9; }
@@ -956,16 +958,16 @@ function updateLoot(dt: number) {
         if(!applyCacheLoot(inventory,lootTarget)){flashHint('背包數量已滿，未領走補給。');lootProgress=0;return;}
         flashHint(`${CACHE_RULES[kind].name}：取得${kind==='ammo'?'1盒彈藥':'2份'+ITEMS[kind].label}。此點今天已領完。`);
       } else {
-        const item=rollLoot();
+        const item=guaranteedWeapon?'pistol':rollLoot();
         if(item==='pistol'){
-          const id=WEAPON_IDS[Math.floor(Math.random()*WEAPON_IDS.length)];
+          const id=guaranteedWeapon??WEAPON_IDS[Math.floor(Math.random()*WEAPON_IDS.length)];
           if(!grantWeapon(arsenal,id)){flashHint('彈藥容量已滿，箱子保留。');lootProgress=0;return;}
           syncArsenal();flashHint(`找到 ${WEAPONS[id].name} 與同口徑6發；背包選擇裝備。`);
         } else if(item==='ammo'){
           const calibre=Math.random()<.5?'9mm':'5.8-rifle';
           if(!grantAmmo(arsenal,calibre,6)){flashHint('此口徑彈藥容量已滿，箱子保留。');lootProgress=0;return;}
           syncArsenal();flashHint(`找到 ${calibre==='9mm'?'9毫米手槍':'5.8毫米步槍'}彈6發；口徑不通用。`);
-        } else {inventory[item]+=1;flashHint(`撿到 ${ITEMS[item].label}（${ITEMS[item].hint}）`);}
+        } else {if(inventory[item]>=1_000_000){flashHint('背包數量已滿，箱子保留。');lootProgress=0;return;}inventory[item]+=1;flashHint(`撿到 ${ITEMS[item].label}（${ITEMS[item].hint}）`);}
         lootTarget.looted=true;
       }
       paintContainer(lootTarget);
@@ -1152,8 +1154,10 @@ function resetWorld() {
   for (let i = 0; i < MAX_ZOMBIES * 2; i++) eyeMesh.setColorAt(i, eyeColor.setHex(0x3f5a44));
   syncEyes();
 
-  for (const c of containers) {
-    const spot = placeContainer();
+  for (const [index,c] of containers.entries()) {
+    let spot = placeContainer();
+    // New games reserve reachable starter sites; old saves retain their exact positions.
+    if(index<6){for(let attempt=0;attempt<48;attempt++){const angle=(index+attempt/8)*Math.PI/3,radius=4+Math.floor(attempt/8)*1.4;const x=block.spawn[0]+Math.cos(angle)*radius,z=block.spawn[1]+Math.sin(angle)*radius;if(!insideBuilding(x,z)&&!collides(x,z,.5)&&segmentClear(block.spawn[0],block.spawn[1],x,z,(a,b)=>collides(a,b,.4))&&!containers.slice(0,index).some(other=>Math.hypot(other.x-x,other.z-z)<1.5)){spot={x,z};break;}}}
     delete c.cacheKind;delete c.cacheDay;
     c.x = spot.x; c.z = spot.z; c.looted = false;
     c.mesh.position.set(c.x, 0.26, -c.z);
@@ -1386,6 +1390,8 @@ function refreshSupplySites() {
   if(replenishCaches(containers,elapsed)>0){containers.forEach(paintContainer);persistCampaign();flashHint('新的一天：三處交接箱已補給。普通搜刮點仍然耗盡。');}
 }
 function nearestSupplyHint() {
+  const weaponSite=nearestWeaponSite(containers,px,pz);
+  if(weaponSite&&arsenal.owned.length<3){const id=weaponAtSite(containers,weaponSite)!;const right=(weaponSite.x-px)+(weaponSite.z-pz),up=(weaponSite.z-pz)-(weaponSite.x-px);const dir=(Math.abs(up)>3?(up>0?'上':'下'):'')+(Math.abs(right)>3?(right>0?'右':'左'):'');return `${WEAPONS[id].name} 武器箱 ${Math.round(Math.hypot(weaponSite.x-px,weaponSite.z-pz))}m ${dir}`;}
   const c=containers.filter(c=>c.cacheKind&&!c.looted).sort((a,b)=>Math.hypot(a.x-px,a.z-pz)-Math.hypot(b.x-px,b.z-pz))[0];
   if(!c)return '今日交接箱已領完，返回安全屋整理';
   const right=(c.x-px)+(c.z-pz),up=(c.z-pz)-(c.x-px);
@@ -1414,6 +1420,7 @@ function showHelper() {
   choice('交換：1罐頭 → 1水',inventory.food<1||(helperState.exchangeDay===day&&helperState.exchanges>=2),()=>exchangeWithHelper(helperState,inventory,day),'阿梅：這瓶水收好。一天最多兩次，還有人需要。');
   choice(helperState.helped?'已幫助阿梅（記憶已保存）':'幫助她：交1醫療包，收2水謝禮',helperState.helped||inventory.medkit<1,()=>aidHelper(helperState,inventory),'阿梅記住了你的幫助，以後每天可找她照護一次。');
   choice('接受照護：HP +15（每日一次）',!helperState.helped||helperState.healDay===day||hp>=100,()=>{const player={hp,exposure:outbreak.exposure};if(!receiveHelperCare(helperState,player,day))return false;hp=player.hp;outbreak.exposure=player.exposure;return true;},'阿梅：今天先處理到這裡，別逞強。');
+  for(const id of WEAPON_IDS)choice(`武器交換：2罐頭＋2水 → ${WEAPONS[id].name}＋6發${arsenal.owned.includes(id)?'（已擁有）':''}`,arsenal.owned.includes(id)||inventory.food<2||inventory.water<2,()=>{if(!exchangeWeapon(arsenal,inventory,id))return false;syncArsenal();return true;},`取得 ${WEAPONS[id].name} 與6發同口徑彈藥；開背包裝備。`);
   const exit=document.createElement('button');exit.textContent='離開互助站';exit.onclick=closeHelper;helperPanel.append(exit);
   const note=document.createElement('p');note.id='campaign-note';note.textContent=saveWarning||'虛構遊戲照護效果，不代表現實醫療。所有交換／幫助／每日配額與進度一起保存。';helperPanel.append(note);
 }
@@ -1660,7 +1667,9 @@ fetch(dataUrl)
           action, swingHand, shootHand, swingStroke, bufferedHand, impactPause,
           combatTargets: zombies.slice(0, 8).map(z=>({x:z.x,z:z.z,hp:z.hp,state:z.state})), actionProgress: actionDur ? actionT / actionDur : 0, attackHeld, touchActionHeld, swingCount,
           spawn: [px, pz], facing,
+          searchSites:containers.map(c=>({x:c.x,z:c.z,looted:c.looted,cacheKind:c.cacheKind,weapon:weaponAtSite(containers,c)})),
         }),
+        route: (x:number,z:number) => findLocalPath(px,pz,x,z,collides),
         start: (id = ROSTER[0].id) => {
           const found = ROSTER.find(r => r.id === id) ?? ROSTER[0];
           el.overlay.classList.remove('on');

@@ -1,0 +1,36 @@
+name: Weapon acquisition and ballistics candidate QA
+on:
+  push:
+    branches: [fix/weapon-acquisition-20261030]
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build and all regression suites
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+          for f in tools/test-*.mjs; do node "$f"; done
+      - name: Install official browser
+        run: |
+          npm install --prefix /tmp/shanghai-browser --no-save playwright@1.56.1
+          /tmp/shanghai-browser/node_modules/.bin/playwright install --with-deps chromium
+          echo "QA_BROWSER=$(node -e "console.log(require('/tmp/shanghai-browser/node_modules/playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+      - name: Natural weapon acquisition to save-resume
+        run: |
+          python3 -m http.server 4193 --bind 127.0.0.1 --directory web/dist >/tmp/shanghai-qa.log 2>&1 &
+          QA_OUTPUT="$GITHUB_WORKSPACE/evidence/weapons" node web/tools/qa-weapon-acquisition.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: weapon-acquisition-evidence
+          path: evidence/weapons/
+          retention-days: 7

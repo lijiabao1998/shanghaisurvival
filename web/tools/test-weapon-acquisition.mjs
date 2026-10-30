@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import {weaponAtSite,nearestWeaponSite,exchangeWeapon} from '../src/weapon-acquisition.ts';
+import {createLegacyArsenal,WEAPON_IDS} from '../src/arsenal.ts';
+const sites=Array.from({length:12},(_,i)=>({x:i,z:0,looted:false,...(i<3?{cacheKind:['water','food','ammo'][i]}:{})}));
+assert.deepEqual(sites.map(s=>weaponAtSite(sites,s)),[null,null,null,...WEAPON_IDS,null,null,null,null,null,null]);
+assert.equal(nearestWeaponSite(sites,0,0),sites[3]);sites[3].looted=true;
+assert.equal(weaponAtSite(sites,sites[3]),WEAPON_IDS[0]);assert.equal(nearestWeaponSite(sites,0,0),sites[4]);
+const reloaded=structuredClone(sites);assert.equal(weaponAtSite(reloaded,reloaded[4]),WEAPON_IDS[1]);assert.equal(reloaded[3].looted,true);
+const a=createLegacyArsenal(false,0),bag={food:2,water:2};assert.equal(exchangeWeapon(a,bag,'qbz191'),true);assert.deepEqual(bag,{food:0,water:0});assert.equal(a.rounds['5.8-rifle'],6);
+bag.food=2;bag.water=2;const before=JSON.stringify({a,bag});assert.equal(exchangeWeapon(a,bag,'qbz191'),false);assert.equal(JSON.stringify({a,bag}),before);
+a.rounds['9mm']=999999;assert.equal(exchangeWeapon(a,bag,'qsz92-9'),false);assert.deepEqual(bag,{food:2,water:2});assert.equal(a.owned.includes('qsz92-9'),false);
+console.log('PASS deterministic weapon sites, exhausted/reloaded identity, legacy fallback and atomic exchange');
