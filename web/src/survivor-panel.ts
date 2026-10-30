@@ -93,7 +93,7 @@ export function installSurvivorPanel(options: SurvivorPanelOptions) {
     const overweight = state.weight > state.capacity;
     const card = node('div', `survivor-kit__load${overweight ? ' is-heavy' : ''}`);
     card.append(node('span', 'survivor-kit__eyebrow', 'CARRY WEIGHT / 隨身負重'), node('strong', '', `${decimal(state.weight)} / ${decimal(state.capacity)} kg`));
-    card.append(node('p', '', overweight ? '負重偏高：移動與體力恢復受影響。可回安全屋存放物資。' : '物資、武器與散彈均計入負重。安全屋庫存不計。'));
+    card.append(node('p', '', overweight ? '負重偏高：移動速度降低、奔跑體力消耗增加。可回安全屋存放物資。' : '物資、武器與散彈均計入負重。安全屋庫存不計。'));
     return card;
   }
   function equipment(state: SurvivorPanelState) {
