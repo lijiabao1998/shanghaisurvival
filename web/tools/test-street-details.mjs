@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {build} from 'esbuild';
-const bundle=await build({stdin:{contents:`export {createStreetDetails} from './src/street-details.ts';export {makeInsideTest,makeCollider,wallGridOf,doorEdgeIndex} from './src/world.ts';`,resolveDir:process.cwd()},bundle:true,platform:'node',format:'esm',write:false});
-const {createStreetDetails,makeInsideTest,makeCollider,wallGridOf,doorEdgeIndex}=await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
+const bundle=await build({stdin:{contents:`export {createStreetDetails,applyPavementGrain} from './src/street-details.ts';export {makeInsideTest,makeCollider,wallGridOf,doorEdgeIndex} from './src/world.ts';`,resolveDir:process.cwd()},bundle:true,platform:'node',format:'esm',write:false});
+const {createStreetDetails,applyPavementGrain,makeInsideTest,makeCollider,wallGridOf,doorEdgeIndex}=await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 const data=JSON.parse(readFileSync(new URL('../public/data/block.json',import.meta.url),'utf8')),before=JSON.stringify(data);
 const points=data.buildings.flatMap(b=>b.footprint),bounds={minX:Math.min(...points.map(p=>p[0])),maxX:Math.max(...points.map(p=>p[0])),minY:Math.min(...points.map(p=>p[1])),maxY:Math.max(...points.map(p=>p[1]))};
 const detail=createStreetDetails(data.roads,data.buildings,bounds);
@@ -22,3 +22,15 @@ const crossing={...narrow,id:'crossing',type:'footway',width_m:2,centerline:[[0,
 const crossed=createStreetDetails([wide,crossing],[],fixtureBounds);assert.ok(crossed.stats.slabs>0);const paving=crossed.group.children[0].geometry.getAttribute('position');
 for(let i=0;i<paving.count;i++)assert.ok(Math.abs(paving.getX(i))>=1,'no raised paving across existing footway');crossed.dispose();
 console.log('PASS narrow lanes unchanged and intersecting pedestrian approach unblocked');
+
+const neutral=createStreetDetails([wide],[],fixtureBounds);
+const palette=neutral.group.children[0].geometry.getAttribute('color');
+for(let i=0;i<palette.count;i++)assert.ok(Math.max(palette.getX(i),palette.getY(i),palette.getZ(i))-Math.min(palette.getX(i),palette.getY(i),palette.getZ(i))<.035,'pavement palette stays low-chroma neutral gray, not beige');
+assert.ok(neutral.stats.joints<neutral.stats.slabs,'no seam grid on every large panel');
+assert.ok(neutral.stats.patches<neutral.stats.slabs/2,'patching remains sparse');
+const shader={uniforms:{},vertexShader:'#include <begin_vertex>',fragmentShader:'#include <color_fragment>'};
+neutral.group.children[0].material.onBeforeCompile(shader);
+assert.equal(shader.uniforms.pavementGrainStrength.value,.055);assert.match(shader.vertexShader,/modelMatrix/);assert.match(shader.fragmentShader,/grainA/);assert.doesNotMatch(shader.fragmentShader,/texture2D|sampler2D/);
+assert.ok(shader.vertexShader.includes('#include <begin_vertex>'));assert.ok(shader.fragmentShader.includes('#include <color_fragment>'),'standard lighting pipeline retained');
+assert.match(neutral.group.children[0].material.customProgramCacheKey(),/neutral-pavement-v1/);neutral.dispose();
+console.log('PASS low-chroma gray pavement, sparse joints/patches and Node-safe texture-free fine aggregate shader injection');

@@ -12,7 +12,7 @@ import { createLilongInterior, createShelterFloor, shelterInspectionPoints } fro
 import { roadGeometries, nearbyRoadName, type StreetRoad } from './road-geometry';
 import { viewHeight, roomViewHeight } from './view';
 import { daylightProfile } from './daylight';
-import { createStreetDetails } from './street-details';
+import { createStreetDetails, applyPavementGrain } from './street-details';
 let streetDetails: ReturnType<typeof createStreetDetails>|null=null;
 import { emptyInventory, replenishCaches, applyCacheLoot, loadSnapshot, saveSnapshot, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
 import { selectShelter, type Shelter } from './shelter';
@@ -1661,8 +1661,8 @@ fetch(dataUrl)
     // Render the already bundled real OSM network; preserve CMAB/OSM positions.
     streetDetails=createStreetDetails(data.roads??[],data.buildings,bounds);scene.add(streetDetails.group);
     const streets=roadGeometries(data.roads??[]);
-    scene.add(new THREE.Mesh(streets.surface,new THREE.MeshStandardMaterial({vertexColors:true,roughness:1,side:THREE.DoubleSide})));
-    scene.add(new THREE.Mesh(streets.edges,new THREE.MeshStandardMaterial({color:0x9b9a87,roughness:1,side:THREE.DoubleSide})));
+    scene.add(new THREE.Mesh(streets.surface,applyPavementGrain(new THREE.MeshStandardMaterial({vertexColors:true,roughness:1,side:THREE.DoubleSide}),.07)));
+    scene.add(new THREE.Mesh(streets.edges,new THREE.MeshStandardMaterial({color:0x858786,roughness:1,side:THREE.DoubleSide})));
 
 
     for (let i = 0; i < containerCount; i++) {

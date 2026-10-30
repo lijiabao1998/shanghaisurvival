@@ -8,3 +8,6 @@ for(let h=0;h<24;h+=.05){const p=profile(h);for(const k of ['lamps','daylight'])
 console.log('PASS visible day/night palettes, twilight stages, lamps, readable night and continuous campaign clock mapping');
 
 assert.ok(profile(12).vignette<.2);assert.ok(profile(0).vignette>.75);
+
+// Noon light must not recolor neutral Menghua paving into a yellow tile surface.
+assert.equal(profile(12).ground,0x929491);assert.equal(profile(12).key,0xfffaf2);

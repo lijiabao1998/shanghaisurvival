@@ -5,6 +5,22 @@ import type {StreetRoad} from './road-geometry';
 type Bounds={minX:number;maxX:number;minY:number;maxY:number};
 type Segment={a:[number,number];b:[number,number];dx:number;dz:number;len:number;half:number;road:number};
 type Batch={p:number[];c:number[]};
+/** Fine, low-contrast world-space aggregate; no raster assets/canvas or large tile motif. */
+export function applyPavementGrain(material:THREE.MeshStandardMaterial,strength=.055){
+ const amount=Math.max(0,Math.min(.1,strength));
+ material.onBeforeCompile=shader=>{
+  shader.uniforms.pavementGrainStrength={value:amount};
+  shader.vertexShader='varying vec3 vPavementWorld;\n'+shader.vertexShader;
+  shader.vertexShader=shader.vertexShader.replace('#include <begin_vertex>','#include <begin_vertex>\nvPavementWorld=(modelMatrix*vec4(position,1.0)).xyz;');
+  shader.fragmentShader='varying vec3 vPavementWorld;\nuniform float pavementGrainStrength;\n'+shader.fragmentShader;
+  shader.fragmentShader=shader.fragmentShader.replace('#include <color_fragment>',`#include <color_fragment>
+    float grainA=fract(sin(dot(floor(vPavementWorld.xz*31.7),vec2(127.1,311.7)))*43758.5453);
+    float grainB=fract(sin(dot(floor(vPavementWorld.xz*83.3),vec2(269.5,183.3)))*43758.5453);
+    diffuseColor.rgb*=1.0+pavementGrainStrength*(grainA+grainB-1.0);`);
+ };
+ material.customProgramCacheKey=()=>`shanghai-neutral-pavement-v1-${amount}`;
+ return material;
+}
 /** Original procedural streetscape, not a survey of pavement/tree positions.
  * Existing OSM ribbons, building footprints, doors, collision and saves are untouched.
  * Three merged meshes: paving, street furniture, emissive lamp heads. */
@@ -23,7 +39,7 @@ export function createStreetDetails(roads:StreetRoad[],buildings:Building[],boun
   const onOtherRoad=(x:number,z:number,s:Segment,margin:number)=>segments.some(t=>{if(t===s)return false;const along=Math.max(0,Math.min(t.len,(x-t.a[0])*t.dx+(z-t.a[1])*t.dz));return Math.hypot(x-t.a[0]-along*t.dx,z-t.a[1]-along*t.dz)<t.half+margin;});
   const clear=(x:number,z:number,r:number,s:Segment)=>x-r>=bounds.minX&&x+r<=bounds.maxX&&z-r>=bounds.minY&&z+r<=bounds.maxY&&!inside(x,z)&&!collides(x,z,r)&&!doors.some(d=>Math.hypot(x-d[0],z-d[1])<r+2.4)&&!onOtherRoad(x,z,s,r);
   const occupied=new Set<string>(),props:Array<{x:number;z:number;kind:'tree'|'lamp'}>=[];
-  let slabs=0,curbs=0,treePits=0,lamps=0;
+  let slabs=0,curbs=0,treePits=0,lamps=0,joints=0,patches=0;
   for(const s of segments){if(s.half<3||['footway','pedestrian','path','steps','service','living_street'].includes(roads[s.road].type))continue;const nx=-s.dz,nz=s.dx;
     for(const side of [-1,1])for(let t=3;t<s.len-3;t+=4){
       if(slabs>=6000)break;
@@ -32,12 +48,18 @@ export function createStreetDetails(roads:StreetRoad[],buildings:Building[],boun
       const pts=[[-1.96,-.65],[1.96,-.65],[1.96,.65],[-1.96,.65],[0,0],[0,-.65],[0,.65]];
       if(!pts.every(([u,v])=>clear(x+s.dx*u+nx*v,z+s.dz*u+nz*v,.08,s)))continue;
       const cell=`${Math.round(x)},${Math.round(z)}`;if(occupied.has(cell))continue;occupied.add(cell);
-      box(paving,x,z,3.96,1.3,.025,.09,slabs%3===0?0x9c998a:0xaaa79a,s.dx,s.dz,true);
-      box(paving,x,z,.022,1.3,.115,.002,0x7e7c70,s.dx,s.dz,true);
-      box(paving,x,z,3.96,.022,.115,.002,0x7e7c70,s.dx,s.dz,true);slabs++;
-      // Separate stone kerbs are slightly higher; short end gaps read as joints.
+      // Continuous neutral gray margin, not alternating large decorative paving slabs.
+      // Dimensions are conservative gameplay construction values, NOT measured photo dimensions.
+      box(paving,x,z,4,1.3,.025,.065,0x969998,s.dx,s.dz,true);
+      const seed=Math.abs(Math.floor(x*17+z*31));
+      if(seed%3===0){const offset=((seed%11)/10-.5)*2.4;box(paving,x+s.dx*offset,z+s.dz*offset,.016,1.28,.091,.001,0x7f8381,s.dx,s.dz,true);joints++;}
+      if(seed%7===0){const offset=((seed%13)/12-.5)*2;box(paving,x+s.dx*offset,z+s.dz*offset,.52,.32,.091,.001,0x8e9290,s.dx,s.dz,true);patches++;}
+      slabs++;
       const cx=s.a[0]+s.dx*t+nx*(s.half+.12)*side,cz=s.a[1]+s.dz*t+nz*(s.half+.12)*side;
-      box(paving,cx,cz,3.94,.18,.02,.13,0xc2bca8,s.dx,s.dz);curbs++;
+      box(paving,cx,cz,3.98,.18,.02,.09,0xb6b9b7,s.dx,s.dz);curbs++;
+      // Restrained curb joints and a dark drainage edge, with no full-width checker grid.
+      for(const offset of [-1.31,.02,1.35])box(paving,cx+s.dx*offset,cz+s.dz*offset,.014,.18,.111,.001,0x777d79,s.dx,s.dz,true);
+      box(paving,cx-nx*.12*side,cz-nz*.12*side,3.98,.055,.026,.001,0x535957,s.dx,s.dz,true);
       // Outer verge only: never consume the 1.3 m pedestrian strip. Sparse props
       // are decorative, not invisible new collision or surveyed municipal objects.
       if(t<6||Math.round(t)%20!==7||props.length>=96)continue;
@@ -59,10 +81,10 @@ export function createStreetDetails(roads:StreetRoad[],buildings:Building[],boun
     }
   }
   const mesh=(b:Batch,material:THREE.Material)=>{const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(b.p,3));g.setAttribute('color',new THREE.Float32BufferAttribute(b.c,3));g.computeVertexNormals();if(b.p.length)g.computeBoundingBox();return new THREE.Mesh(g,material);};
-  const stone=new THREE.MeshStandardMaterial({vertexColors:true,roughness:.96,side:THREE.DoubleSide}),metal=new THREE.MeshStandardMaterial({vertexColors:true,roughness:.86,side:THREE.DoubleSide});
+  const stone=applyPavementGrain(new THREE.MeshStandardMaterial({vertexColors:true,roughness:.98,side:THREE.DoubleSide})),metal=new THREE.MeshStandardMaterial({vertexColors:true,roughness:.86,side:THREE.DoubleSide});
   const lampMaterial=new THREE.MeshStandardMaterial({vertexColors:true,emissive:0xffd5a0,emissiveIntensity:0,roughness:.65});
   const group=new THREE.Group();group.name='shanghai-street-details';group.add(mesh(paving,stone),mesh(furniture,metal),mesh(lights,lampMaterial));
-  return {group,stats:{slabs,curbs,treePits,lamps,meshes:3,vertices:(paving.p.length+furniture.p.length+lights.p.length)/3},placements:props,
+  return {group,stats:{slabs,curbs,treePits,lamps,joints,patches,meshes:3,vertices:(paving.p.length+furniture.p.length+lights.p.length)/3},placements:props,
     setNight:(amount:number)=>{lampMaterial.emissiveIntensity=Number.isFinite(amount)?Math.max(0,Math.min(1,amount))*1.8:0;},
     dispose:()=>{for(const child of group.children)(child as THREE.Mesh).geometry.dispose();stone.dispose();metal.dispose();lampMaterial.dispose();}};
 }

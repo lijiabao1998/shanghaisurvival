@@ -21,3 +21,6 @@ console.log(`PASS real OSM ${data.roads.length} roads / ${g.segments} segments: 
 
 assert.equal(nearbyRoadName([{...r([[0,0],[10,0]]),name:'文廟路'}],5,1),'文廟路');
 assert.equal(nearbyRoadName([{...r([[0,0],[10,0]]),name:'文廟路'}],5,50),null);
+
+const palette=g.surface.getAttribute('color');for(let i=0;i<palette.count;i++)assert.ok(Math.max(palette.getX(i),palette.getY(i),palette.getZ(i))-Math.min(palette.getX(i),palette.getY(i),palette.getZ(i))<.035,'road and footway use low-chroma gray');
+console.log('PASS road palette neutralized without changing original segment vertices/widths');

@@ -10,10 +10,10 @@ const out=process.env.QA_OUTPUT??'/tmp/shanghai-street-daynight-evidence';await 
 const url=process.env.QA_URL??'http://127.0.0.1:4173/survival.html?debug';
 assert.ok(['127.0.0.1','localhost','[::1]'].includes(new URL(url).hostname),'fixtures may run only against local candidate server');
 const browser=await puppeteer.launch({executablePath:process.env.QA_BROWSER??'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
-const report={scope:'local candidate in fresh isolated browser contexts; no production storage',commit:process.env.GITHUB_SHA??'local',checks:[],fixtures:[],states:{},errors:[],httpErrors:[],requestFailures:[],passed:false};
+const report={scope:'local candidate in fresh isolated browser contexts; no production storage',commit:process.env.GITHUB_SHA??'local',checks:[],fixtures:[],states:{},errors:[],consoleErrors:[],httpErrors:[],requestFailures:[],passed:false};
 const map=JSON.parse(await readFile(new URL('../public/data/block.json',import.meta.url),'utf8'));
-const compiled=await build({stdin:{contents:`export {makeCollider,makeInsideTest,wallGridOf} from './src/world.ts';export {selectShelter} from './src/shelter.ts';export {buildingAppearance} from './src/shanghai-details.ts';export {buildingOccludesPlayer} from './src/occlusion.ts';`,resolveDir:fileURLToPath(new URL('../',import.meta.url))},bundle:true,platform:'node',format:'esm',write:false});
-const {makeCollider,makeInsideTest,wallGridOf,selectShelter,buildingAppearance,buildingOccludesPlayer}=await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`);
+const compiled=await build({stdin:{contents:`export {makeCollider,makeInsideTest,wallGridOf} from './src/world.ts';export {selectShelter} from './src/shelter.ts';export {buildingAppearance} from './src/shanghai-details.ts';export {buildingOccludesPlayer} from './src/occlusion.ts';export {createStreetDetails} from './src/street-details.ts';`,resolveDir:fileURLToPath(new URL('../',import.meta.url))},bundle:true,platform:'node',format:'esm',write:false});
+const {makeCollider,makeInsideTest,wallGridOf,selectShelter,buildingAppearance,buildingOccludesPlayer,createStreetDetails}=await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text).toString('base64')}`);
 const collides=makeCollider(wallGridOf(map,false)),inside=makeInsideTest(map);
 function streetView(placements){
  const pairs=placements.filter(p=>p.kind==='lamp').flatMap(lamp=>placements.filter(p=>p.kind==='tree').map(tree=>({lamp,tree,d:Math.hypot(lamp.x-tree.x,lamp.z-tree.z)}))).filter(p=>p.d<=22).sort((a,b)=>a.d-b.d);
@@ -22,6 +22,21 @@ function streetView(placements){
  }
  throw new Error('No legal nearby tree/lamp viewpoint; refuse to claim streetscape screenshot from spawn');
 }
+function menghuaView(){
+ const road=map.roads.find(r=>r.id==='osm_40109239_0');assert.ok(road,'named Menghua Street geometry exists');
+ const pts=map.buildings.flatMap(b=>b.footprint),bounds={minX:Math.min(...pts.map(p=>p[0])),maxX:Math.max(...pts.map(p=>p[0])),minY:Math.min(...pts.map(p=>p[1])),maxY:Math.max(...pts.map(p=>p[1]))};
+ const details=createStreetDetails(map.roads,map.buildings,bounds),v=details.group.children[0].geometry.getAttribute('position'),candidates=[];
+ // Inspect actual generated paving top triangles; do not infer paving from road width alone.
+ for(let i=0;i<v.count;i+=3){if(![0,1,2].every(k=>v.getY(i+k)>.075&&v.getY(i+k)<.13))continue;
+  const x=(v.getX(i)+v.getX(i+1)+v.getX(i+2))/3,z=-(v.getZ(i)+v.getZ(i+1)+v.getZ(i+2))/3;
+  for(let j=1;j<road.centerline.length;j++){const a=road.centerline[j-1],b=road.centerline[j],dx=b[0]-a[0],dz=b[1]-a[1],t=Math.max(0,Math.min(1,((x-a[0])*dx+(z-a[1])*dz)/(dx*dx+dz*dz))),px=a[0]+t*dx,pz=a[1]+t*dz,d=Math.hypot(x-px,z-pz);
+   if(t>.1&&t<.9&&d>3&&d<4.5&&!inside(px,pz)&&!collides(px,pz,.5))candidates.push({position:[px,pz],pavingPoint:[x,z],distance:Math.hypot(px-map.spawn[0],pz-map.spawn[1])});
+  }
+ }
+ details.dispose();candidates.sort((a,b)=>a.distance-b.distance);assert.ok(candidates.length,'named street has generated paving beside legal camera point');
+ return {...candidates[0],roadId:road.id,name:road.name,width_m:road.width_m,width_source:road.width_source,zoom:Math.pow(1.1,5)};
+}
+const namedStreetView=menghuaView();
 function facadeView(appearance){
  const candidates=map.buildings.filter(b=>buildingAppearance(b.id)===appearance).map(b=>({b,entrance:selectShelter([b],map.spawn,collides,inside)})).filter(v=>v.entrance).sort((a,b)=>Math.hypot(a.entrance.outside[0]-map.spawn[0],a.entrance.outside[1]-map.spawn[1])-Math.hypot(b.entrance.outside[0]-map.spawn[0],b.entrance.outside[1]-map.spawn[1]));
  const points=map.buildings.flatMap(b=>b.footprint),xs=points.map(p=>p[0]),zs=points.map(p=>p[1]);
@@ -51,6 +66,7 @@ async function frame(p){await p.evaluate(()=>new Promise(resolve=>requestAnimati
 async function clickText(p,selector,text,mobile){await p.waitForSelector(selector,{visible:true});for(const b of await p.$$(selector)){if((await b.evaluate(el=>el.textContent)).includes(text)){if(mobile)await b.tap();else await b.click();return;}}throw new Error(`Missing ${text}`);}
 async function init(label,viewport,seed){
  const context=await browser.createBrowserContext(),p=await context.newPage();p.setDefaultTimeout(45000);await p.setViewport(viewport);
+ p.on('console',m=>{if(m.type()==='error'&&!m.text().includes('favicon.ico'))report.consoleErrors.push({label,message:m.text()});});
  p.on('pageerror',e=>report.errors.push({label,message:e.message}));
  p.on('response',r=>{if(r.status()>=400&&!new URL(r.url()).pathname.endsWith('/favicon.ico'))report.httpErrors.push({label,status:r.status(),url:r.url()});});
  p.on('requestfailed',r=>{if(!r.url().endsWith('/favicon.ico'))report.requestFailures.push({label,url:r.url(),error:r.failure()?.errorText});});
@@ -85,6 +101,17 @@ try{
     report.fixtures.push({device:'desktop',label:`facade-${appearance}`,changedFields:{elapsed:120,position:view.position,inShelter:false},viewpoint:view,cityMeshes:current.cityMeshes,source:'isolated copy of natural test save, legitimate mouse-wheel zoom',warning:'authored appearance and clock/position fixture; not a claim that the real address is damaged, locked or has a finished interior'});
     await f.p.screenshot({path:`${out}/desktop-facade-${appearance}.png`});await f.context.close();
   }
+  {
+    const view=namedStreetView,fixture=structuredClone(saved);fixture.elapsed=120;fixture.position=view.position;fixture.inShelter=false;
+    const f=await init(`${device}-menghua-pavement`,viewport,{key:seed.key,value:JSON.stringify(fixture)});await resume(f.p,mobile);
+    // Identical five real wheel events on both viewports give stable comparison framing.
+    await f.p.mouse.move(viewport.width/2,viewport.height/2);for(let i=0;i<5;i++){await f.p.mouse.wheel({deltaY:-100});await frame(f.p);}
+    await f.p.waitForFunction(()=>window.__modu.state().streetZoom>1.6);await frame(f.p);
+    const current=await state(f.p);assert.ok(Math.hypot(current.spawn[0]-view.position[0],current.spawn[1]-view.position[1])<.1,'named-street fixture remains at intended legal point');
+    assert.equal(current.dayNight.stage,'白晝');assert.equal(current.streetDetails.meshes,3);
+    report.states[`${device}MenghuaPavement`]=current;report.fixtures.push({device,label:'menghua-pavement',viewpoint:view,changedFields:{elapsed:120,position:view.position,inShelter:false},source:'isolated position/time fixture and actual generated paving triangle; fixed wheel zoom for repeatable before/after imagery',warning:'OSM road width is estimated_by_road_class, not surveyed; historical photo-inspired surface, not verified 2026 condition; wheel is camera fixture input, not mobile pinch acceptance'});
+    await f.p.screenshot({path:`${out}/${device}-menghua-pavement.png`});await f.context.close();
+  }
   for(const [label,elapsed,expected] of [['noon',120,'白晝'],['midnight',480,'夜晚']]){
     const fixture=structuredClone(saved);fixture.elapsed=elapsed;fixture.position=viewpoint.position;fixture.inShelter=false;
     const f=await init(`${device}-fixture-${label}`,viewport,{key:seed.key,value:JSON.stringify(fixture)});
@@ -96,6 +123,6 @@ try{
     await f.p.screenshot({path:`${out}/${device}-fixture-${label}.png`});await f.context.close();
   }
  }
- assert.deepEqual(report.errors,[]);assert.deepEqual(report.httpErrors,[]);assert.deepEqual(report.requestFailures,[]);report.passed=true;
+ assert.deepEqual(report.errors,[]);assert.deepEqual(report.consoleErrors,[]);assert.deepEqual(report.httpErrors,[]);assert.deepEqual(report.requestFailures,[]);report.passed=true;
 }catch(error){report.failure=error.stack;process.exitCode=1;console.error(error);for(const [i,p] of (await browser.pages()).entries()){try{await p.screenshot({path:`${out}/failure-${i}.png`});await writeFile(`${out}/failure-${i}.json`,JSON.stringify(await p.evaluate(()=>({text:document.body.innerText,state:window.__modu?.state(),storage:{...localStorage}})),null,2));}catch{}}}
 finally{await writeFile(`${out}/report.json`,JSON.stringify(report,null,2));await browser.close();}

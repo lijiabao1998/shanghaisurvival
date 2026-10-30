@@ -12,7 +12,7 @@ export function roadGeometries(roads: StreetRoad[]): {surface:THREE.BufferGeomet
   };
   for(const road of roads) {
     if(!Number.isFinite(road.width_m)||road.width_m<=0||road.width_m>60)continue;
-    const color=new THREE.Color(['footway','pedestrian','path','steps'].includes(road.type)?0x77756b:0x303b40);
+    const color=new THREE.Color(['footway','pedestrian','path','steps'].includes(road.type)?0x818582:0x606466);
     const half=road.width_m/2;
     for(let i=1;i<road.centerline.length;i++){
       const a=road.centerline[i-1],b=road.centerline[i];
