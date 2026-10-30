@@ -10,17 +10,28 @@ const report={commit:process.env.GITHUB_SHA??'local',scope:'local candidate only
 const state=p=>p.evaluate(()=>window.__modu.state());
 async function init(viewport){const context=await browser.createBrowserContext(),p=await context.newPage();await p.setViewport(viewport);p.on('pageerror',e=>report.errors.push(e.message));await p.goto(url,{waitUntil:'networkidle0'});await p.waitForFunction(()=>window.__modu);await p.click('.who');await p.click('#ov-btn');await p.waitForFunction(()=>window.__modu.state().phase==='play');return p;}
 async function frame(p,name){const s=await state(p);report.frames.push({name,time:Date.now(),state:s});await p.screenshot({path:`${out}/${name}.png`});return s;}
+async function record(p,prefix,ms=6500){
+ const c=await p.createCDPSession();let i=0;const pending=[];
+ c.on('Page.screencastFrame',event=>{
+  const index=i++,name=`${prefix}-${String(index).padStart(3,'0')}`;
+  // Acknowledge immediately: capture never serially pauses the animation loop.
+  c.send('Page.screencastFrameAck',{sessionId:event.sessionId}).catch(()=>{});
+  pending.push((async()=>{const time=Date.now();const snapshot=await state(p);report.frames.push({name,ext:'jpg',time,captureTime:event.metadata.timestamp,state:snapshot});await writeFile(`${out}/${name}.jpg`,Buffer.from(event.data,'base64'));})());
+ });
+ await c.send('Page.startScreencast',{format:'jpeg',quality:85,maxWidth:1280,maxHeight:800,everyNthFrame:1});
+ await wait(ms);await c.send('Page.stopScreencast');await Promise.all(pending);await c.detach();assert.ok(i>=3,'at least three real rendered frames');
+}
 async function equipment(p,primary,secondary){await p.keyboard.press('Tab');await p.click('#survivor-kit-tab-equipment');if(await p.$('[data-focus-key="unequip-secondary"]'))await p.click('[data-focus-key="unequip-secondary"]');await p.click(`[data-focus-key="primary-${primary}"]`);if(secondary)await p.click(`[data-focus-key="secondary-${secondary}"]`);await p.keyboard.press('Escape');}
 try{
- const p=await init({width:1280,height:800,deviceScaleFactor:1});
+ let p=await init({width:1280,height:800,deviceScaleFactor:1});
  // Avoid pointer aiming while keyboard J uses the target's arranged facing.
  for(let i=0;i<9;i++)await p.mouse.wheel({deltaY:-100});
  await frame(p,'00-desktop-ready');
  // Implemented by the game only behind ?debug. The isolated browser context has its own local QA autosave.
  assert.equal(await p.evaluate(()=>typeof window.__modu.combatFixture),'function','debug combatFixture required');
- assert.equal(await p.evaluate(()=>window.__modu.combatFixture()),true);report.fixtures.push('combatFixture: isolated clear-space target arrangement');
+ assert.equal(await p.evaluate(()=>window.__modu.combatFixture()),true);report.fixtures.push('combatFixture: debug-only sparring removes unrelated enemies without awarding kills; arranges one target with delayed attacks in clear space');
  await (await p.createCDPSession()).send('Input.dispatchMouseEvent',{type:'mousePressed',x:640,y:400,button:'left',clickCount:1});
- for(let i=0;i<18;i++){await wait(70);await frame(p,`desktop-strike-${String(i).padStart(2,'0')}`);}
+ await record(p,'desktop-strike',9000);
  await (await p.createCDPSession()).send('Input.dispatchMouseEvent',{type:'mouseReleased',x:640,y:400,button:'left',clickCount:1});await wait(1000);
  report.desktopAfter=await state(p);
  const desktopFrames=report.frames.filter(f=>f.name.startsWith('desktop-strike-'));
@@ -28,7 +39,8 @@ try{
  assert.ok(desktopFrames.some(f=>f.state.swingStroke===1),'held attack must chain to reverse stroke');
  assert.ok(report.desktopAfter.swingCount>=2);
  report.checks.push('Actual browser target HP falls 100→55 or lower; held attacks produce reverse stroke');
- report.checks.push('Desktop real held mouse attack input sampled across 18 chronological rendered frames');
+ report.checks.push('Desktop real held mouse attack input recorded using nonblocking CDP screencast frames');
+ await p.close();p=await init({width:1280,height:800,deviceScaleFactor:1});
  await p.evaluate(()=>window.__modu.give('pistol'));await equipment(p,'qsz92-9','pipe');
  assert.equal(await p.evaluate(()=>window.__modu.combatFixture()),true);const beforeOff=await state(p);await p.keyboard.press('KeyR');await wait(100);const off=await frame(p,'20-left-pipe');assert.equal(off.swingHand,'left');assert.equal(off.arsenal.rounds['9mm'],beforeOff.arsenal.rounds['9mm']);await wait(800);assert.ok((await state(p)).combatTargets[0].hp<=55,'left-hand strike actually damages target');
  await p.keyboard.press('Tab');assert.equal((await state(p)).bagOpen,true);const n=(await state(p)).swingCount;await p.keyboard.press('KeyR');await wait(300);assert.equal((await state(p)).swingCount,n);await p.keyboard.press('Escape');
@@ -43,7 +55,7 @@ try{
  assert.equal(await mobile.evaluate(()=>window.__modu.combatFixture()),true);
  const box=await (await mobile.$('#survivor-touch-action')).boundingBox();const client=await mobile.createCDPSession();
  await client.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+box.width/2,y:box.y+box.height/2}]});
- for(let i=0;i<10;i++){await wait(90);await frame(mobile,`mobile-strike-${String(i).padStart(2,'0')}`);}
+ await record(mobile,'mobile-strike',6500);
  await client.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await wait(1000);assert.equal((await state(mobile)).touchActionHeld,false);
  await client.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+box.width/2,y:box.y+box.height/2}]});await wait(70);await client.send('Input.dispatchTouchEvent',{type:'touchCancel',touchPoints:[]});await wait(1000);assert.equal((await state(mobile)).touchActionHeld,false);
  assert.ok(report.frames.filter(f=>f.name.startsWith('mobile-strike-')).some(f=>f.state.combatTargets[0].hp<=55),'real touch strike must damage fixture target');

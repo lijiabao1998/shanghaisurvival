@@ -21,6 +21,7 @@ jobs:
           for f in tools/test-*.mjs; do node "$f"; done
       - name: Install official isolated browser tooling
         run: |
+          sudo apt-get update && sudo apt-get install -y ffmpeg
           npm install --prefix /tmp/shanghai-browser --no-save playwright@1.56.1
           /tmp/shanghai-browser/node_modules/.bin/playwright install --with-deps chromium
           echo "QA_BROWSER=$(node -e "console.log(require('/tmp/shanghai-browser/node_modules/playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
@@ -37,18 +38,18 @@ jobs:
           if not (p/'report.json').exists(): raise SystemExit(0)
           r=json.loads((p/'report.json').read_text())
           for prefix in ['desktop-strike','mobile-strike']:
-            frames=[f for f in r['frames'] if f['name'].startswith(prefix)]
+            frames=sorted([f for f in r['frames'] if f['name'].startswith(prefix)],key=lambda f:f['time'])
             if not frames:continue
             lines=[]
             for i,f in enumerate(frames):
-              lines.append("file '"+f['name']+".png'")
+              lines.append("file '"+f['name']+'.'+f.get('ext','png')+"'")
               if i+1<len(frames):lines.append('duration '+str(max(.01,(frames[i+1]['time']-f['time'])/1000)))
-            lines.append("file '"+frames[-1]['name']+".png'")
+            lines.append("file '"+frames[-1]['name']+'.'+frames[-1].get('ext','png')+"'")
             (p/(prefix+'.txt')).write_text('\n'.join(lines)+'\n')
           PY
           for f in evidence/melee-flow/*-strike.txt; do
             [ -f "$f" ] || continue
-            ffmpeg -y -f concat -safe 0 -i "$f" -vf "scale=960:-2" -vsync vfr -pix_fmt yuv420p "${f%.txt}.mp4" || true
+            ffmpeg -y -f concat -safe 0 -i "$f" -vf "scale=960:-2" -vsync vfr -pix_fmt yuv420p "${f%.txt}.mp4"
           done
       - uses: actions/upload-artifact@v4
         if: always()

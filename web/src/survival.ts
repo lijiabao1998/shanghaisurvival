@@ -1681,7 +1681,9 @@ fetch(dataUrl)
         outbreakTest: (elapsed: number, searched: number, exposure = 0) => { timeLeft = NIGHT_SECONDS - elapsed; looted = searched; outbreak.exposure = exposure; px = block.spawn[0]; pz = block.spawn[1]; updateHud(); },
         combatFixture: () => {
           releaseGameplayInput(); mouseAimActive = false;
-          for (let i=0;i<32;i++) { const a=i*Math.PI/16,x=px+Math.sin(a)*1.1,z=pz-Math.cos(a)*1.1; if(collides(x,z,.34)||!canSee(px,pz,x,z))continue; facing=a; const zb=zombies[0]; zb.x=x;zb.z=z;zb.hp=100;zb.state='sleep';zb.think=60;zb.attackCd=60;zb.flashT=0;zb.mesh.visible=true;return true; } return false;
+          // Isolated debug sparring: remove unrelated threats, never mutate normal sessions.
+          for(const other of zombies.slice(1)){other.state='dead';other.mesh.visible=false;}
+          for (let i=0;i<32;i++) { const a=i*Math.PI/16,x=px+Math.sin(a)*1.1,z=pz-Math.cos(a)*1.1; if(collides(x,z,.34)||!canSee(px,pz,x,z))continue; facing=a; const zb=zombies[0]; zb.x=x;zb.z=z;zb.hp=100;zb.state='chase';zb.think=60;zb.attackCd=60;zb.lose=0;zb.flashT=0;zb.mesh.visible=true;zb.mesh.rotation.set(0,a,0);return true; } return false;
         },
         swing: () => startSwing(),
         hurt: (n = 30) => { injureBody(survivorSystems.condition,n);hp = Math.max(0, hp - n); if (hp <= 0) lose(); },
