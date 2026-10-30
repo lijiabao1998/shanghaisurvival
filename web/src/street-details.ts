@@ -39,7 +39,7 @@ export function createStreetDetails(roads:StreetRoad[],buildings:Building[],boun
   const onOtherRoad=(x:number,z:number,s:Segment,margin:number)=>segments.some(t=>{if(t===s)return false;const along=Math.max(0,Math.min(t.len,(x-t.a[0])*t.dx+(z-t.a[1])*t.dz));return Math.hypot(x-t.a[0]-along*t.dx,z-t.a[1]-along*t.dz)<t.half+margin;});
   const clear=(x:number,z:number,r:number,s:Segment)=>x-r>=bounds.minX&&x+r<=bounds.maxX&&z-r>=bounds.minY&&z+r<=bounds.maxY&&!inside(x,z)&&!collides(x,z,r)&&!doors.some(d=>Math.hypot(x-d[0],z-d[1])<r+2.4)&&!onOtherRoad(x,z,s,r);
   const occupied=new Set<string>(),props:Array<{x:number;z:number;kind:'tree'|'lamp'}>=[];
-  let slabs=0,curbs=0,treePits=0,lamps=0,joints=0,patches=0;
+  let slabs=0,curbs=0,bevelledCurbs=0,treePits=0,lamps=0,joints=0,patches=0;
   for(const s of segments){if(s.half<3||['footway','pedestrian','path','steps','service','living_street'].includes(roads[s.road].type))continue;const nx=-s.dz,nz=s.dx;
     for(const side of [-1,1])for(let t=3;t<s.len-3;t+=4){
       if(slabs>=6000)break;
@@ -56,9 +56,28 @@ export function createStreetDetails(roads:StreetRoad[],buildings:Building[],boun
       if(seed%7===0){const offset=((seed%13)/12-.5)*2;box(paving,x+s.dx*offset,z+s.dz*offset,.52,.32,.091,.001,0x8e9290,s.dx,s.dz,true);patches++;}
       slabs++;
       const cx=s.a[0]+s.dx*t+nx*(s.half+.12)*side,cz=s.a[1]+s.dz*t+nz*(s.half+.12)*side;
-      box(paving,cx,cz,3.98,.18,.02,.09,0xb6b9b7,s.dx,s.dz);curbs++;
+      // Historical p102/p301 show worn rounded noses, not pristine square bars.
+      // A low-poly chamfer approximates that silhouette without extra meshes.
+      // Same .18 m footprint/.11 m top as before; dimensions are not a survey.
+      if(roads[s.road].id==='osm_40109239_0'){
+      const section=[[-.09,.02],[-.09,.075],[-.045,.11],[.045,.11],[.09,.075],[.09,.02]];
+      const end=(u:number,v:number,y:number)=>[cx+s.dx*u+nx*v,y,-(cz+s.dz*u+nz*v)];
+      for(let i=0;i<section.length-1;i++){
+        const [v,y]=section[i],[v2,y2]=section[i+1];
+        face(paving,[end(-1.99,v,y),end(1.99,v,y),end(1.99,v2,y2),end(-1.99,v2,y2)],i===2?0xadb1ae:0xa0a5a1);
+      }
+      // Ends are capped with a convex fan; hidden bottom is deliberately omitted.
+      for(const u of [-1.99,1.99]){
+        const c=new THREE.Color(0x9da29e);
+        for(let i=1;i<section.length-1;i++)for(const j of [0,i,i+1]){
+          paving.p.push(...end(u,section[j][0],section[j][1]));paving.c.push(c.r,c.g,c.b);
+        }
+      }
+      bevelledCurbs++;
+      }else box(paving,cx,cz,3.98,.18,.02,.09,0xb6b9b7,s.dx,s.dz);
+      curbs++;
       // Restrained curb joints and a dark drainage edge, with no full-width checker grid.
-      for(const offset of [-1.31,.02,1.35])box(paving,cx+s.dx*offset,cz+s.dz*offset,.014,.18,.111,.001,0x777d79,s.dx,s.dz,true);
+      for(const offset of [-1.31,.02,1.35])box(paving,cx+s.dx*offset,cz+s.dz*offset,.014,roads[s.road].id==='osm_40109239_0'?.086:.18,.111,.001,0x777d79,s.dx,s.dz,true);
       box(paving,cx-nx*.12*side,cz-nz*.12*side,3.98,.055,.026,.001,0x535957,s.dx,s.dz,true);
       // Outer verge only: never consume the 1.3 m pedestrian strip. Sparse props
       // are decorative, not invisible new collision or surveyed municipal objects.
@@ -84,7 +103,7 @@ export function createStreetDetails(roads:StreetRoad[],buildings:Building[],boun
   const stone=applyPavementGrain(new THREE.MeshStandardMaterial({vertexColors:true,roughness:.98,side:THREE.DoubleSide})),metal=new THREE.MeshStandardMaterial({vertexColors:true,roughness:.86,side:THREE.DoubleSide});
   const lampMaterial=new THREE.MeshStandardMaterial({vertexColors:true,emissive:0xffd5a0,emissiveIntensity:0,roughness:.65});
   const group=new THREE.Group();group.name='shanghai-street-details';group.add(mesh(paving,stone),mesh(furniture,metal),mesh(lights,lampMaterial));
-  return {group,stats:{slabs,curbs,treePits,lamps,joints,patches,meshes:3,vertices:(paving.p.length+furniture.p.length+lights.p.length)/3},placements:props,
+  return {group,stats:{slabs,curbs,bevelledCurbs,treePits,lamps,joints,patches,meshes:3,vertices:(paving.p.length+furniture.p.length+lights.p.length)/3},placements:props,
     setNight:(amount:number)=>{lampMaterial.emissiveIntensity=Number.isFinite(amount)?Math.max(0,Math.min(1,amount))*1.8:0;},
     dispose:()=>{for(const child of group.children)(child as THREE.Mesh).geometry.dispose();stone.dispose();metal.dispose();lampMaterial.dispose();}};
 }
