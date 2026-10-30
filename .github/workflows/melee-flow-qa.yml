@@ -1,0 +1,58 @@
+name: Melee flow isolated dynamic QA
+on:
+  push:
+    branches: [feat/melee-flow-20261030]
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build and complete existing regressions
+        working-directory: web
+        run: |
+          npm ci
+          GOMAXPROCS=1 NODE_OPTIONS=--max-old-space-size=256 npm run build
+          for f in tools/test-*.mjs; do node "$f"; done
+      - name: Install official isolated browser tooling
+        run: |
+          npm install --prefix /tmp/shanghai-browser --no-save playwright@1.56.1
+          /tmp/shanghai-browser/node_modules/.bin/playwright install --with-deps chromium
+          echo "QA_BROWSER=$(node -e "console.log(require('/tmp/shanghai-browser/node_modules/playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+      - name: Real attack controls and chronological frame evidence
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory web/dist >/tmp/melee-qa-server.log 2>&1 &
+          QA_URL='http://127.0.0.1:4173/survival.html?debug' QA_OUTPUT="$GITHUB_WORKSPACE/evidence/melee-flow" node web/tools/qa-melee-flow.mjs
+      - name: Build labelled frame sequence previews
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import json,pathlib
+          p=pathlib.Path('evidence/melee-flow')
+          if not (p/'report.json').exists(): raise SystemExit(0)
+          r=json.loads((p/'report.json').read_text())
+          for prefix in ['desktop-strike','mobile-strike']:
+            frames=[f for f in r['frames'] if f['name'].startswith(prefix)]
+            if not frames:continue
+            lines=[]
+            for i,f in enumerate(frames):
+              lines.append("file '"+f['name']+".png'")
+              if i+1<len(frames):lines.append('duration '+str(max(.01,(frames[i+1]['time']-f['time'])/1000)))
+            lines.append("file '"+frames[-1]['name']+".png'")
+            (p/(prefix+'.txt')).write_text('\n'.join(lines)+'\n')
+          PY
+          for f in evidence/melee-flow/*-strike.txt; do
+            [ -f "$f" ] || continue
+            ffmpeg -y -f concat -safe 0 -i "$f" -vf "scale=960:-2" -vsync vfr -pix_fmt yuv420p "${f%.txt}.mp4" || true
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: melee-flow-dynamic-evidence
+          path: evidence/melee-flow/
+          retention-days: 7

@@ -375,6 +375,8 @@ let action: 'none' | 'swing' | 'throw' | 'shoot' | 'loot' = 'none';
 let actionT = 0, actionDur = 0, actionFired = false;
 let swingCount = 0;
 let swingHand: MeleeHand = 'right';
+let swingStroke = 0, comboWindow = 0, impactPause = 0;
+let bufferedHand: MeleeHand | null = null;
 // A single committed swing may overlap several frames and several enemies.
 const swingHits = new Set<Zombie>();
 let muzzle: THREE.PointLight | null = null;
@@ -431,6 +433,7 @@ addEventListener('keydown', e => {
 addEventListener('keyup', e => keys.delete(e.code));
 function releaseGameplayInput() {
   keys.clear(); attackHeld = false; touchActionHeld = false;
+  bufferedHand = null; comboWindow = 0; impactPause = 0;
   if (action === 'loot') { action = 'none'; lootProgress = 0; setRing(0); }
   else if (action !== 'none') { action = 'none'; actionT = 0; actionFired = false; swingHits.clear(); }
 }
@@ -480,30 +483,35 @@ canvas.addEventListener('pointermove',e=>{
   aimRay.setFromCamera(inputAim,camera);
   if (aimRay.ray.intersectPlane(groundPlane,aimHit)) facing=Math.atan2(aimHit.x-px,aimHit.z+pz);
 });
-canvas.addEventListener('pointerdown',e=>{ if(e.pointerType === 'mouse' && e.button===0 && phase==='play' && !paused && !bagOpen && !helperOpen) attackHeld=true; });
+canvas.addEventListener('pointerdown',e=>{ if(e.pointerType === 'mouse' && e.button===0 && phase==='play' && !paused && !bagOpen && !helperOpen) { attackHeld=true; dispatchHandAttack('primary'); } });
 addEventListener('pointerup',e=>{if(e.pointerType==='mouse' && e.button===0) attackHeld=false;});
-addEventListener('pointercancel',e=>{if(e.pointerType==='mouse') attackHeld=false;});
+addEventListener('pointercancel',releaseGameplayInput);
 addEventListener('survivor-action',e=>{
   const start=(e as CustomEvent).detail.phase==='start';
   if (!start) {touchActionHeld=false;keys.delete('KeyE');return;}
   if (phase !== 'play' || paused || bagOpen || helperOpen) return;
   if (contextualInteract()) keys.add('KeyE');
-  else {touchActionHeld=true;aimNearest();}
+  else {touchActionHeld=true;aimNearest();dispatchHandAttack('primary');}
 });
 installTouchControls();
 
 // ---------------------------------------------------------------- 動作
 
 function dispatchHandAttack(slot:'primary'|'secondary') {
-  if(phase!=='play'||paused||bagOpen||inShelter||helperOpen||action!=='none')return;
+  if(phase!=='play'||paused||bagOpen||inShelter||helperOpen)return;
   const item=survivorSystems.hands[slot],hand=slot==='primary'?'right':'left';
+  if(action!=='none' && !(action==='swing' && item==='pipe' && actionT/actionDur>=.62))return;
   if(item==='pipe')startSwing(hand);else if(item)fire(item,hand);
 }
 
 function startSwing(hand: MeleeHand = 'right') {
   const profile = MELEE_PROFILES.blunt;
+  // One explicit late press is buffered; never accumulate an unbounded queue.
+  if (action === 'swing' && actionT / actionDur >= 0.62 && survivorSystems.hands[hand==='left'?'secondary':'primary'] === 'pipe') { bufferedHand = hand; return; }
   if (action !== 'none' || survivorSystems.hands[hand==='left'?'secondary':'primary'] !== 'pipe' || stamina < profile.stamina) return;
   action = 'swing'; actionT = 0; actionDur = profile.duration; actionFired = false;
+  swingStroke = comboWindow > 0 && swingHand === hand ? 1 - swingStroke : 0;
+  comboWindow = 0; bufferedHand = null;
   swingHand = hand;
   swingCount++;
   swingHits.clear();
@@ -534,6 +542,8 @@ function meleeHit(from: number, to: number) {
     damageZombie(zb, 45, dx / d, dz / d, 1.6);
     zb.attackCd = Math.max(zb.attackCd, 0.5);
     camShake = Math.max(camShake, 0.22);
+    impactPause = Math.max(impactPause, 0.035);
+    zb.warning = 0;
   }
 }
 
@@ -675,6 +685,7 @@ function updatePlayer(dt: number) {
 function animateRig(dt: number, speed: number) {
   if (!rig) return;
   const { legL, legR, armL, armR, torso } = rig;
+  comboWindow = Math.max(0, comboWindow - dt);
   resetRigJoints(rig);
   const moving = speed > 0.05;
   const amp = Math.min(1, speed / RUN_SPEED);
@@ -701,11 +712,13 @@ function animateRig(dt: number, speed: number) {
 
   if (action !== 'none') {
     const previousT = actionT;
-    actionT += dt;
+    const held = action === 'swing' ? Math.min(dt, impactPause) : 0;
+    impactPause = Math.max(0, impactPause - dt);
+    actionT += dt - held;
     const t = Math.min(1, actionT / actionDur);
     if (action === 'swing') {
-      applyMeleePose(rig, meleePose('blunt', t, swingHand), swingHand);
-      const swept = sweptMeleeAngle('blunt', previousT / actionDur, t, swingHand);
+      applyMeleePose(rig, meleePose('blunt', t, swingHand, swingStroke), swingHand);
+      const swept = sweptMeleeAngle('blunt', previousT / actionDur, t, swingHand, swingStroke);
       if (swept) meleeHit(swept.from, swept.to);
     } else if(action==='shoot'){
       (shootHand==='right'?armR:armL).rotation.set(-Math.PI/2-.09*Math.sin(t*Math.PI),0,0);
@@ -725,8 +738,11 @@ function animateRig(dt: number, speed: number) {
       legL.rotation.x = -0.25; legR.rotation.x = 0.2;
     }
     if (actionT >= actionDur) {
+      if (action === 'swing') comboWindow = 0.32;
+      const nextHand = bufferedHand; bufferedHand = null;
       action = 'none'; actionT = 0; actionFired = false;
       torso.rotation.y = 0;
+      if (nextHand) startSwing(nextHand);
     }
   }
 }
@@ -758,6 +774,8 @@ function updateZombies(dt: number) {
     zb.pathTimer=Math.max(0,zb.pathTimer-dt);
     zb.retreat=Math.max(0,zb.retreat-dt);
     zb.flashT = Math.max(0, zb.flashT - dt);
+    // Local recoil, independent of navigation and the collision footprint.
+    zb.mesh.rotation.x = -Math.sin(Math.PI * zb.flashT / 0.12) * 0.22;
     (zb.mesh.material as THREE.MeshStandardMaterial).color.setHex(zb.flashT > 0 ? 0xa33a2a : zb.faction.color);
 
     const dx = px - zb.x, dz = pz - zb.z;
@@ -1409,7 +1427,7 @@ function updateDaylight() {
   const color=new THREE.Color(0x0a1017).lerp(new THREE.Color(0x829da3),light);
   scene.background=color;if(scene.fog instanceof THREE.Fog)scene.fog.color.copy(color);
 }
-function clearControlState(){keys.clear();attackHeld=false;touchActionHeld=false;action='none';lootTarget=null;lootProgress=0;setRing(0);el.prompt.classList.remove('on');}
+function clearControlState(){bufferedHand=null;comboWindow=0;impactPause=0;keys.clear();attackHeld=false;touchActionHeld=false;action='none';lootTarget=null;lootProgress=0;setRing(0);el.prompt.classList.remove('on');}
 function enterShelter() {
   if(!shelter||mode!=='sandbox')return;
   const chasing=zombies.some(z=>z.state!=='dead'&&Math.hypot(z.x-px,z.z-pz)<6&&canSee(px,pz,z.x,z.z));
@@ -1481,7 +1499,7 @@ function frame(dt: number) {
     hp=Math.max(0,hp-stepBody(survivorSystems.condition,dt));
     if (outbreak.hydration <= 0 || outbreak.satiety <= 0) hp = Math.max(0, hp - dt * 1.5);
     if (hp <= 0) { lose(survivorSystems.condition.bleeding>0?'因未處置的傷勢倒下。':'在耗盡補給後倒下。'); return; }
-    if (attackHeld || touchActionHeld) { if (touchActionHeld) aimNearest(); dispatchHandAttack('primary'); }
+    if (attackHeld || touchActionHeld) { if (touchActionHeld) aimNearest(); if(action==='none') dispatchHandAttack('primary'); }
     if (mouseAimActive) { aimRay.setFromCamera(inputAim,camera); if(aimRay.ray.intersectPlane(groundPlane,aimHit)) facing=Math.atan2(aimHit.x-px,aimHit.z+pz); }
     updatePlayer(dt);
     updateZombies(dt);
@@ -1638,7 +1656,8 @@ fetch(dataUrl)
           dead: zombies.filter(z => z.state === 'dead').length,
           factions: Object.fromEntries(['infected','military','police','raider'].map(id => [id,zombies.filter(z => z.faction.id === id).length])),
           inventory: { ...inventory }, arsenal:structuredClone(arsenal),survivorSystems:structuredClone(survivorSystems),weight:carriedWeight(inventory,arsenal),ammo, hasPistol, equipped: arsenal.equipped,
-          action, swingHand, shootHand, actionProgress: actionDur ? actionT / actionDur : 0, attackHeld, touchActionHeld, swingCount,
+          action, swingHand, shootHand, swingStroke, bufferedHand, impactPause,
+          combatTargets: zombies.slice(0, 8).map(z=>({x:z.x,z:z.z,hp:z.hp,state:z.state})), actionProgress: actionDur ? actionT / actionDur : 0, attackHeld, touchActionHeld, swingCount,
           spawn: [px, pz], facing,
         }),
         start: (id = ROSTER[0].id) => {
@@ -1660,6 +1679,10 @@ fetch(dataUrl)
           }
         },
         outbreakTest: (elapsed: number, searched: number, exposure = 0) => { timeLeft = NIGHT_SECONDS - elapsed; looted = searched; outbreak.exposure = exposure; px = block.spawn[0]; pz = block.spawn[1]; updateHud(); },
+        combatFixture: () => {
+          releaseGameplayInput(); mouseAimActive = false;
+          for (let i=0;i<32;i++) { const a=i*Math.PI/16,x=px+Math.sin(a)*1.1,z=pz-Math.cos(a)*1.1; if(collides(x,z,.34)||!canSee(px,pz,x,z))continue; facing=a; const zb=zombies[0]; zb.x=x;zb.z=z;zb.hp=100;zb.state='sleep';zb.think=60;zb.attackCd=60;zb.flashT=0;zb.mesh.visible=true;return true; } return false;
+        },
         swing: () => startSwing(),
         hurt: (n = 30) => { injureBody(survivorSystems.condition,n);hp = Math.max(0, hp - n); if (hp <= 0) lose(); },
         give: (id: ItemId, n = 1) => { inventory[id] += n; if (id === 'pistol'){grantWeapon(arsenal,'qsz92-9');syncArsenal();} updateBag(); },

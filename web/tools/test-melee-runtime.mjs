@@ -24,7 +24,7 @@ function runtime(extra={}) {
     applyMeleePose,resetRigJoints,applyLocomotionJoints,applyThrowJoints,carriedWeight,loadEffects,
     survivorSystems:createSurvivorSystems(createLegacyArsenal(false,0)),inventory:emptyInventory(),
     rig:buildRig(ROSTER[0]), arsenal:createLegacyArsenal(false,0), stamina:100,action:'none',actionT:0,actionDur:0,actionFired:false,
-    swingCount:0,swingHand:'right',swingHits:new Set(),px:0,pz:0,facing:0,zombies:[],collides:()=>false,
+    swingCount:0,swingHand:'right',swingStroke:0,comboWindow:0,impactPause:0,bufferedHand:null,swingHits:new Set(),px:0,pz:0,facing:0,zombies:[],collides:()=>false,
     HEAR_SWING:1,makeNoise(){},damageZombie(z,damage){hits.push(z);z.hp-=damage;},camShake:0,
     walkPhase:0,RUN_SPEED:5.9,grounded:true,WEAPONS,throwBrick(){},...extra});
   for(const name of ['canSee','startSwing','meleeHit','animateRig']) vm.runInContext(extract(name),c);
@@ -41,13 +41,13 @@ test('actual start rejects low stamina and commits one action per press',()=>{
 });
 test('actual swept strike hits each visible target once, in arc, and stuns',()=>{
  const {c,hits}=runtime(); const a=target(.65),b=target(-.45),behind=target(2.4),far=target(0,2.1);
- c.zombies=[a,b,behind,far];c.startSwing();advance(c,.7,.01);
+ c.zombies=[a,b,behind,far];c.startSwing();advance(c,.75,.01);
  assert.equal(hits.filter(z=>z===a).length,1);assert.equal(hits.filter(z=>z===b).length,1);
  assert.equal(hits.includes(behind),false);assert.equal(hits.includes(far),false);
  assert.equal(a.hp,55);assert.ok(a.attackCd>=.5);assert.ok(c.camShake>0);
 });
 test('actual swing cannot damage through a wall even in its arc',()=>{
- const {c,hits}=runtime({collides:(_x,z,r)=>z < -.55+r});c.zombies=[target(0)];c.startSwing();advance(c,.7);assert.equal(hits.length,0);
+ const {c,hits}=runtime({collides:(_x,z,r)=>z < -.55+r});c.zombies=[target(0)];c.startSwing();advance(c,.75);assert.equal(hits.length,0);
 });
 test('equipped firearm blocks that hand pipe swing until unequipped',()=>{
  const arsenal=createLegacyArsenal(true,7);equipWeapon(arsenal,'qsz92-9');const systems=createSurvivorSystems(arsenal);
@@ -57,7 +57,7 @@ test('equipped firearm blocks that hand pipe swing until unequipped',()=>{
 test('offhand pipe works beside a pistol while empty or gun offhand cannot swing',()=>{
  const arsenal=createLegacyArsenal(true,7);equipWeapon(arsenal,'qsz92-9');const systems=createSurvivorSystems(arsenal);const {c}=runtime({arsenal,survivorSystems:systems});
  c.startSwing('left');assert.equal(c.action,'none');assert.equal(c.stamina,100);assert.ok(equipHand(systems,arsenal,'secondary','pipe'));c.startSwing('left');assert.equal(c.action,'swing');assert.equal(c.swingHand,'left');assert.equal(c.stamina,94);c.startSwing('right');assert.equal(c.swingCount,1);
- advance(c,.7);assert.ok(equipHand(systems,arsenal,'primary','pipe'));assert.equal(systems.hands.secondary,'qsz92-9');c.startSwing('left');assert.equal(c.action,'none');assert.equal(c.stamina,94);c.startSwing('right');assert.equal(c.action,'swing');assert.equal(c.swingHand,'right');
+ advance(c,.75);assert.ok(equipHand(systems,arsenal,'primary','pipe'));assert.equal(systems.hands.secondary,'qsz92-9');c.startSwing('left');assert.equal(c.action,'none');assert.equal(c.stamina,94);c.startSwing('right');assert.equal(c.action,'swing');assert.equal(c.swingHand,'right');
 });
 test('a large animation step still sweeps entire active window',()=>{
  const {c,hits}=runtime();const a=target(.7),b=target(-.7);c.zombies=[a,b];c.startSwing();advance(c,.7,.7);assert.deepEqual(hits,[a,b]);
@@ -78,3 +78,10 @@ test('held attacks spend stamina, then wait for recovery before the next swing',
  tick();assert.equal(c.swingCount,2);assert.equal(c.action,'swing');assert.ok(c.stamina<1);
 });
 console.log(`${count} melee runtime checks passed`);
+
+test('late press buffers one mirrored return stroke and costs stamina once',()=>{
+ const {c}=runtime();c.startSwing();advance(c,.45);c.startSwing();c.startSwing();assert.equal(c.bufferedHand,'right');assert.equal(c.swingCount,1);advance(c,.24);assert.equal(c.swingCount,2);assert.equal(c.swingStroke,1);assert.equal(c.stamina,88);assert.equal(c.bufferedHand,null);
+});
+test('early spam does not queue, combo expires and low stamina blocks queued attack',()=>{
+ const {c}=runtime({stamina:6});c.startSwing();advance(c,.15);c.startSwing();assert.equal(c.bufferedHand,null);advance(c,.3);c.startSwing();advance(c,.3);assert.equal(c.action,'none');assert.equal(c.swingCount,1);advance(c,.5);c.stamina=6;c.startSwing();assert.equal(c.swingStroke,0);
+});
