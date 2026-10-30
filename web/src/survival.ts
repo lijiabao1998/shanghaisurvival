@@ -1,3 +1,7 @@
+import { planRoomTools, claimRoomTool, type RoomTool } from './room-tools';
+import { buildMeleeTool, isMeleeTool, TOOL_COMBAT } from './melee-tools';
+import { planRoomExtras, claimRoomExtra, type RoomExtra } from './room-extras';
+import { createFacadeSignage } from './facade-signage';
 import { planDensityBuildings, densityEnabledForLayout } from './density-plan';
 import { planInteriorRooms, roomFurnitureCollision, createInteriorRoomGeometry, type InteriorRoom } from './interior-rooms';
 import { createSurvivorSystems, migrateSurvivorSystems, equipHand, carriedWeight, loadEffects, injureBody, stepBody, treatBody } from './survivor-systems';
@@ -51,6 +55,7 @@ let inShelter = false;
 let shelterLamp: THREE.PointLight | null = null;
 let roomFocus:ReadonlyArray<readonly [number,number]>=[];
 let shelter: Shelter | null = null;
+let facadeSignage:ReturnType<typeof createFacadeSignage>|null=null;
 let cityVisibility:ReturnType<typeof createCityVisibility>|null=null;
 let visibilityTimer=0;
 let stash = emptyInventory();
@@ -352,7 +357,8 @@ let bounds = { minX: 0, maxX: 250, minY: 0, maxY: 250 };
 let px = 0, pz = 0, py = 0, vy = 0, facing = 0;
 let grounded = true;
 
-type Container = { x: number; z: number; mesh: THREE.Mesh; looted: boolean; cacheKind?: 'water'|'food'|'ammo'; cacheDay?: number; roomId?: string; roomItem?: 'water'|'food'|'battery'; roomLabel?: string; roomPosition?: [number,number]; expandedRoom?:boolean; roomEnabled?:boolean };
+type Container = { x: number; z: number; mesh: THREE.Mesh; looted: boolean; cacheKind?: 'water'|'food'|'ammo'; cacheDay?: number; roomId?: string; roomItem?: 'water'|'food'|'battery'|'ammo'|'medkit'; roomLabel?: string; roomExtra?:RoomExtra; roomTool?:RoomTool; roomPosition?: [number,number]; expandedRoom?:boolean; roomEnabled?:boolean };
+const roomExtraMaterials={ammo:new THREE.MeshStandardMaterial({color:0x7d8965,roughness:1}),medkit:new THREE.MeshStandardMaterial({color:0xd5cbb8,roughness:1}),food:new THREE.MeshStandardMaterial({color:0xa68a57,roughness:1})};
 const CACHE_RULES = {water:{name:'藍色互助水箱',seconds:2.5,noise:30,color:0x45cce3},food:{name:'綠色食物交接箱',seconds:3.5,noise:45,color:0x84c75a},ammo:{name:'紅色封鎖物資箱',seconds:5,noise:70,color:0xe65d4d}};
 const cacheMaterials=Object.fromEntries(Object.entries(CACHE_RULES).map(([id,r])=>[id,new THREE.MeshStandardMaterial({color:r.color,emissive:r.color,emissiveIntensity:.8})])) as Record<'water'|'food'|'ammo',THREE.MeshStandardMaterial>;
 const containers: Container[] = [];
@@ -383,9 +389,9 @@ function syncArsenal(){hasPistol=arsenal.owned.length>0;pistolEquipped=arsenal.e
 function updateWeaponVisual(){
   if(!rig)return;
   for(const old of [weapon,offhandWeapon])if(old){old.removeFromParent();old.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>m.dispose());}});}
-  const attach=(id:WeaponId|'pipe',hand:MeleeHand)=>{
-    const model=id==='pipe'?buildWeapon('pipe'):buildFirearm(id);
-    if(id==='pipe')model.rotation.x=Math.PI;
+  const attach=(id:WeaponId|'pipe'|'cleaver'|'wrench',hand:MeleeHand)=>{
+    const model=id==='pipe'?buildWeapon('pipe'):isMeleeTool(id)?buildMeleeTool(id):buildFirearm(id);
+    if(id==='pipe'||isMeleeTool(id))model.rotation.x=Math.PI;
     model.position.set(0,-spec.height*.27+spec.height*.29*.52,.03);
     (hand==='right'?rig!.elbowR:rig!.elbowL).add(model);return model;
   };
@@ -401,6 +407,8 @@ let action: 'none' | 'swing' | 'throw' | 'shoot' | 'loot' = 'none';
 let actionT = 0, actionDur = 0, actionFired = false;
 let swingCount = 0;
 let swingHand: MeleeHand = 'right';
+let swingTool:'pipe'|'cleaver'|'wrench'='pipe';
+function currentSwingProfile(){return swingTool==='pipe'?{kind:'blunt' as const,damage:45,reach:1.8,knockback:1.6}:TOOL_COMBAT[swingTool];}
 let swingStroke = 0, comboWindow = 0, impactPause = 0;
 let bufferedHand: MeleeHand | null = null;
 // A single committed swing may overlap several frames and several enemies.
@@ -526,19 +534,21 @@ installTouchControls();
 function dispatchHandAttack(slot:'primary'|'secondary') {
   if(phase!=='play'||paused||bagOpen||inShelter||helperOpen)return;
   const item=survivorSystems.hands[slot],hand=slot==='primary'?'right':'left';
-  if(action!=='none' && !(action==='swing' && item==='pipe' && actionT/actionDur>=.62))return;
-  if(item==='pipe')startSwing(hand);else if(item)fire(item,hand);
+  if(action!=='none' && !(action==='swing' && (item==='pipe'||isMeleeTool(item)) && actionT/actionDur>=.62))return;
+  if(item==='pipe'||isMeleeTool(item))startSwing(hand);else if(item)fire(item,hand);
 }
 
 function startSwing(hand: MeleeHand = 'right') {
-  const profile = MELEE_PROFILES.blunt;
+  const heldItem=survivorSystems.hands[hand==='left'?'secondary':'primary'];
+  if(heldItem!=='pipe'&&!isMeleeTool(heldItem))return;
+  const profile = MELEE_PROFILES[heldItem==='pipe'?'blunt':TOOL_COMBAT[heldItem].kind];
   // One explicit late press is buffered; never accumulate an unbounded queue.
-  if (action === 'swing' && actionT / actionDur >= 0.62 && survivorSystems.hands[hand==='left'?'secondary':'primary'] === 'pipe') { bufferedHand = hand; return; }
-  if (action !== 'none' || survivorSystems.hands[hand==='left'?'secondary':'primary'] !== 'pipe' || stamina < profile.stamina) return;
+  if (action === 'swing' && actionT / actionDur >= 0.62 && (heldItem==='pipe'||isMeleeTool(heldItem))) { bufferedHand = hand; return; }
+  if (action !== 'none' || stamina < profile.stamina) return;
   action = 'swing'; actionT = 0; actionDur = profile.duration; actionFired = false;
   swingStroke = comboWindow > 0 && swingHand === hand ? 1 - swingStroke : 0;
   comboWindow = 0; bufferedHand = null;
-  swingHand = hand;
+  swingHand = hand; swingTool=heldItem;
   swingCount++;
   swingHits.clear();
   stamina = Math.max(0, stamina - profile.stamina);
@@ -560,12 +570,12 @@ function meleeHit(from: number, to: number) {
     if (zb.state === 'dead' || swingHits.has(zb)) continue;
     const dx = zb.x - px, dz = zb.z - pz;
     const d = Math.hypot(dx, dz);
-    if (d > 1.8 || d < 0.01) continue;
+    if (d > currentSwingProfile().reach || d < 0.01) continue;
     const bearing = Math.atan2(dx, -dz) - facing;
     const tolerance = Math.asin(Math.min(1, 0.34 / d));
     if (!angleInSweep(bearing, from, to, tolerance) || !canSee(px, pz, zb.x, zb.z)) continue;
     swingHits.add(zb);
-    damageZombie(zb, 45, dx / d, dz / d, 1.6);
+    damageZombie(zb, currentSwingProfile().damage, dx / d, dz / d, currentSwingProfile().knockback);
     zb.attackCd = Math.max(zb.attackCd, 0.5);
     camShake = Math.max(camShake, 0.22);
     impactPause = Math.max(impactPause, 0.035);
@@ -655,7 +665,7 @@ function updatePlayer(dt: number) {
   const fwd = Number(keys.has('KeyW') || keys.has('ArrowUp')) - Number(keys.has('KeyS') || keys.has('ArrowDown'));
   const moving = right !== 0 || fwd !== 0;
   const wantRun = !sneaking && moving && (keys.has('ShiftLeft') || keys.has('ShiftRight')) && stamina > 1 && action === 'none';
-  const speed = (wantRun ? RUN_SPEED : sneaking ? WALK_SPEED * 0.5 : WALK_SPEED) * (outbreak.hydration < 20 ? 0.75 : 1) * loadEffects(carriedWeight(inventory,arsenal)).speedMultiplier;
+  const speed = (wantRun ? RUN_SPEED : sneaking ? WALK_SPEED * 0.5 : WALK_SPEED) * (outbreak.hydration < 20 ? 0.75 : 1) * loadEffects(carriedWeight(inventory,arsenal,survivorSystems)).speedMultiplier;
 
   let movedSpeed = 0;
   // Committed facing is retained, but a short controlled combat step prevents
@@ -677,7 +687,7 @@ function updatePlayer(dt: number) {
   }
 
   stamina = wantRun
-    ? Math.max(0, stamina - 22 * dt * loadEffects(carriedWeight(inventory,arsenal)).staminaMultiplier)
+    ? Math.max(0, stamina - 22 * dt * loadEffects(carriedWeight(inventory,arsenal,survivorSystems)).staminaMultiplier)
     : action === 'swing' ? stamina : Math.min(100, stamina + 14 * dt);
 
   if (wantRun) {
@@ -759,8 +769,8 @@ function animateRig(dt: number, speed: number) {
     actionT += dt - held;
     const t = Math.min(1, actionT / actionDur);
     if (action === 'swing') {
-      applyMeleePose(rig, meleePose('blunt', t, swingHand, swingStroke), swingHand);
-      const swept = sweptMeleeAngle('blunt', previousT / actionDur, t, swingHand, swingStroke);
+      applyMeleePose(rig, meleePose(currentSwingProfile().kind, t, swingHand, swingStroke), swingHand);
+      const swept = sweptMeleeAngle(currentSwingProfile().kind, previousT / actionDur, t, swingHand, swingStroke);
       if (swept) meleeHit(swept.from, swept.to);
     } else if(action==='shoot'){
       (shootHand==='right'?armR:armL).rotation.set(-Math.PI/2-.09*Math.sin(t*Math.PI),0,0);
@@ -993,7 +1003,15 @@ function updateLoot(dt: number) {
     setRing(lootProgress);
 
     if (lootProgress >= 1) {
-      if(lootTarget.roomId&&lootTarget.roomItem){
+      if(lootTarget.roomTool){
+        if(!claimRoomTool(survivorSystems,arsenal,lootTarget.roomTool,lootTarget.looted)){flashHint('這件工具已擁有，留在原處。');lootProgress=0;return;}
+        lootTarget.looted=true;flashHint(`取得${TOOL_COMBAT[lootTarget.roomTool.tool].name}，在背包選擇主手或副手裝備。`);
+      } else if(lootTarget.roomExtra){
+        const claimed=Object.fromEntries(containers.filter(c=>c.roomId&&c.roomEnabled!==false).map(c=>[c.roomId!,c.looted]));
+        const result=claimRoomExtra(claimed,inventory,lootTarget.roomExtra);
+        if(result!=='claimed'){flashHint(result==='full'?'背包已滿，物資保留。':'這處物資無法領取。');lootProgress=0;return;}
+        lootTarget.looted=true;flashHint(`${lootTarget.roomLabel}：取得${ITEMS[lootTarget.roomExtra.item].label}，可在背包使用。`);
+      } else if(lootTarget.roomId&&lootTarget.roomItem){
         const item=lootTarget.roomItem;if(inventory[item]>=999){flashHint('背包已滿，物資保留。');lootProgress=0;return;}
         inventory[item]+=1;lootTarget.looted=true;flashHint(`${lootTarget.roomLabel}：找到${ITEMS[item].label}。這處物資已取走。`);
       } else if(lootTarget.cacheKind) {
@@ -1101,7 +1119,7 @@ let moodleKey = '';
 function updateMoodles() {
   const list: [string, string][] = [];
   if(survivorSystems.condition.bleeding>0)list.push([`流血 ${Math.ceil(survivorSystems.condition.bleeding)}`,'bad']);
-  if(loadEffects(carriedWeight(inventory,arsenal)).overloaded)list.push(['負重過高','warn']);
+  if(loadEffects(carriedWeight(inventory,arsenal,survivorSystems)).overloaded)list.push(['負重過高','warn']);
   if (hp < 30) list.push(['重傷', 'bad']);
   else if (hp < 65) list.push(['受傷', 'warn']);
   if (stamina < 22) list.push(['疲憊', 'warn']);
@@ -1145,12 +1163,12 @@ function updateBag() {
       `<span class="hk">${key}</span>`;
     el.bag.appendChild(row);
   }
-  const selection=(id:WeaponId|null)=>{if(helperOpen)return;if(!equipHand(survivorSystems,arsenal,'primary',id??'pipe'))return;syncArsenal();updateWeaponVisual();updateBag();flashHint(id?`已裝備 ${WEAPONS[id].name}；${ammo}發`:'已裝備鐵管');};
-  for(const id of [null,...arsenal.owned]){
+  const selection=(id:WeaponId|'cleaver'|'wrench'|null)=>{if(helperOpen)return;if(!equipHand(survivorSystems,arsenal,'primary',id??'pipe'))return;syncArsenal();updateWeaponVisual();updateBag();flashHint(`已裝備 ${id===null?'鐵管':isMeleeTool(id)?TOOL_COMBAT[id].name:WEAPONS[id].name}`);};
+  for(const id of [null,...(survivorSystems.ownedTools??[]),...arsenal.owned]){
     const button=document.createElement('button');button.type='button';button.className='row has';button.disabled=helperOpen;
-    button.setAttribute('aria-pressed',String(arsenal.equipped===id));
-    const name=id?WEAPONS[id].name:'鐵管／近戰',count=id?`${arsenal.rounds[WEAPONS[id].calibre]}發`:'';
-    button.innerHTML=`<span class="dot" style="background:${arsenal.equipped===id?'#c9a15a':'#9aa0a6'}"></span><span class="nm">${name}</span><span class="ct">${count}</span><span class="hk">${arsenal.equipped===id?'使用中':'裝備'}</span>`;
+    const selected=survivorSystems.hands.primary===(id??'pipe');button.setAttribute('aria-pressed',String(selected));
+    const name=id===null?'鐵管／近戰':isMeleeTool(id)?TOOL_COMBAT[id].name:WEAPONS[id].name,count=id&&!isMeleeTool(id)?`${arsenal.rounds[WEAPONS[id].calibre]}發`:'';
+    button.innerHTML=`<span class="dot" style="background:${selected?'#c9a15a':'#9aa0a6'}"></span><span class="nm">${name}</span><span class="ct">${count}</span><span class="hk">${selected?'使用中':'裝備'}</span>`;
     button.onclick=()=>selection(id);el.bag.append(button);
   }
   const rounds=document.createElement('p');rounds.textContent=`9毫米手槍彈 ${arsenal.rounds['9mm']} · 5.8毫米步槍彈 ${arsenal.rounds['5.8-rifle']}（不通用）`;el.bag.append(rounds);
@@ -1165,15 +1183,15 @@ function updateBag() {
 survivorPanel=installSurvivorPanel({
   getState:()=>({
     supplies:BAG_ROWS.filter(([id])=>id!=='kill').map(([id,label,action])=>({id,label,count:inventory[id as ItemId],action,category:id==='water'||id==='food'?'飲食':id==='medkit'?'醫療':'裝備補給'})),
-    weapons:[{id:'pipe',label:'鐵管',twoHanded:false},...arsenal.owned.map(id=>({id,label:WEAPONS[id].name,twoHanded:WEAPONS[id].category==='rifle'}))],
+    weapons:[{id:'pipe',label:'鐵管',twoHanded:false},...(survivorSystems.ownedTools??[]).map(id=>({id,label:TOOL_COMBAT[id].name,twoHanded:false})),...arsenal.owned.map(id=>({id,label:WEAPONS[id].name,twoHanded:WEAPONS[id].category==='rifle'}))],
     primary:survivorSystems.hands.primary,secondary:survivorSystems.hands.secondary,
-    weight:carriedWeight(inventory,arsenal)??0,capacity:12,hp,stamina,hydration:outbreak.hydration,satiety:outbreak.satiety,
+    weight:carriedWeight(inventory,arsenal,survivorSystems)??0,capacity:12,hp,stamina,hydration:outbreak.hydration,satiety:outbreak.satiety,
     bleeding:survivorSystems.condition.bleeding,pain:survivorSystems.condition.pain,
   }),
   close:()=>toggleBag(false),
   use:(id:string)=>{useItem(id as ItemId);survivorPanel?.render();},
   equip:(hand:'primary'|'secondary',id:string|null)=>{
-    if(!equipHand(survivorSystems,arsenal,hand,id as WeaponId|'pipe'|null)){flashHint('雙手裝備限制：同一物件不能放兩手；步槍需要雙手。');return;}
+    if(!equipHand(survivorSystems,arsenal,hand,id as WeaponId|'pipe'|'cleaver'|'wrench'|null)){flashHint('雙手裝備限制：同一物件不能放兩手；步槍需要雙手。');return;}
     syncArsenal();updateWeaponVisual();updateBag();persistCampaign();survivorPanel?.render();
   },
 });
@@ -1204,8 +1222,9 @@ function resetWorld() {
     c.x = spot.x; c.z = spot.z; c.looted = false;
     c.mesh.position.set(c.x, 0.26, -c.z);
     c.mesh.scale.set(1,1,1);
-    c.mesh.material = containerMat;
+    c.mesh.material = c.roomExtra?roomExtraMaterials[c.roomExtra.item]:containerMat;
     c.mesh.visible = c.roomEnabled!==false;
+    if(c.roomTool)c.mesh.children.forEach(child=>child.visible=true);
   }
   for (const p of projectiles) scene.remove(p.mesh);
   projectiles.length = 0;
@@ -1419,9 +1438,10 @@ function restoreCampaign(s:Snapshot) {
 }
 function paintContainer(c:Container) {
   c.mesh.visible=c.roomEnabled!==false;
+  if(c.roomTool)c.mesh.children.forEach(child=>child.visible=!c.looted);
   c.mesh.position.set(c.x,c.cacheKind ? .55 : .26,-c.z);
   c.mesh.scale.set(1,c.cacheKind?1.6:1,1);
-  c.mesh.material=c.looted?containerUsed:c.cacheKind?cacheMaterials[c.cacheKind]:containerMat;
+  c.mesh.material=c.looted?containerUsed:c.cacheKind?cacheMaterials[c.cacheKind]:c.roomExtra?roomExtraMaterials[c.roomExtra.item]:containerMat;
 }
 function installSupplySites() {
   // Migrate old v1 in place: retain every box's looted flag; never refill during upgrade.
@@ -1590,7 +1610,7 @@ function frame(dt: number) {
     40,
   ));
   camera.lookAt(target);
-  visibilityTimer-=dt;if(visibilityTimer<=0){visibilityTimer=.1;cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:activeInterior()?.focus);if(densityGroup.visible)densityVisibility?.update(px,pz);}
+  visibilityTimer-=dt;if(visibilityTimer<=0){visibilityTimer=.1;cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:activeInterior()?.focus);facadeSignage?.update(cityVisibility?.fadedIds()??[]);if(densityGroup.visible)densityVisibility?.update(px,pz);}
 }
 
 const clock = new THREE.Clock();
@@ -1605,7 +1625,7 @@ function animate() {
  * fewer than two frames in 300 ms; the simulation visibility timer is not a UI gate. */
 function refreshShelterView() {
   resize();
-  cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:activeInterior()?.focus);if(densityGroup.visible)densityVisibility?.update(px,pz);
+  cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:activeInterior()?.focus);facadeSignage?.update(cityVisibility?.fadedIds()??[]);if(densityGroup.visible)densityVisibility?.update(px,pz);
   visibilityTimer=.1;
   const target=new THREE.Vector3(px,1,-pz);
   camera.position.copy(target).add(new THREE.Vector3(40,56,40));camera.lookAt(target);
@@ -1659,7 +1679,7 @@ fetch(dataUrl)
 
     // Preserve every source vertex; fade only buildings intersecting the camera ray.
     shelter = selectShelter(data.buildings, data.spawn, collides, insideBuilding);
-    cityVisibility=createCityVisibility(data.buildings,true);scene.add(cityVisibility.group);
+    cityVisibility=createCityVisibility(data.buildings,true);scene.add(cityVisibility.group);facadeSignage=createFacadeSignage(data.buildings);scene.add(facadeSignage.group);
     if(shelter) {
       const marker=new THREE.Mesh(new THREE.BoxGeometry(1.2,2.4,.25),new THREE.MeshStandardMaterial({color:0x49c8d8,emissive:0x166c7a,emissiveIntensity:.8}));
       marker.position.set(shelter.outside[0],1.2,-shelter.outside[1]); marker.scale.set(.4,1,.4);scene.add(marker);
@@ -1705,6 +1725,16 @@ fetch(dataUrl)
     }
 
     for(const [roomIndex,room] of plannedInteriorRooms.entries())for(const loot of room.loot){const mesh=new THREE.Mesh(containerGeo,containerMat);scene.add(mesh);containers.push({x:loot.position[0],z:loot.position[1],mesh,looted:false,roomId:loot.id,roomItem:loot.item,roomLabel:room.label,roomPosition:[...loot.position],expandedRoom:roomIndex>=3,roomEnabled:roomIndex<3});}
+    for(const extra of planRoomExtras(plannedInteriorRooms)){
+      const roomIndex=plannedInteriorRooms.findIndex(r=>r.buildingId===extra.buildingId),room=plannedInteriorRooms[roomIndex];
+      const mesh=new THREE.Mesh(containerGeo,containerMat);scene.add(mesh);
+      containers.push({x:extra.position[0],z:extra.position[1],mesh,looted:false,roomId:extra.id,roomItem:extra.item,roomExtra:extra,roomLabel:`${room.label}｜${ITEMS[extra.item].label}`,roomPosition:[...extra.position],expandedRoom:roomIndex>=3,roomEnabled:roomIndex<3});
+    }
+    for(const tool of planRoomTools(plannedInteriorRooms)){
+      const roomIndex=plannedInteriorRooms.findIndex(r=>r.buildingId===tool.buildingId);
+      const model=buildMeleeTool(tool.tool);const mesh=new THREE.Mesh(containerGeo,containerMat);mesh.add(model);model.position.y=.2;scene.add(mesh);
+      containers.push({x:tool.position[0],z:tool.position[1],mesh,looted:false,roomId:tool.id,roomTool:tool,roomLabel:TOOL_COMBAT[tool.tool].name,roomPosition:[...tool.position],expandedRoom:roomIndex>=3,roomEnabled:roomIndex<3});
+    }
     muzzle = new THREE.PointLight(0xffd6a0, 9, 16, 2);
     muzzle.visible = false;
     scene.add(muzzle);
@@ -1725,12 +1755,12 @@ fetch(dataUrl)
     if (params.has('debug')) {
       (window as unknown as { __modu: unknown }).__modu = {
         state: () => ({
-          helper:{...helperState},helperOpen, fadedBuildings:cityVisibility?.fadedIds(), cityMeshes:cityVisibility?.stats(),
+          helper:{...helperState},helperOpen, fadedBuildings:cityVisibility?.fadedIds(), cityMeshes:cityVisibility?.stats(), facadeSigns:facadeSignage?.stats, roomExtras:containers.filter(c=>c.roomExtra&&c.roomEnabled!==false).map(c=>({id:c.roomId,item:c.roomItem,looted:c.looted,x:c.x,z:c.z})),
           phase, mode, renderBudget:{calls:renderer.info.render.calls,triangles:renderer.info.render.triangles,geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures}, worldLayout:worldLayout??'legacy', worldPositions:{containers:containers.filter(c=>!c.roomId).map(c=>({x:c.x,z:c.z})),enemies:zombies.map(z=>({x:z.x,z:z.z}))}, densityBuildings:densityEnabledForLayout(worldLayout)?densityBuildings:[], densityMeshes:densityGroup.visible?{...densityVisibility?.stats(),floorMeshes:1}:null, plannedInteriorRoomCount:plannedInteriorRooms.length, inShelter, shelter: shelter ? {...shelter,door:[...shelter.door],inside:[...shelter.inside],outside:[...shelter.outside]} : null, stash:{...stash}, restCount, dayNight:daylightProfile(dayPhase(elapsed).hour), streetDetails:streetDetails?.stats, streetPlacements:streetDetails?.placements, interiorRooms:interiorRooms.map(r=>({id:r.id,label:r.label,entrance:r.entrance,loot:r.loot,furniture:r.furniture})), activeInterior:activeInterior()?.id??null, roomView:shelterPanel.classList.contains('room-view'), cameraViewHeight:camera.top-camera.bottom, streetZoom:viewZoom, hp, battery, stamina, timeLeft, kills, paused, bagOpen, sneaking, looted, outbreak: { ...outbreak },
           zombies: zombies.length, awake: zombies.filter(z => z.state === 'chase').length,
           dead: zombies.filter(z => z.state === 'dead').length,
           factions: Object.fromEntries(['infected','military','police','raider'].map(id => [id,zombies.filter(z => z.faction.id === id).length])),
-          inventory: { ...inventory }, arsenal:structuredClone(arsenal),survivorSystems:structuredClone(survivorSystems),weight:carriedWeight(inventory,arsenal),ammo, hasPistol, equipped: arsenal.equipped,
+          inventory: { ...inventory }, arsenal:structuredClone(arsenal),survivorSystems:structuredClone(survivorSystems),weight:carriedWeight(inventory,arsenal,survivorSystems),ammo, hasPistol, equipped: arsenal.equipped,
           action, swingHand, shootHand, swingStroke, bufferedHand, impactPause,
           combatTargets: zombies.slice(0, 8).map(z=>({x:z.x,z:z.z,hp:z.hp,state:z.state})), actionProgress: actionDur ? actionT / actionDur : 0, attackHeld, touchActionHeld, swingCount,
           spawn: [px, pz], facing,

@@ -2,32 +2,41 @@ import { isWeaponId, validArsenal, type Arsenal, type WeaponId } from './arsenal
 import type { Inventory } from './campaign.ts';
 
 /** Original arcade rules, not a medical or real-world weapon model. */
-export type HandItem = 'pipe' | WeaponId;
+export const TOOL_IDS = ['cleaver', 'wrench'] as const;
+export type ToolId = typeof TOOL_IDS[number];
+export const isToolId = (v: unknown): v is ToolId => v === 'cleaver' || v === 'wrench';
+export type HandItem = 'pipe' | ToolId | WeaponId;
 export type BodyCondition = { bleeding: number; pain: number };
 export type SurvivorSystems = {
   version: 1;
   hands: { primary: HandItem; secondary: HandItem | null };
   condition: BodyCondition;
+  /** Absent on legacy saves: migration never grants tools. */
+  ownedTools?: ToolId[];
 };
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const meter = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100;
 const count = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 1_000_000;
 const rifle = (v: unknown) => v === 'qbz95-1' || v === 'qbz191';
-const item = (v: unknown): v is HandItem => v === 'pipe' || isWeaponId(v);
-const owned = (v: HandItem, arsenal: Arsenal) => v === 'pipe' || arsenal.owned.includes(v);
-export const primaryGun = (state: SurvivorSystems): WeaponId | null => state.hands.primary === 'pipe' ? null : state.hands.primary;
+const item = (v: unknown): v is HandItem => v === 'pipe' || isToolId(v) || isWeaponId(v);
+const owned = (v: HandItem, arsenal: Arsenal, state: SurvivorSystems) => v === 'pipe'
+  || (isWeaponId(v) ? arsenal.owned.includes(v) : state.ownedTools?.includes(v) === true);
+export const primaryGun = (state: SurvivorSystems): WeaponId | null => isWeaponId(state.hands.primary) ? state.hands.primary : null;
 
 export function validBodyCondition(value: unknown): value is BodyCondition {
   return record(value) && Object.keys(value).length === 2 && meter(value.bleeding) && meter(value.pain);
 }
 export function validSurvivorSystems(value: unknown, arsenal: Arsenal): value is SurvivorSystems {
-  if (!validArsenal(arsenal) || !record(value) || value.version !== 1 || Object.keys(value).length !== 3
+  if (!validArsenal(arsenal) || !record(value) || value.version !== 1 || !Object.keys(value).every(k => ['version', 'hands', 'condition', 'ownedTools'].includes(k))
+    || Object.keys(value).length !== (Object.hasOwn(value, 'ownedTools') ? 4 : 3)
+    || (Object.hasOwn(value, 'ownedTools') && (!Array.isArray(value.ownedTools) || value.ownedTools.length > TOOL_IDS.length
+      || !value.ownedTools.every(isToolId) || new Set(value.ownedTools).size !== value.ownedTools.length))
     || !record(value.hands) || Object.keys(value.hands).length !== 2 || !validBodyCondition(value.condition)) return false;
   const { primary, secondary } = value.hands;
-  return item(primary) && owned(primary, arsenal)
-    && (secondary === null || item(secondary) && owned(secondary, arsenal) && secondary !== primary && !rifle(secondary))
+  return item(primary) && owned(primary, arsenal, value as SurvivorSystems)
+    && (secondary === null || item(secondary) && owned(secondary, arsenal, value as SurvivorSystems) && secondary !== primary && !rifle(secondary))
     && (!rifle(primary) || secondary === null)
-    && arsenal.equipped === (primary === 'pipe' ? null : primary);
+    && arsenal.equipped === (isWeaponId(primary) ? primary : null);
 }
 /** Migration never grants weapons, rounds, health or supplies. */
 export function createSurvivorSystems(arsenal: Arsenal): SurvivorSystems | null {
@@ -42,7 +51,7 @@ export function migrateSurvivorSystems(value: unknown, arsenal: Arsenal): Surviv
 /** Atomic hand assignment. Picking the other hand's item swaps; rifles occupy both hands. */
 export function equipHand(state: SurvivorSystems, arsenal: Arsenal, slot: 'primary' | 'secondary', next: HandItem | null): boolean {
   if (!validSurvivorSystems(state, arsenal) || (slot !== 'primary' && slot !== 'secondary')
-    || !(next === null || item(next) && owned(next, arsenal)) || (slot === 'primary' && next === null)
+    || !(next === null || item(next) && owned(next, arsenal, state)) || (slot === 'primary' && next === null)
     || (slot === 'secondary' && (rifle(next) || next !== null && rifle(state.hands.primary)))) return false;
   const hands = { ...state.hands };
   if (slot === 'primary') {
@@ -56,10 +65,17 @@ export function equipHand(state: SurvivorSystems, arsenal: Arsenal, slot: 'prima
     }
     hands.secondary = next;
   }
-  const equipped = hands.primary === 'pipe' ? null : hands.primary;
+  const equipped = isWeaponId(hands.primary) ? hands.primary : null;
   if (!validSurvivorSystems({ ...state, hands }, { ...arsenal, equipped })) return false;
   state.hands = hands;
   arsenal.equipped = equipped;
+  return true;
+}
+
+/** Grant ownership only; does not auto-equip, grant ammo, or mutate rejected states. */
+export function grantTool(state: SurvivorSystems, arsenal: Arsenal, tool: ToolId): boolean {
+  if (!validSurvivorSystems(state, arsenal) || !isToolId(tool) || state.ownedTools?.includes(tool)) return false;
+  state.ownedTools = [...(state.ownedTools ?? []), tool];
   return true;
 }
 
@@ -67,12 +83,15 @@ export function equipHand(state: SurvivorSystems, arsenal: Arsenal, slot: 'prima
 export const CARRY_CAPACITY = 12;
 const SUPPLY_WEIGHT = { water: .6, food: .45, medkit: .5, battery: .2, ammo: .12, pistol: 0 } as const;
 const GUN_WEIGHT: Record<WeaponId, number> = { 'qsz92-9': .8, 'qbz95-1': 3.2, qbz191: 3.4 };
-export function carriedWeight(inventory: Inventory, arsenal: Arsenal): number | null {
+export const TOOL_WEIGHT: Readonly<Record<ToolId, number>> = Object.freeze({ cleaver: .65, wrench: .85 });
+export function carriedWeight(inventory: Inventory, arsenal: Arsenal, state?: SurvivorSystems): number | null {
   if (!record(inventory) || Object.keys(inventory).length !== 6 || !validArsenal(arsenal)
+    || (state !== undefined && !validSurvivorSystems(state, arsenal))
     || !Object.keys(SUPPLY_WEIGHT).every(id => count(inventory[id as keyof Inventory]))) return null;
   // The original iron pipe always remains in the carried kit. Legacy pistol tokens weigh nothing.
   const supplies = Object.entries(SUPPLY_WEIGHT).reduce((sum, [id, weight]) => sum + inventory[id as keyof Inventory] * weight, 1.2);
   return Math.round((supplies + arsenal.owned.reduce((sum, id) => sum + GUN_WEIGHT[id], 0)
+    + (state?.ownedTools ?? []).reduce((sum, id) => sum + TOOL_WEIGHT[id], 0)
     + arsenal.rounds['9mm'] * .012 + arsenal.rounds['5.8-rifle'] * .014) * 1000) / 1000;
 }
 export function loadEffects(weight: number | null): { capacity: number; overloaded: boolean; speedMultiplier: number; staminaMultiplier: number } {

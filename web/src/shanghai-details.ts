@@ -71,6 +71,14 @@ function livedInWalls(building:Building,out:DetailBatch){
     out.features++;
   }
 }
+/** Nine authored representative facades, matching existing room IDs. References
+ * are historical Menghua photographs, not a claim these exact addresses match.
+ * No lettering/logos/textures; parent signage layer owns readable labels. */
+export const REPRESENTATIVE_FACADES:Readonly<Record<string,'home'|'grocer'|'repair'>>={
+ 'cmab_327821_0':'home','cmab_327816_0':'grocer','cmab_327817_0':'repair',
+ 'cmab_327814_0':'home','cmab_325911_0':'grocer','cmab_327818_0':'repair',
+ 'cmab_327826_0':'home','cmab_327825_0':'grocer','cmab_327823_0':'repair',
+};
 export function lilongFacade(building:Building):DetailBatch {
   const out=batch(),ring=building.footprint,edge=doorEdgeIndex(ring);
   livedInWalls(building,out);
@@ -82,6 +90,52 @@ export function lilongFacade(building:Building):DetailBatch {
   const at=(u:number,v:number,n=.055)=>[a[0]+ux*u+nx*n,v,-(a[1]+uy*u+ny*n)];
   const panel=(u:number,v:number,w:number,h:number,color:number,n=.055)=>face(out,[at(u,v,n),at(u+w,v,n),at(u+w,v+h,n),at(u,v+h,n)],color);
   const mid=length/2;
+  const representative=REPRESENTATIVE_FACADES[building.id];
+  if(representative){
+    // Broad cool-gray cement shoulders give the shopfront a grounded, worn base.
+    // Keep the ORIGINAL collision aperture entirely empty below 2.2 m.
+    const span=Math.min(2.25,mid-.22),left=mid-span,right=mid+.85;
+    for(const [start,w] of [[left,span-.85],[right,span-.85]]){
+      panel(start,.02,w,2.24,0x858b87,.065);
+      panel(start,.03,w,.44,0x646c69,.085);
+      panel(start,.47,w,.045,0xa8aaa1,.09);
+      // Uneven old repair patch: one larger silhouette, not random noise dots.
+      face(out,[at(start+.08,.57,.095),at(start+w-.08,.57,.095),at(start+w-.18,1.05,.095),at(start+.12,.91,.095)],0x9a9f97);
+    }
+    // Metal roller-shutter channels frame an OPEN bay; no fake closed doorway.
+    for(const x of [mid-.96,mid+.85]){
+      panel(x,.05,.11,2.23,0xc2c5bc,.13);
+      face(out,[at(x,.05,.08),at(x,.05,.2),at(x,2.28,.2),at(x,2.28,.08)],0x6f7977);
+    }
+    panel(mid-.97,2.24,1.94,.22,0xc5c7be,.15);
+    panel(mid-.88,2.3,1.76,.04,0x808a86,.16);
+    // Original unlettered painted timber fascia; timber variations are broad
+    // board seams. Houses retain stone lintel rather than becoming every shop.
+    const fascia=representative==='home'?0x707975:representative==='grocer'?0x77483b:0x684237;
+    panel(mid-1.43,2.51,2.86,.96,fascia,.18);
+    panel(mid-1.43,2.51,2.86,.055,0x422f29,.195);
+    panel(mid-1.43,3.415,2.86,.055,0x9b7860,.195);
+    if(representative!=='home')for(const offset of [-.5,.53])panel(mid+offset,2.58,.018,.78,0x5a392e,.19);
+    // Shallow sloped sheet awning and folded front lip, all ABOVE the doorway.
+    const canopy=Math.min(3.7,length-.5),c0=mid-canopy/2;
+    face(out,[at(c0,3.7,.08),at(c0+canopy,3.7,.08),at(c0+canopy,3.58,.64),at(c0,3.58,.64)],representative==='grocer'?0x62796f:0x6e7770);
+    panel(c0,3.49,canopy,.09,0x454e49,.64);
+    for(const x of [c0+.14,c0+canopy-.2])face(out,[at(x,2.98,.09),at(x+.045,2.98,.09),at(x+.045,3.58,.6),at(x,3.58,.6)],0x4d5651);
+    // Edge-mounted electric meter cabinet + protected conduit, never in the bay.
+    const ex=left+.12;
+    panel(ex,1.28,.37,.56,0x667371,.22);panel(ex+.045,1.35,.28,.38,0x99a19b,.235);
+    face(out,[at(ex,1.28,.08),at(ex,1.28,.22),at(ex,1.84,.22),at(ex,1.84,.08)],0x485553);
+    panel(ex+.14,1.84,.045,1.56,0x414b49,.12);
+    // Two bundled cables follow the facade, not free wires crossing walkways.
+    panel(.18,Math.min(building.height_m-.35,4.65),length-.36,.04,0x363f3e,.105);
+    panel(.18,Math.min(building.height_m-.46,4.54),length-.36,.027,0x59635d,.105);
+    if(representative==='home'){
+      for(let row=0;row<5;row++)panel(right,.65+row*.25,span-.85,.024,0xb0b3aa,.101);
+      for(let row=0;row<4;row++)panel(right+.25+(row%2)*.21,.68+row*.25,.02,.21,0xb0b3aa,.102);
+    }
+    out.features+=6;
+    return out;
+  }
   // Stone-framed shikumen gateway: real 1.6 m collision opening stays unobstructed.
   panel(mid-1.17,0,.32,2.65,0xc9c1a9);panel(mid+.85,0,.32,2.65,0xc9c1a9);
   panel(mid-1.25,2.25,2.5,.28,0xc9c1a9);panel(mid-1.1,2.55,2.2,.18,0x908b7b);

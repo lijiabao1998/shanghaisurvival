@@ -2,7 +2,9 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
-import {transform} from 'esbuild';
+import {transform,build} from 'esbuild';
+const bundle=await build({stdin:{contents:`export {claimRoomExtra} from './src/room-extras.ts';export {claimRoomTool} from './src/room-tools.ts';export {createSurvivorSystems} from './src/survivor-systems.ts';export {createLegacyArsenal} from './src/arsenal.ts';`,resolveDir:process.cwd()},bundle:true,platform:'node',format:'esm',write:false});
+const {claimRoomExtra,claimRoomTool,createSurvivorSystems,createLegacyArsenal}=await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 const source=readFileSync(new URL('../src/survival.ts',import.meta.url),'utf8');
 const js=(await transform(source,{loader:'ts',target:'es2022'})).code;
 function fn(name){const start=js.indexOf(`function ${name}(`);assert.ok(start>=0);let p=js.indexOf('{',start),depth=1,end=p+1;for(;depth;end++){if(js[end]==='{')depth++;if(js[end]==='}')depth--;}return js.slice(start,end);}
@@ -34,3 +36,16 @@ assert.ok(compact.includes('roomId:loot.id'),'save IDs include supply suffix');
 const basicIndex=source.indexOf('containers.push({ x: 0, z: 0, mesh, looted: false })');
 assert.ok(basicIndex>=0&&basicIndex<source.indexOf('roomId:loot.id'),'rooms appended after ordinary indices');
 console.log('PASS actual updateLoot: hold E, one claim, immediate persistence, full bag retention, range/LOS; context guards and save/collision integration structure');
+
+// Extra pickup uses the same actual held-interact/visibility/persistence path.
+ctx.claimRoomExtra=claimRoomExtra;ctx.inventory={water:0,food:0,medkit:0,battery:0,ammo:0,pistol:0};ctx.ITEMS.ammo={label:'9毫米補給包'};ctx.px=0;ctx.keys.add('KeyE');ctx.canSee=()=>true;
+const extra={id:'room-extra-v1:cmab_327817_0:ammo',buildingId:'cmab_327817_0',position:[0,0],item:'ammo',amount:1};
+room.roomExtra=extra;room.roomId=extra.id;room.roomItem='ammo';room.looted=false;ctx.lootTarget=null;ctx.lootProgress=0;
+ctx.updateLoot(3);assert.equal(ctx.inventory.ammo,1);assert.equal(room.looted,true);const saves=ctx.persistCalls;ctx.updateLoot(3);assert.equal(ctx.inventory.ammo,1);assert.equal(ctx.persistCalls,saves);
+room.looted=false;ctx.inventory.ammo=999;ctx.updateLoot(3);assert.equal(room.looted,false);assert.equal(ctx.inventory.ammo,999);
+console.log('PASS actual extra-ammo interaction grants one usable inventory pack, persists once, and retains full-capacity loot');
+
+ctx.claimRoomTool=claimRoomTool;ctx.arsenal=createLegacyArsenal(false,0);ctx.survivorSystems=createSurvivorSystems(ctx.arsenal);ctx.TOOL_COMBAT={cleaver:{name:'菜刀'}};
+room.roomTool={id:'room-tool-v1:cmab_327821_0:cleaver',buildingId:'cmab_327821_0',tool:'cleaver',position:[0,0]};room.roomId=room.roomTool.id;delete room.roomExtra;room.looted=false;ctx.lootTarget=null;ctx.lootProgress=0;
+ctx.updateLoot(3);assert.equal(room.looted,true);assert.deepEqual(ctx.survivorSystems.ownedTools,['cleaver']);const toolSaves=ctx.persistCalls;ctx.updateLoot(3);assert.equal(ctx.persistCalls,toolSaves);assert.equal(ctx.survivorSystems.ownedTools.length,1);
+console.log('PASS actual held tool pickup grants ownership, depletes object and persists once');

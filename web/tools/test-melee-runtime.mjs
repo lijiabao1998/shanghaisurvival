@@ -1,10 +1,11 @@
+import {TOOL_COMBAT,isMeleeTool} from '../src/melee-tools.ts';
 // Exercise the actual survival.ts attack and animation functions with a real rig.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { stripTypeScriptTypes } from 'node:module';
 import vm from 'node:vm';
 import { createLegacyArsenal, equipWeapon, WEAPONS } from '../src/arsenal.ts';
-import { createSurvivorSystems, equipHand, carriedWeight, loadEffects } from '../src/survivor-systems.ts';
+import { createSurvivorSystems, grantTool, equipHand, carriedWeight, loadEffects } from '../src/survivor-systems.ts';
 import { emptyInventory } from '../src/campaign.ts';
 import { segmentClear } from '../src/combat.ts';
 import { MELEE_PROFILES, meleePose, sweptMeleeAngle, angleInSweep } from '../src/melee-motion.ts';
@@ -20,14 +21,14 @@ function extract(name) {
 }
 function runtime(extra={}) {
   const hits=[];
-  const c=vm.createContext({MELEE_PROFILES,meleePose,sweptMeleeAngle,angleInSweep,segmentClear,
+  const c=vm.createContext({TOOL_COMBAT,isMeleeTool,swingTool:'pipe',MELEE_PROFILES,meleePose,sweptMeleeAngle,angleInSweep,segmentClear,
     applyMeleePose,resetRigJoints,applyLocomotionJoints,applyThrowJoints,carriedWeight,loadEffects,
     survivorSystems:createSurvivorSystems(createLegacyArsenal(false,0)),inventory:emptyInventory(),
     rig:buildRig(ROSTER[0]), arsenal:createLegacyArsenal(false,0), stamina:100,action:'none',actionT:0,actionDur:0,actionFired:false,
     swingCount:0,swingHand:'right',swingStroke:0,comboWindow:0,impactPause:0,bufferedHand:null,swingHits:new Set(),px:0,pz:0,facing:0,zombies:[],collides:()=>false,
     HEAR_SWING:1,makeNoise(){},damageZombie(z,damage){hits.push(z);z.hp-=damage;},camShake:0,
     visualMove:0,breathPhase:0,walkPhase:0,RUN_SPEED:5.9,grounded:true,WEAPONS,throwBrick(){},...extra});
-  for(const name of ['canSee','startSwing','meleeHit','animateRig']) vm.runInContext(extract(name),c);
+  for(const name of ['currentSwingProfile','canSee','startSwing','meleeHit','animateRig']) vm.runInContext(extract(name),c);
   return {c,hits};
 }
 const target=(angle,d=1.3)=>({x:Math.sin(angle)*d,z:-Math.cos(angle)*d,state:'sleep',hp:100,attackCd:0});
@@ -84,4 +85,11 @@ test('late press buffers one mirrored return stroke and costs stamina once',()=>
 });
 test('early spam does not queue, combo expires and low stamina blocks queued attack',()=>{
  const {c}=runtime({stamina:6});c.startSwing();advance(c,.15);c.startSwing();assert.equal(c.bufferedHand,null);advance(c,.3);c.startSwing();advance(c,.3);assert.equal(c.action,'none');assert.equal(c.swingCount,1);advance(c,.5);c.stamina=6;c.startSwing();assert.equal(c.swingStroke,0);
+});
+
+for(const tool of ['cleaver','wrench'])test(`actual ${tool} pickup ownership -> equip -> usable distinct strike`,()=>{
+ const arsenal=createLegacyArsenal(false,0),systems=createSurvivorSystems(arsenal);assert.ok(grantTool(systems,arsenal,tool));assert.ok(equipHand(systems,arsenal,'primary',tool));
+ const {c,hits}=runtime({arsenal,survivorSystems:systems});const near=target(.2,1.1),far=target(0,1.7);c.zombies=[near,far];c.startSwing();assert.equal(c.swingTool,tool);assert.equal(c.actionDur,MELEE_PROFILES[TOOL_COMBAT[tool].kind].duration);advance(c,.8);
+ assert.equal(hits.length,1);assert.equal(near.hp,100-TOOL_COMBAT[tool].damage);assert.equal(far.hp,100);assert.equal(arsenal.rounds['9mm'],0);assert.equal(c.stamina,94);
+ const wall=runtime({arsenal,survivorSystems:systems,collides:(_x,z,r)=>z<-.55+r});wall.c.zombies=[target(0,1.1)];wall.c.startSwing();advance(wall.c,.8);assert.equal(wall.hits.length,0);
 });

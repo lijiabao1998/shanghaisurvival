@@ -13,3 +13,14 @@ expanded.interiorLoot[ids[3]]=true;assert.ok(saveSnapshot(store,'campaign',expan
 for(let i=0;i<3;i++){const again=loadSnapshot(store,'campaign','block.json');assert.deepEqual(again,expanded);assert.ok(saveSnapshot(store,'campaign',again));}
 assert.equal(Object.keys(expanded.interiorLoot).length,9);assert.ok(Object.keys(expanded.interiorLoot).length<=64);
 console.log('PASS legacy three depleted IDs retained; six new IDs initialize once; new depletion persists; original 48 container order/flags unchanged');
+
+expanded.interiorLoot['room-extra-v1:cmab_327817_0:ammo']=true;expanded.inventory.ammo=1;
+assert.ok(saveSnapshot(store,'campaign',expanded));assert.deepEqual(loadSnapshot(store,'campaign','block.json'),expanded);
+const prior=data.get('campaign');const invalid=structuredClone(expanded);invalid.interiorLoot['room-extra-v1:cmab_327817_0:unknown']=true;assert.equal(saveSnapshot(store,'campaign',invalid),false);assert.equal(data.get('campaign'),prior);
+console.log('PASS new extra pickup flags and ammo inventory persist, original depletion preserved, unknown suffix rejected atomically');
+
+expanded.survivorSystems={version:1,hands:{primary:'cleaver',secondary:null},condition:{bleeding:0,pain:0},ownedTools:['cleaver']};expanded.interiorLoot['room-tool-v1:cmab_327821_0:cleaver']=true;assert.ok(saveSnapshot(store,'campaign',expanded));assert.deepEqual(loadSnapshot(store,'campaign','block.json'),expanded);
+const invalidTool=structuredClone(expanded);invalidTool.interiorLoot['room-tool-v1:cmab_327821_0:rifle']=true;assert.equal(saveSnapshot(store,'campaign',invalidTool),false);
+console.log('PASS known tool depletion suffix persists and unknown weapon suffix rejected');
+
+const lostOwnership=structuredClone(expanded);delete lostOwnership.survivorSystems;assert.equal(saveSnapshot(store,'campaign',lostOwnership),false);

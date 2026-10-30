@@ -1,13 +1,14 @@
+import {TOOL_COMBAT,isMeleeTool} from '../src/melee-tools.ts';
 // Executes the actual game functions with minimal state, no browser or rendering.
 import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import {stripTypeScriptTypes} from 'node:module';import vm from 'node:vm';
 import {WEAPONS,WEAPON_IDS,createLegacyArsenal,grantWeapon,grantAmmo,equipWeapon,consumeRound} from '../src/arsenal.ts';
-import {createSurvivorSystems,equipHand,migrateSurvivorSystems,treatBody} from '../src/survivor-systems.ts';
+import {createSurvivorSystems,grantTool,equipHand,migrateSurvivorSystems,treatBody} from '../src/survivor-systems.ts';
 import {segmentClear} from '../src/combat.ts';
 import {applyCacheLoot,emptyInventory} from '../src/campaign.ts';
 const source=readFileSync(new URL('../src/survival.ts',import.meta.url),'utf8');
 function extract(name){const start=source.indexOf(`function ${name}(`);assert.ok(start>=0);const body=source.indexOf('{',start);let end=body+1,depth=1;while(depth&&end<source.length){if(source[end]==='{')depth++;if(source[end]==='}')depth--;end++;}assert.equal(depth,0);return stripTypeScriptTypes(source.slice(start,end));}
 const classes={add(){},remove(){},toggle(){}};
-function runtime(extra={}){const c=vm.createContext({WEAPONS,WEAPON_IDS,createLegacyArsenal,grantWeapon,grantAmmo,equipWeapon,consumeRound,segmentClear,applyCacheLoot,structuredClone,createSurvivorSystems,equipHand,migrateSurvivorSystems,treatBody,
+function runtime(extra={}){const c=vm.createContext({TOOL_COMBAT,isMeleeTool,WEAPONS,WEAPON_IDS,createLegacyArsenal,grantWeapon,grantAmmo,equipWeapon,consumeRound,segmentClear,applyCacheLoot,structuredClone,createSurvivorSystems,grantTool,equipHand,migrateSurvivorSystems,treatBody,
  survivorSystems:createSurvivorSystems(createLegacyArsenal(false,0)),bagOpen:false,inShelter:false,survivorPanel:null,shootHand:'right',
  arsenal:createLegacyArsenal(false,0),hasPistol:false,pistolEquipped:false,ammo:0,action:'none',actionT:0,actionDur:0,actionFired:false,muzzleT:0,camShake:0,px:0,pz:0,py:0,HEAR_GUN:70,muzzle:null,zombies:[],collides:()=>false,forwardXZ:()=>({x:1,z:0}),makeNoise(){},updateBag(){},persistCampaign(){},flashHint(){},damageZombie(){},phase:'play',paused:false,helperOpen:false,inventory:emptyInventory(),...extra});if(!('survivorSystems' in extra))c.survivorSystems=createSurvivorSystems(c.arsenal);for(const name of ['syncArsenal','canSee','fire','useItem'])vm.runInContext(extract(name),c);return c;}
 let tests=0;function test(name,fn){fn();tests++;console.log(`PASS ${name}`);}
@@ -59,3 +60,8 @@ test('actual secondary firearm dispatch consumes once without replacing primary 
  assert.ok(equipHand(c.survivorSystems,c.arsenal,'secondary',null));c.dispatchHandAttack('secondary');assert.equal(c.arsenal.rounds['9mm'],5);assert.equal(c.action,'none');
 });
 console.log(`${tests} arsenal runtime checks passed (no browser/CI; not a playtest)`);
+
+test('actual backpack exposes owned cleaver and selecting it changes hand without granting ammo',()=>{
+ const children=[];let visuals=0;const c=runtime({document:{createElement:()=>({setAttribute(){},append(){}})},BAG_ROWS:[],ITEM_COLOR:{},el:{bag:{set innerHTML(v){children.length=0;},append:v=>children.push(v)},kill:{},loot:{}},kills:0,looted:0,updateWeaponVisual(){visuals++;}});
+ assert.ok(grantTool(c.survivorSystems,c.arsenal,'cleaver'));vm.runInContext(extract('updateBag'),c);c.updateBag();const button=children.find(b=>(b.innerHTML??'').includes('菜刀'));assert.ok(button);button.onclick();assert.equal(c.survivorSystems.hands.primary,'cleaver');assert.equal(c.arsenal.equipped,null);assert.equal(c.ammo,0);assert.equal(visuals,1);
+});
