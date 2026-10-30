@@ -1,3 +1,6 @@
+import { installStagedCharacterMenu } from './staged-character-menu';
+import { gameSettings, t as tr, installGameSettings } from './game-settings';
+import { createGameAudio } from './game-audio';
 import { planRoomTools, claimRoomTool, type RoomTool } from './room-tools';
 import { buildMeleeTool, isMeleeTool, TOOL_COMBAT } from './melee-tools';
 import { planRoomExtras, claimRoomExtra, type RoomExtra } from './room-extras';
@@ -21,7 +24,7 @@ import { createStreetDetails, applyPavementGrain } from './street-details';
 let streetDetails: ReturnType<typeof createStreetDetails>|null=null;
 import { emptyInventory, replenishCaches, applyCacheLoot, loadSnapshot, saveSnapshot, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
 import { selectShelter, type Shelter } from './shelter';
-import { installTouchControls } from './touch-controls';
+import { installTouchControls, setTouchControlLabels, setTouchControlsSuspended } from './touch-controls';
 import { sweepMove, segmentClear } from './combat';
 import { MELEE_PROFILES, meleePose, sweptMeleeAngle, angleInSweep, type MeleeHand } from './melee-motion';
 import { applyMeleePose, resetRigJoints, applyLocomotionJoints, applyThrowJoints } from './rig-motion';
@@ -71,6 +74,7 @@ let helperActor:THREE.Mesh|null=null;
 let sneaking = false;
 let paused = false;
 let bagOpen = false;
+let stagedMenu:ReturnType<typeof installStagedCharacterMenu>|null=null;
 let survivorPanel: ReturnType<typeof installSurvivorPanel> | null = null;
 let attackHeld = false;
 let touchActionHeld = false;
@@ -442,12 +446,13 @@ function canSee(ax: number, az: number, bx: number, bz: number): boolean {
 const keys = new Set<string>();
 const ATTACK_KEYS = ['KeyJ', 'KeyK', 'KeyG'];
 addEventListener('keydown', e => {
+  if(settingsMenu.isOpen())return;
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'Tab'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   if (phase !== 'play') return;
   if(helperOpen){if(e.code==='Escape')closeHelper();return;}
   if(inShelter) { if(e.code==='Escape')leaveShelter(); return; }
-  if (e.code === 'Escape') { if (bagOpen) toggleBag(false); else { paused = !paused; releaseGameplayInput(); } return; }
+  if (e.code === 'Escape') { if (bagOpen) toggleBag(false); else settingsMenu.open(); return; }
   if (e.code === 'Tab' || e.code === 'KeyI') { toggleBag(!bagOpen); return; }
   if (paused || bagOpen || inShelter) return;
   keys.add(e.code);
@@ -528,6 +533,26 @@ addEventListener('survivor-action',e=>{
   else {touchActionHeld=true;aimNearest();dispatchHandAttack('primary');}
 });
 installTouchControls();
+const gameAudio=createGameAudio();
+const settingsMenu=installGameSettings({
+  canOpen:()=>phase==='play'&&!helperOpen&&!inShelter,
+  open:()=>{setTouchControlsSuspended(true);toggleBag(false);paused=true;clearControlState();releaseGameplayInput();gameAudio.setActive(false);},
+  resume:()=>{clearControlState();releaseGameplayInput();setTouchControlsSuspended(false);paused=false;},
+  saveReturn:()=>{persistCampaign();if(mode==='sandbox'&&saveWarning)return false;clearControlState();location.reload();return true;},
+  audioPreview:()=>gameAudio.play('preview'),
+});
+let audioLastSwing=0,audioLastLoot=0,audioStepTimer=0;
+function refreshInterfaceLanguage(){
+  document.documentElement.lang=gameSettings.language;
+  setTouchControlLabels({controls:tr('觸控操作','触控操作','Touch controls'),movement:tr('移動搖桿，推到底奔跑','移动摇杆，推到底奔跑','Move joystick; push fully to run'),movementHint:tr('移動 · 推到底奔跑','移动 · 推到底奔跑','Move · push fully to run'),action:tr('互動','互动','Use'),actionAria:tr('情境互動，按住持續','情境互动，按住持续','Context action; hold to continue'),secondary:tr('副手','副手','Offhand'),secondaryAria:tr('副手攻擊','副手攻击','Offhand attack'),crouch:tr('蹲','蹲','Sneak'),crouchAria:tr('切換潛行','切换潜行','Toggle sneaking'),menuAria:tr('暫停選單','暂停菜单','Pause menu'),bag:tr('背包','背包','Bag')});
+  const sta=document.querySelector('#bar-sta .k'),bat=document.querySelector('#bar-bat .k');
+  if(sta)sta.textContent=tr('體力','体力','STA');if(bat)bat.textContent=tr('電量','电量','PWR');
+  el.hint.textContent=tr('WASD 移動 · Shift 跑 · C 潛行 · 左鍵攻擊 · E 互動 · Tab 背包 · Esc 選單','WASD 移动 · Shift 跑 · C 潜行 · 左键攻击 · E 互动 · Tab 背包 · Esc 菜单','WASD move · Shift run · C sneak · Click attack · E interact · Tab bag · Esc menu');
+  settingsMenu.refresh();
+}
+refreshInterfaceLanguage();window.addEventListener('shanghai-language-change',refreshInterfaceLanguage);
+
+
 
 // ---------------------------------------------------------------- 動作
 
@@ -1081,12 +1106,12 @@ function updateHud() {
   const touchButton = document.querySelector<HTMLElement>('#survivor-touch-action');
   const secondaryButton=document.querySelector<HTMLButtonElement>('#survivor-touch-secondary');
   if(secondaryButton){secondaryButton.hidden=!survivorSystems.hands.secondary;secondaryButton.disabled=paused||bagOpen||inShelter||helperOpen;}
-  if(touchButton) touchButton.textContent = mode==='sandbox' && shelter && Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])<2.5 ? '家' : lootTarget ? '搜' : distance <= 5 ? (mode==='quick' && elapsed >= 420 ? '撤' : mode==='sandbox'?'談':'換') : '打';
-  needs.textContent = `水分 ${Math.round(outbreak.hydration)} · 飽足 ${Math.round(outbreak.satiety)} · 暴露 ${Math.round(outbreak.exposure)}${sneaking ? ' · 潛行' : ''}`;
-  mission.textContent = bagOpen ? '背包已開啟（暫停）｜點物品使用，Tab / Esc 返回' : paused ? '已暫停｜Esc 繼續' : `接應點 ${Math.round(distance)}m · 搜刮 ${Math.min(looted, 3)}/3 · ${elapsed >= 480 ? '窗口已關閉' : elapsed >= 420 ? '窗口開啟，回綠圈按 E' : `接應倒數 ${Math.ceil(420 - elapsed)} 秒`} · 暴露須低於85`;
+  if(touchButton) touchButton.textContent = mode==='sandbox' && shelter && Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])<2.5 ? tr('家','家','Home') : lootTarget ? tr('搜','搜','Loot') : distance <= 5 ? (mode==='quick' && elapsed >= 420 ? tr('撤','撤','Evac') : mode==='sandbox'?tr('談','谈','Talk'):tr('換','换','Trade')) : tr('打','打','Hit');
+  needs.textContent = `${tr('水分','水分','Water')} ${Math.round(outbreak.hydration)} · ${tr('飽足','饱足','Food')} ${Math.round(outbreak.satiety)} · ${tr('暴露','暴露','Exposure')} ${Math.round(outbreak.exposure)}${sneaking ? tr(' · 潛行',' · 潜行',' · Sneaking') : ''}`;
+  mission.textContent = bagOpen ? '背包已開啟（暫停）｜點物品使用，Tab / Esc 返回' : paused ? tr('已暫停｜Esc 選單','已暂停｜Esc 菜单','Paused | Esc menu') : `接應點 ${Math.round(distance)}m · 搜刮 ${Math.min(looted, 3)}/3 · ${elapsed >= 480 ? '窗口已關閉' : elapsed >= 420 ? '窗口開啟，回綠圈按 E' : `接應倒數 ${Math.ceil(420 - elapsed)} 秒`} · 暴露須低於85`;
   if(mode==='sandbox') {
     const day=dayPhase(elapsed);
-    mission.textContent = helperOpen ? '阿梅・互助站｜對話暫停，Esc 或按鈕離開' : inShelter ? '安全屋｜存放物資、休息或返回街區' : bagOpen ? '背包（暫停）｜點擊使用／裝備' : paused ? '已暫停｜Esc 繼續' : `第 ${day.day} 天 · 安全屋 ${shelter ? Math.round(Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])) : '?'}m · 已搜 ${looted}次 · ${nearestSupplyHint()}`;
+    mission.textContent = helperOpen ? '阿梅・互助站｜對話暫停，Esc 或按鈕離開' : inShelter ? '安全屋｜存放物資、休息或返回街區' : bagOpen ? '背包（暫停）｜點擊使用／裝備' : paused ? tr('已暫停｜Esc 選單','已暂停｜Esc 菜单','Paused | Esc menu') : `第 ${day.day} 天 · 安全屋 ${shelter ? Math.round(Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])) : '?'}m · 已搜 ${looted}次 · ${nearestSupplyHint()}`;
     radio.textContent = saveWarning || (inShelter ? '休息花費庫存1水＋1罐頭，時間推進2分鐘。物資有限，不會重生。' : day.daylight<.25 ? '夜間感染者更敏銳。慢行、關燈；帶回一水一食便能在家休息。' : '互助台：藍門回家；水／食／封鎖物資箱每日交接一次，普通搜刮點不重生。紅箱聲響最遠。');
   } else radio.textContent = [...BROADCASTS].reverse().find(([at]) => elapsed >= at)?.[1] ?? '';
   radio.classList.toggle('critical', Boolean(saveWarning));
@@ -1262,6 +1287,7 @@ function placeContainer(): { x: number; z: number } {
 }
 
 function start(chosen: CharSpec, resume: Snapshot | null = null) {
+  stagedMenu?.dispose();stagedMenu=null;
   if(mode==='sandbox'&&!resume&&savedGame?.status==='alive'&&!confirm('開始新沙盒會覆寫此候選版本進度；舊正式版存檔仍保留。確定開始？')) {el.overlay.classList.add('on');return;}
   if(!resume)savedGame=null;
   elapsed=0; inShelter=false; shelterPanel.classList.remove('room-view');document.body.classList.remove('inspecting-shelter');resize(); helperOpen=false;helperPanel.hidden=true;helperState=createHelperState(); stash=emptyInventory(); restCount=0; saveTimer=0; saveWarning='';
@@ -1295,7 +1321,7 @@ function start(chosen: CharSpec, resume: Snapshot | null = null) {
   updateHelperAppearance();
   updateHud();
   updateBag();
-  el.hint.textContent = HINT_DEFAULT;
+  refreshInterfaceLanguage();
   el.overlay.classList.remove('on');
   setRing(0);
   el.prompt.classList.remove('on');
@@ -1392,6 +1418,7 @@ function buildMenu() {
   }
   el.ovBtn.disabled = true;
   el.ovBtn.onclick = () => { el.overlay.classList.remove('on'); start(spec); };
+  stagedMenu=installStagedCharacterMenu({roster:el.roster,pick:el.pick,next:el.ovBtn,modes:document.querySelector<HTMLElement>('#campaign-mode')!,note:document.querySelector<HTMLElement>('#campaign-note')!,resume:document.querySelector<HTMLButtonElement>('#campaign-resume')??undefined,characterIds:ROSTER.map(c=>c.id),hasSave:()=>{try{return localStorage.getItem(saveKey)!==null;}catch{return true;}},isSandbox:()=>mode==='sandbox',translate:tr});
 }
 
 // Campaign persistence owns one atomic snapshot: loot depletion and inventory never save separately.
@@ -1556,10 +1583,12 @@ function installCampaignUI() {
   sand.onclick=()=>{mode='sandbox';sand.className='selected';quick.className='';sand.setAttribute('aria-pressed','true');quick.setAttribute('aria-pressed','false');};quick.onclick=()=>{mode='quick';quick.className='selected';sand.className='';quick.setAttribute('aria-pressed','true');sand.setAttribute('aria-pressed','false');};
   if(!shelter){mode='quick';quick.className='selected';sand.textContent='此地圖未找到安全門口';}
   modes.append(sand,quick);
+  const refreshModes=()=>{sand.textContent=shelter?tr('生存沙盒（持久存檔）','生存沙盒（持久存档）','Sandbox · persistent save'):tr('此地圖未找到安全門口','此地图未找到安全门口','Sandbox unavailable on this map');quick.textContent=tr('8分鐘快速撤離（獨立）','8分钟快速撤离（独立）','8-minute evacuation · separate');const resume=document.querySelector('#campaign-resume');if(resume)resume.textContent=tr('繼續已有存檔','继续已有存档','Continue saved game');const title=el.overlay.querySelector('h1');if(title)title.textContent=tr('上海倖存者','上海幸存者','Shanghai Survivors');};
+  window.addEventListener('shanghai-language-change',refreshModes);refreshModes();
   const valid=isCompatibleSave(savedGame);
-  if(valid){const resume=document.createElement('button');resume.textContent=`繼續第${dayPhase(savedGame!.elapsed).day}天存檔`;resume.onclick=()=>{let current:Snapshot|null=null;try{current=loadCandidateSave();}catch{}if(!isCompatibleSave(current)){resume.disabled=true;resume.textContent='存檔已失效';return;}mode='sandbox';modes.hidden=true;start(ROSTER.find(c=>c.id===current!.characterId)??ROSTER[0],current);};modes.append(resume);}
+  if(valid){const resume=document.createElement('button');resume.id='campaign-resume';resume.textContent=tr(`繼續第${dayPhase(savedGame!.elapsed).day}天存檔`,`继续第${dayPhase(savedGame!.elapsed).day}天存档`,`Continue · Day ${dayPhase(savedGame!.elapsed).day}`);resume.onclick=()=>{let current:Snapshot|null=null;try{current=loadCandidateSave();}catch{}if(!isCompatibleSave(current)){resume.disabled=true;resume.textContent='存檔已失效';return;}mode='sandbox';modes.hidden=true;start(ROSTER.find(c=>c.id===current!.characterId)??ROSTER[0],current);};modes.append(resume);}
   const note=document.createElement('p');note.id='campaign-note';note.textContent=savedGame?.status==='dead'?'上一位倖存者已死亡；新沙盒會重設世界與庫存。':valid?'候選版獨立存檔；新沙盒只覆寫候選進度，舊正式版與快速挑戰互不影響。':'沙盒：找藍色門標，按E／手機「家」進入。先帶一水一罐頭回家。';
-  note.textContent+=' 舊檔保留原布局；新局採用配樓與九間內裝候選。';
+  note.textContent=tr('沙盒自動保存；快速挑戰不影響沙盒存檔。舊檔保留原布局。','沙盒自动保存；快速挑战不影响沙盒存档。旧档保留原布局。','Sandbox autosaves. Quick challenges keep your sandbox save. Older saves retain their original layout.');
   el.roster.before(modes,note);
   el.overlay.querySelector('.sub')!.textContent='上海病毒爆發。選角色後探索街區、搜刮並返回自己的安全屋；或選擇獨立八分鐘撤離挑戰。';
 }
@@ -1569,6 +1598,17 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden&&phase==='p
 // ---------------------------------------------------------------- 主循環
 
 function frame(dt: number) {
+  settingsMenu.setPlaying(phase==='play');
+  const audioActive=phase==='play'&&!paused&&!bagOpen&&!inShelter&&!helperOpen;
+  gameAudio.setActive(audioActive);
+  if(audioActive){
+    if(swingCount>audioLastSwing)gameAudio.play('swing');
+    else if(looted>audioLastLoot)gameAudio.play('loot');
+    audioStepTimer+=dt;
+    if(audioStepTimer>.42&&(keys.has('KeyW')||keys.has('KeyA')||keys.has('KeyS')||keys.has('KeyD'))){gameAudio.play('step');audioStepTimer=0;}
+  }
+  audioLastSwing=swingCount;audioLastLoot=looted;
+
   if (phase === 'play' && !paused && !bagOpen && !inShelter && !helperOpen) {
     if(mode==='quick')timeLeft -= dt;
     else { elapsed += dt; timeLeft = NIGHT_SECONDS - elapsed; updateDaylight(); refreshSupplySites(); }
@@ -1588,7 +1628,7 @@ function frame(dt: number) {
     updatePlaceLabel();
     if (hintTimer > 0) {
       hintTimer -= dt;
-      if (hintTimer <= 0) el.hint.textContent = HINT_DEFAULT;
+      if (hintTimer <= 0) el.hint.textContent = tr(HINT_DEFAULT,'WASD 移动 · Shift 跑 · C 潜行 · 点击攻击 · E 互动 · R 副手 · Tab 背包 · Esc 菜单','WASD move · Shift run · C sneak · Click attack · E use · R offhand · Tab bag · Esc menu');
     }
     if (muzzleT > 0) {
       muzzleT -= dt;

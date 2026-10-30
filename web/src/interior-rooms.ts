@@ -110,8 +110,34 @@ export function createInteriorRoomGeometry(room:InteriorRoom,building:Building):
    for(let i=0;i<tiers;i++){
     const y=.12+i*(h-.28)/(tiers-1);box(0,0,y,w,d,.045,f.color);
     // Contrasting tins and cartons occupy each exposed shelf instead of hidden lines inside a solid block.
-    for(let j=0;j<4;j++){const v=-d*.34+j*d*.22;box(0,v,y+.045,w*.56,d*.15,.14+(j%2)*.06,j%2?[0xb09a64,0xa6957b,0x9c8874][variant]:[0x637e70,0x79858b,0x8a796a][variant]);box(0,v,y+.19,w*.58,d*.16,.018,0xd8cdb2);box(0,v-d*.076,y+.085,w*.36,.003,.055,0xd4c9aa);topMark(0,v,y+.209,w*.22,.014,0x858a7b);}
+    for(let j=0;j<4;j++){
+     const v=-d*.34+j*d*.22;
+     if(f.kind==='shelf'&&j===0){
+      // Mixed household stock visible in the historical p301 shopfront:
+      // enamel/plastic vessels among cartons, not repeated identical cubes.
+      // Inspired inventory only, not a reconstructed shop interior or brand.
+      const r=Math.min(w*.24,d*.075);
+      vessel(0,v,y+.045,r,.15,[0xa9bbb2,0xc2bba6,0x85988f][variant]);
+      vessel(0,v,y+.16,r*.82,.055,0xd6d5c5);
+     }else if(f.kind==='cabinet'&&i===0){
+      // Low steel drawers with recessed dark seams and an actual raised pull.
+      box(0,v,y+.045,w*.82,d*.19,.18,0x68766e);
+      box(w*.418,v,y+.065,.012,d*.17,.14,0x8d9690);
+      box(w*.431,v,y+.115,.014,d*.075,.022,0xc1c3b5);
+     }else{
+      const carton=j%2===1,height=.14+(j%2)*.06;
+      box(0,v,y+.045,w*.56,d*.15,height,carton?[0xb09a64,0xa6957b,0x9c8874][variant]:[0x637e70,0x79858b,0x8a796a][variant]);
+      box(0,v,y+.045+height,w*.58,d*.16,.018,0xd8cdb2);
+      box(w*.286,v,y+.085,.003,d*.095,.055,0xd4c9aa);
+      topMark(0,v,y+.064+height,carton?w*.07:w*.22,carton?d*.15:.014,carton?0x84755d:0x858a7b);
+     }
+    }
+    if(f.kind==='shelf'){
+     // Thin price-card holder along the aisle-facing long edge, no illegible text.
+     box(w*.48,0,y+.008,.025,d*.92,.035,0xddd4b9);
+    }
    }
+   detailKinds.push(f.kind==='shelf'?'mixed-household-vessels':'steel-parts-drawers',f.kind==='shelf'?'shelf-card-rail':'raised-drawer-pulls');
    detailKinds.push('paper-stock-labels','tin-lid-seams');detailKinds.push(f.kind==='shelf'?'open-grocery-shelves':'parts-shelves','labelled-tins','cartons');
   }else if(f.kind==='workbench'){
    legged(h,0x9c8764);woodWear(h+.002);topMark(w*.25,-d*.3,h+.004,w*.19,d*.16,0x655d4c);topMark(w*.24,-d*.29,h+.005,w*.09,d*.065,0x4f5047);box(0,d*.38,.07,w*.8,d*.18,h*.65,0x66746b);
