@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { cityWalls, roofGeometry, type Building } from './world';
 import { buildingOccludesPlayer } from './occlusion';
+import { lilongFacade } from './shanghai-details';
 
 type Range = { wallStart:number;wallEnd:number;roofStart:number;roofEnd:number;building:Building;minX:number;maxX:number;minZ:number;maxZ:number };
 /** Three fixed meshes: solid walls, faded walls and solid roofs. Geometry attributes
@@ -48,6 +49,7 @@ export function createCityVisibility(buildings:Building[], lowRise = false) {
         }
       }
     }
+    if(lowRise){const detail=lilongFacade(rendered);walls.push(...detail.positions);wallColors.push(...detail.colors);}
     wg.dispose();rg.dispose();
     const xs=building.footprint.map(p=>p[0]),zs=building.footprint.map(p=>p[1]);
     ranges.push({building:rendered,wallStart,wallEnd:walls.length/3,roofStart,roofEnd:roofs.length/3,minX:Math.min(...xs),maxX:Math.max(...xs),minZ:Math.min(...zs),maxZ:Math.max(...zs)});

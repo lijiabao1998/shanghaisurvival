@@ -1,7 +1,7 @@
-name: Shanghai low-rise districts screenshot QA
+name: Shanghai identity details screenshot QA
 on:
   push:
-    branches: [feat/low-rise-districts-20261030]
+    branches: [feat/shanghai-identity-details-20261030]
     paths: [web/**, .github/workflows/shanghai-low-rise-qa.yml]
 permissions:
   contents: read
@@ -35,7 +35,7 @@ jobs:
           const assert=require('node:assert/strict');
           (async()=>{
             const browser=await chromium.launch({args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
-            const report={url:'http://127.0.0.1:4173/survival.html',commit:process.env.GITHUB_SHA,scope:'low-rise building visual candidate, not production',runner:process.env.RUNNER_OS,checks:[],errors:[],requests:[]};
+            const report={url:'http://127.0.0.1:4173/survival.html',commit:process.env.GITHUB_SHA,scope:'Shanghai identity details candidate, not production',runner:process.env.RUNNER_OS,checks:[],errors:[],requests:[]};
             try {
               const context=await browser.newContext({viewport:{width:1440,height:900}});
               const page=await context.newPage();
@@ -71,16 +71,53 @@ jobs:
               assert.equal(await page.evaluate(()=>window.__modu.state().paused),false);
               report.checks.push('pause resumes');
               report.final=await page.evaluate(()=>window.__modu.state());
+              async function walkHome(p){
+                // Natural keyboard movement toward the existing nearby doorway.
+                for(let n=0;n<60;n++){
+                  const s=await p.evaluate(()=>__modu.state());
+                  const dx=s.shelter.outside[0]-s.spawn[0],dy=s.shelter.outside[1]-s.spawn[1];
+                  if(Math.hypot(dx,dy)<2.2)break;
+                  const right=dx+dy,forward=dy-dx;
+                  const ks=[];if(Math.abs(right)>.3)ks.push(right>0?'KeyD':'KeyA');if(Math.abs(forward)>.3)ks.push(forward>0?'KeyW':'KeyS');
+                  for(const k of ks)await p.keyboard.down(k);await p.waitForTimeout(100);for(const k of ks)await p.keyboard.up(k);
+                }
+                await p.keyboard.press('KeyE');await p.waitForFunction(()=>__modu.state().inShelter);
+              }
+              await page.keyboard.press('KeyC');
+              assert.equal(await page.evaluate(()=>__modu.state().mode),'sandbox');
+              await walkHome(page);
+              await page.locator('.room-view-toggle').click();
+              assert.equal(await page.evaluate(()=>__modu.state().roomView),true);
+              await page.screenshot({path:'evidence/07-desktop-interior.png',fullPage:true});
+              await page.locator('.room-view-toggle').click();
+              const rows=page.locator('.shelter-stock>div');
+              await rows.nth(0).getByRole('button',{name:'存1',exact:true}).click();
+              assert.equal(await page.evaluate(()=>__modu.state().stash.water),1);
+              await rows.nth(0).getByRole('button',{name:'取1',exact:true}).click();
+              assert.equal(await page.evaluate(()=>__modu.state().stash.water),0);
+              await rows.nth(0).getByRole('button',{name:'存1',exact:true}).click();
+              await page.locator('.shelter-exit').click();
+              assert.equal(await page.evaluate(()=>__modu.state().inShelter),false);
+              await page.reload({waitUntil:'networkidle'});
+              await page.getByRole('button',{name:/繼續第/}).click();
+              await page.waitForFunction(()=>__modu.state().phase==='play');
+              assert.equal(await page.evaluate(()=>__modu.state().stash.water),1);
+              report.checks.push('natural doorway entry, inspect/restore room panel, deposit/withdraw, exit and reload-resume preserve stash');
               const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1});
               const mp=await mobile.newPage();
-              await mp.goto(report.url,{waitUntil:'networkidle'});
+              await mp.goto(report.url+'?debug',{waitUntil:'networkidle'});
               await mp.locator('.who').first().waitFor();
               await mp.screenshot({path:'evidence/05-mobile-menu.png',fullPage:true});
               await mp.locator('.who').first().click();
               await mp.locator('#ov-btn').click();
               await mp.waitForTimeout(1500);
               await mp.screenshot({path:'evidence/06-mobile-play.png',fullPage:true});
-              report.checks.push('mobile menu and gameplay screenshots');
+              await walkHome(mp);
+              await mp.locator('.room-view-toggle').click();
+              await mp.screenshot({path:'evidence/08-mobile-interior.png',fullPage:true});
+              await mp.locator('.shelter-exit').click();
+              assert.equal(await mp.evaluate(()=>__modu.state().inShelter),false);
+              report.checks.push('mobile viewport menu, street, interior panel toggle and exit screenshots (not physical-device performance)');
               assert.deepEqual(report.errors,[]);
               assert.deepEqual(report.requests,[]);
               report.checks.push('no desktop uncaught JavaScript or HTTP errors');
@@ -94,6 +131,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: shanghai-low-rise-district-evidence
+          name: shanghai-identity-detail-evidence
           path: evidence/
           retention-days: 7
