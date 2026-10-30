@@ -120,8 +120,10 @@ jobs:
               assert.equal(await page.evaluate(()=>window.__modu.state().paused),false);
               report.checks.push('pause resumes');
               report.final=await page.evaluate(()=>window.__modu.state());
+              await context.close(); // Do not run two software-rendered games concurrently during mobile QA.
               const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1});
               const mp=await mobile.newPage();
+              mp.on('console',m=>{if(m.type()==='error')report.errors.push('mobile console: '+m.text())});
               mp.on('pageerror',e=>report.errors.push('mobile: '+e.message));
               mp.on('response',r=>{if(r.status()>=400)report.requests.push({device:'mobile',url:r.url(),status:r.status()})});
               await mp.goto(report.url+'?debug',{waitUntil:'networkidle'});
@@ -141,7 +143,10 @@ jobs:
               await mp.screenshot({path:'evidence/06-mobile-play.png',fullPage:true});
               report.mobileBeforeReload=await mp.evaluate(()=>({state:__modu.state(),storage:{...localStorage}}));
               await mp.reload({waitUntil:'networkidle'});
-              await mp.waitForFunction(()=>!!window.__modu,{timeout:45000});
+              try { await mp.waitForFunction(()=>!!window.__modu,null,{timeout:90000}); } catch(error) {
+                report.mobileReloadFailure=await mp.evaluate(()=>({url:location.href,ready:document.readyState,body:document.body.innerText,storage:{...localStorage}}));
+                await mp.screenshot({path:'evidence/mobile-reload-failure.png',fullPage:true}); throw error;
+              }
               report.mobileAfterReload=await mp.evaluate(()=>({state:__modu.state(),storage:{...localStorage},menu:document.querySelector('#campaign-mode')?.textContent,note:document.querySelector('#campaign-note')?.textContent}));
               await mp.screenshot({path:'evidence/09-mobile-resume-menu.png',fullPage:true});
               await mp.getByRole('button',{name:/繼續第/}).click();
