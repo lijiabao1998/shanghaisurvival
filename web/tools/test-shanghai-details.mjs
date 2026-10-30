@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {build} from 'esbuild';
-const bundle=await build({stdin:{contents:`export {lilongFacade,createLilongInterior} from './src/shanghai-details.ts';export {makeInsideTest,makeCollider,wallGridOf} from './src/world.ts';export {selectShelter} from './src/shelter.ts';`,resolveDir:process.cwd()},bundle:true,platform:'node',format:'esm',write:false});
-const {lilongFacade,createLilongInterior,makeInsideTest,makeCollider,wallGridOf,selectShelter}=await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
+const bundle=await build({stdin:{contents:`export {lilongFacade,createLilongInterior,createShelterFloor} from './src/shanghai-details.ts';export {makeInsideTest,makeCollider,wallGridOf} from './src/world.ts';export {selectShelter} from './src/shelter.ts';`,resolveDir:process.cwd()},bundle:true,platform:'node',format:'esm',write:false});
+const {lilongFacade,createLilongInterior,createShelterFloor,makeInsideTest,makeCollider,wallGridOf,selectShelter}=await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`);
 const data=JSON.parse(readFileSync(new URL('../public/data/block.json',import.meta.url),'utf8')),before=JSON.stringify(data);
 let decorated=0,vertices=0;
 for(const b of data.buildings){
@@ -30,3 +30,14 @@ assert.ok(runtime.includes("roomView.onclick=()=>{shelterPanel.classList.toggle(
 assert.ok(runtime.includes("shelterPanel.classList.remove('room-view')"),'exit clears room-view mode');
 assert.ok(runtime.includes("phase, mode, inShelter, shelter:"),'read-only state exposes actual shelter entry for browser verification');
 console.log('PASS static room-view control and read-only shelter QA state contracts (browser flow still pending)');
+
+for(const fixture of [b,{id:'courtyard',footprint:[[0,0],[8,0],[8,8],[0,8]],holes:[[[2,2],[2,6],[6,6],[6,2]]],height_m:8},{id:'concave',footprint:[[0,0],[5,0],[5,1],[1,1],[1,5],[0,5]],holes:[],height_m:8}]){
+ const floor=createShelterFloor(fixture).geometry.getAttribute('position');
+ const within=makeInsideTest({buildings:[fixture],spawn:[0,0]});
+ for(let i=0;i<floor.count;i+=3){
+  let x=0,z=0;for(let j=0;j<3;j++){assert.ok(Math.abs(floor.getY(i+j)-.035)<1e-5);x+=floor.getX(i+j)/3;z-=floor.getZ(i+j)/3;}
+  assert.ok(within(x,z),'floor triangles preserve footprint concavity and holes');
+ }
+}
+assert.ok(!runtime.includes('new THREE.CircleGeometry(2,24)'),'no circular shelter staging pad');
+console.log('PASS real/concave/courtyard floor geometry preserves outline and holes');

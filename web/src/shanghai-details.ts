@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { doorEdgeIndex, makeInsideTest, type Building } from './world';
+import { doorEdgeIndex, makeInsideTest, roofGeometry, type Building } from './world';
 import type { Shelter } from './shelter';
 
 /** Original procedural details inspired by Shanghai lilong: not surveyed facades. */
@@ -65,6 +65,8 @@ export function createLilongInterior(building:Building,shelter:Shelter):THREE.Me
   // Wooden bed with blue quilt, low cupboard, enamel washbasin and stool.
   if(box(-1.25,2.1,.95,1.8,.12,.3,0x70513c)){
     box(-1.25,2.28,.86,1.18,.42,.08,0x587b80);box(-1.25,1.46,.7,.28,.42,.12,0xd0c4a9);
+    box(-1.25,1.17,.95,.09,.12,.72,0x70513c);
+    box(-1.25,1.85,.84,.10,.5,.015,0xb4c2b4);
   }
   if(box(1.25,2.1,.7,1.05,0,.7,0x806749)){
     box(1.25,2.1,.42,.42,.7,.08,0xc6d0c2);box(1.25,2.1,.3,.3,.78,.025,0x4f7277);
@@ -72,4 +74,13 @@ export function createLilongInterior(building:Building,shelter:Shelter):THREE.Me
   box(1.25,.8,.38,.38,0,.38,0x8e7650);
   const geometry=new THREE.BufferGeometry();geometry.setAttribute('position',new THREE.Float32BufferAttribute(out.positions,3));geometry.setAttribute('color',new THREE.Float32BufferAttribute(out.colors,3));geometry.computeVertexNormals();
   const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({vertexColors:true,roughness:1,side:THREE.DoubleSide}));mesh.name='lilong-safehouse-domestic-details';mesh.userData.features=out.features;return mesh;
+}
+
+/** Actual concave footprint-minus-courtyards, not a circular staging pad. */
+export function createShelterFloor(building:Building):THREE.Mesh {
+  const geometry=roofGeometry([building]),position=geometry.getAttribute('position');
+  for(let i=0;i<position.count;i++)position.setY(i,.035);
+  position.needsUpdate=true;geometry.computeVertexNormals();geometry.computeBoundingSphere();
+  const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:0x766c58,roughness:1,side:THREE.DoubleSide}));
+  mesh.name='shelter-original-footprint-floor';return mesh;
 }

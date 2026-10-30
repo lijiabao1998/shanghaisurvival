@@ -8,10 +8,12 @@ Builds on the owner-accepted low-rise rendering, without changing source map dat
 
 ## Interior
 
-The existing safehouse has a wooden bed/blue quilt/pillow, low cabinet/enamel washbasin and stool, merged into one 210-vertex mesh (7 component boxes). Placement checks all corners against the real footprint and leaves the central 1.2 m doorway lane clear. Objects are decorative and do not secretly add collision. They become visible through the existing inside-building roof-removal mechanism.
+The existing safehouse has a wooden bed/blue quilt/pillow, low cabinet/enamel washbasin and stool, merged into one 270-vertex mesh (9 component boxes). Placement checks all corners against the real footprint and leaves the central 1.2 m doorway lane clear. Objects are decorative and do not secretly add collision. They become visible through the existing inside-building roof-removal mechanism.
 
-A real “看看屋內” button collapses the stock panel while retaining “開啟物資面板” and “返回街區”; this is available to players, not a screenshot-only trick. It does not pause/unpause a different game mode or change saves. Leaving the shelter clears the compact state. Debug state adds only read-only mode/shelter/stock/room-view fields for natural entry, storage, exit and reload verification.
+A real “看看屋內” button collapses the stock panel while retaining “開啟物資面板” and “返回街區”; this is available to players, not a screenshot-only trick. It zooms to an 8 m vertical domestic view (portrait retains at least 6 m horizontal framing), hides the large street HUD and adds a warm shadowless interior light. The original player street zoom is not modified; expanding the panel or exiting restores it. New games clear inspection state, and inspection is not persisted in saves. The old circular pad is replaced by the actual concave footprint-minus-courtyards floor. It does not pause/unpause a different game mode or change saves. Leaving the shelter clears the compact state. Debug state adds only read-only mode/shelter/stock/room-view fields for natural entry, storage, exit and reload verification.
 
 ## Verification boundary
 
 TypeScript and production build pass. 22 regression scripts pass locally, including all actual footprints, deterministic rendering, batch budgets, inside-footprint furniture and clear doorway. No browser acceptance or deployment is claimed. Required next: desktop and mobile street/entry/interior screenshots; natural entry and exit; storage transfer and reload/continue; inspect that furniture is genuinely visible and no menu traps occur. This is not all district work completed, nor imported new districts.
+
+The first street/interior screenshot round exposed tiny furniture at street camera scale; the close-view correction is local and awaits another browser screenshot round. This document does not claim that corrected view has been accepted.
