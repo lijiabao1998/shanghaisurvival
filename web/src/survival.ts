@@ -1351,7 +1351,7 @@ function enterShelter() {
 function leaveShelter() {
   if(!shelter)return;
   inShelter=false;paused=false;[px,pz]=shelter.outside;if(playerRoot)playerRoot.position.set(px,0,-pz);
-  shelterPanel.hidden=true;shelterPanel.classList.remove('room-view');document.body.classList.remove('inspecting-shelter');resize();
+  shelterPanel.hidden=true;shelterPanel.classList.remove('room-view');document.body.classList.remove('inspecting-shelter');refreshShelterView();
   document.querySelector<HTMLElement>('#survivor-touch-controls')?.removeAttribute('hidden');
   clearControlState();invuln=1.5;persistCampaign();flashHint('離開安全屋。先找水與罐頭，別把所有物資帶出去。');
 }
@@ -1361,7 +1361,7 @@ function showShelter() {
   shelterPanel.replaceChildren();
   const title=document.createElement('h2');title.textContent='弄堂安全屋';shelterPanel.append(title);
   const roomView=document.createElement('button');roomView.className='room-view-toggle';
-  const syncRoomView=()=>{const viewing=shelterPanel.classList.contains('room-view');roomView.textContent=viewing?'開啟物資面板':'看看屋內';roomView.setAttribute('aria-pressed',String(viewing));document.body.classList.toggle('inspecting-shelter',viewing&&inShelter);resize();};
+  const syncRoomView=()=>{const viewing=shelterPanel.classList.contains('room-view');roomView.textContent=viewing?'開啟物資面板':'看看屋內';roomView.setAttribute('aria-pressed',String(viewing));document.body.classList.toggle('inspecting-shelter',viewing&&inShelter);refreshShelterView();};
   roomView.onclick=()=>{shelterPanel.classList.toggle('room-view');syncRoomView();};syncRoomView();shelterPanel.append(roomView);
   const info=document.createElement('p');info.textContent='門已關好。物品可逐個存取；休息消耗庫存一水一罐頭，推進2分鐘。';shelterPanel.append(info);
   const controls=document.createElement('div');controls.className='shelter-stock';
@@ -1453,6 +1453,18 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   frame(dt);
   renderer.render(scene, camera);
+}
+
+/** Commit room zoom and occlusion in one UI transaction. A slow GPU may render
+ * fewer than two frames in 300 ms; the simulation visibility timer is not a UI gate. */
+function refreshShelterView() {
+  resize();
+  cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:undefined);
+  visibilityTimer=.1;
+  const target=new THREE.Vector3(px,1,-pz);
+  camera.position.copy(target).add(new THREE.Vector3(40,56,40));camera.lookAt(target);
+  if(shelterLamp)shelterLamp.visible=inShelter;
+  renderer.render(scene,camera);
 }
 
 function resize() {

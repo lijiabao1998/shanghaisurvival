@@ -19,3 +19,13 @@ assert.equal(city.update(...s.inside),true,'closing inspection restores single p
 city.update(...s.inside,focus);city.update(...s.outside);assert.deepEqual(city.fadedIds(),(()=>{const c=createCityVisibility(data.buildings,true);c.update(...s.outside);return c.fadedIds();})(),'leaving shelter matches fresh normal street view');
 assert.equal(JSON.stringify(data),before);
 console.log(`PASS ${focus.length} legal indoor rays, added obstruction IDs ${inspected.filter(id=>!street.includes(id)).join(',')}; fixed 3 meshes, stable buffers, stationary mode change and street restoration`);
+
+const runtime=readFileSync(new URL('../src/survival.ts',import.meta.url),'utf8');
+const refresh=runtime.slice(runtime.indexOf('function refreshShelterView()'),runtime.indexOf('function resize()'));
+assert.ok(refresh.indexOf('cityVisibility?.update')<refresh.indexOf('renderer.render'),'indices update before immediate UI render');
+assert.ok(refresh.includes("shelterPanel.classList.contains('room-view')?roomFocus:undefined"),'inspection and restored street updates synchronous');
+const sync=runtime.slice(runtime.indexOf('const syncRoomView='),runtime.indexOf('roomView.onclick='));
+assert.ok(sync.includes('refreshShelterView()'),'toggle no longer waits for simulation visibilityTimer');
+const leave=runtime.slice(runtime.indexOf('function leaveShelter()'),runtime.indexOf('function showShelter()'));
+assert.ok(leave.includes('refreshShelterView()'),'exit also restores roof indices before render');
+console.log('PASS synchronous room/exit projection and index update before render (static runtime contract; slow-GPU browser capture pending)');

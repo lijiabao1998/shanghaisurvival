@@ -81,7 +81,8 @@ jobs:
               await page.locator('.room-view-toggle').click();
               assert.equal(await page.evaluate(()=>__modu.state().roomView),true);
               assert.ok(await page.evaluate(()=>__modu.state().cameraViewHeight<20));
-              await page.waitForTimeout(300);
+              await page.waitForFunction(()=>__modu.state().fadedBuildings.includes('cmab_327821_0'));
+              report.desktopRoom=await page.evaluate(()=>__modu.state());
               await page.screenshot({path:'evidence/07-desktop-interior.png',fullPage:true});
               await page.locator('.room-view-toggle').click();
               assert.equal(await page.evaluate(()=>__modu.state().cameraViewHeight),44);
@@ -121,6 +122,8 @@ jobs:
               report.final=await page.evaluate(()=>window.__modu.state());
               const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1});
               const mp=await mobile.newPage();
+              mp.on('pageerror',e=>report.errors.push('mobile: '+e.message));
+              mp.on('response',r=>{if(r.status()>=400)report.requests.push({device:'mobile',url:r.url(),status:r.status()})});
               await mp.goto(report.url+'?debug',{waitUntil:'networkidle'});
               await mp.locator('.who').first().waitFor();
               await mp.screenshot({path:'evidence/05-mobile-menu.png',fullPage:true});
@@ -129,16 +132,21 @@ jobs:
               await walkHome(mp,true);
               await mp.locator('.room-view-toggle').click();
               assert.ok(await mp.evaluate(()=>__modu.state().cameraViewHeight<20));
-              await mp.waitForTimeout(300);
+              await mp.waitForFunction(()=>__modu.state().roomView&&__modu.state().fadedBuildings.includes('cmab_327821_0'));
+              report.mobileRoom=await mp.evaluate(()=>__modu.state());
               await mp.screenshot({path:'evidence/08-mobile-interior.png',fullPage:true});
               await mp.locator('.shelter-exit').click();
               assert.equal(await mp.evaluate(()=>__modu.state().inShelter),false);
               assert.equal(await mp.evaluate(()=>document.body.classList.contains('inspecting-shelter')),false);
               await mp.screenshot({path:'evidence/06-mobile-play.png',fullPage:true});
-              report.checks.push('mobile viewport menu, street, interior panel toggle and exit screenshots (not physical-device performance)');
+              await mp.reload({waitUntil:'networkidle'});
+              await mp.getByRole('button',{name:/繼續第/}).click();
+              await mp.waitForFunction(()=>__modu.state().phase==='play');
+              report.mobileResumed=await mp.evaluate(()=>__modu.state());
+              report.checks.push('mobile viewport menu, street, interior panel toggle, exit and reload-resume (not physical-device performance)');
               assert.deepEqual(report.errors,[]);
               assert.deepEqual(report.requests,[]);
-              report.checks.push('no desktop uncaught JavaScript or HTTP errors');
+              report.checks.push('no desktop/mobile uncaught JavaScript or HTTP errors');
             } finally {
               fs.writeFileSync('evidence/report.json',JSON.stringify(report,null,2));
               await browser.close();
