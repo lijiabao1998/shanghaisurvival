@@ -4,7 +4,7 @@ import { buildRig, buildWeapon, ROSTER } from '../src/characters.ts';
 import { meleePose, MELEE_PROFILES } from '../src/melee-motion.ts';
 import { applyMeleePose, resetRigJoints, applyLocomotionJoints, applyThrowJoints } from '../src/rig-motion.ts';
 
-for (const hand of ['right', 'left']) {
+for (const stroke of [0, 1]) for (const hand of ['right', 'left']) {
   const spec = ROSTER[0], rig = buildRig(spec);
   const elbow = hand === 'right' ? rig.elbowR : rig.elbowL;
   const tool = buildWeapon('pipe');
@@ -15,7 +15,7 @@ for (const hand of ['right', 'left']) {
   const bearings = [];
   for (const t of [p.activeStart, (p.activeStart + p.activeEnd) / 2, p.activeEnd]) {
     resetRigJoints(rig);
-    const pose = meleePose('blunt', t, hand);
+    const pose = meleePose('blunt', t, hand, stroke);
     applyMeleePose(rig, pose, hand);
     rig.root.updateMatrixWorld(true);
     const shoulder = new THREE.Vector3();
@@ -26,7 +26,7 @@ for (const hand of ['right', 'left']) {
     assert.ok(Math.abs(bearing - pose.sweepAngle) < .2, `${hand}: visible tool and damage arc agree at ${t}: ${bearing} vs ${pose.sweepAngle}`);
     bearings.push(bearing);
   }
-  const sign = hand === 'right' ? 1 : -1;
+  const sign = (hand === 'right' ? 1 : -1) * (stroke === 1 ? -1 : 1);
   assert.ok(sign * bearings[0] > sign * bearings[1] && sign * bearings[1] > sign * bearings[2], `${hand}: tool sweeps across body: ${bearings}`);
   resetRigJoints(rig);
   assert.equal(rig.armR.rotation.y, 0, 'right shoulder yaw resets after a swing');
@@ -42,3 +42,15 @@ for (const hand of ['right', 'left']) {
   console.log(`${hand}: tip bearings ${bearings.map(x => x.toFixed(2)).join(', ')}`);
 }
 console.log('Joint animation checks passed.');
+// Entering/leaving melee does not erase an in-progress walking stride.
+for(const progress of [0,1]){
+ const rig=buildRig(ROSTER[0]);rig.legL.rotation.x=.4;rig.legR.rotation.x=-.4;
+ rig.armR.rotation.x=.2;rig.armL.rotation.x=-.3;rig.torso.rotation.x=.08;
+ applyMeleePose(rig,meleePose('blunt',progress));
+ assert.ok(Math.abs(rig.legL.rotation.x-.4)<1e-9);
+ assert.ok(Math.abs(rig.legR.rotation.x+.4)<1e-9);
+ assert.ok(Math.abs(rig.armR.rotation.x-.2)<1e-9);
+ assert.ok(Math.abs(rig.armL.rotation.x+.3)<1e-9);
+ assert.ok(Math.abs(rig.torso.rotation.x-.08)<1e-9);
+}
+console.log('Locomotion/melee boundary blending passed.');

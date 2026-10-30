@@ -26,8 +26,8 @@ const mix = (a: number, b: number, t: number) => a + (b - a) * t;
 const wrap = (x: number) => Math.atan2(Math.sin(x), Math.cos(x));
 
 /** Pose is continuous at both phase boundaries. Rotations are offsets in radians. */
-export function meleePose(kind: MeleeKind, progress: number, hand: MeleeHand = 'right') {
-  const side = hand === 'left' ? -1 : 1;
+export function meleePose(kind: MeleeKind, progress: number, hand: MeleeHand = 'right', stroke = 0) {
+  const side = (hand === 'left' ? -1 : 1) * (stroke % 2 === 1 ? -1 : 1);
   const p = MELEE_PROFILES[kind], t = clamp01(Number.isFinite(progress) ? progress : 0);
   const phase: MeleePhase = t < p.activeStart ? 'windup' : t < p.activeEnd ? 'active' : 'recovery';
   const wind = ease(t / p.activeStart);
@@ -42,7 +42,7 @@ export function meleePose(kind: MeleeKind, progress: number, hand: MeleeHand = '
   const loadedX = isBlade ? -2.35 : isFist ? -1.05 : -1.65;
   const followX = isBlade ? -0.75 : isFist ? -1.45 : -1.28;
   return {
-    phase, sweepAngle, torsoYaw,
+    phase, sweepAngle, torsoYaw, weight,
     lean: (isFist ? 0.12 : 0.2) * weight + 0.08 * Math.sin(cut * Math.PI) * weight,
     armX: mix(loadedX, followX, cut) * weight - 0.12 * (1 - weight),
     armY: sweepAngle * weight,
@@ -54,12 +54,12 @@ export function meleePose(kind: MeleeKind, progress: number, hand: MeleeHand = '
 
 /** Returns only the portion of this time step that intersects the active arc.
  * Sampling the full interval makes a low frame rate unable to skip a strike. */
-export function sweptMeleeAngle(kind: MeleeKind, previousProgress: number, progress: number, hand: MeleeHand = 'right'): { from: number; to: number } | null {
+export function sweptMeleeAngle(kind: MeleeKind, previousProgress: number, progress: number, hand: MeleeHand = 'right', stroke = 0): { from: number; to: number } | null {
   if (!Number.isFinite(previousProgress) || !Number.isFinite(progress) || progress <= previousProgress) return null;
   const p = MELEE_PROFILES[kind];
   const start = Math.max(previousProgress, p.activeStart), end = Math.min(progress, p.activeEnd);
   if (end <= start) return null;
-  const side = hand === 'left' ? -1 : 1;
+  const side = (hand === 'left' ? -1 : 1) * (stroke % 2 === 1 ? -1 : 1);
   const angleAt = (t: number) => side * mix(p.startAngle, p.endAngle, ease((t - p.activeStart) / (p.activeEnd - p.activeStart)));
   return { from: angleAt(start), to: angleAt(end) };
 }

@@ -23,11 +23,13 @@ export function applyMeleePose(rig: Rig, pose: MeleePose, hand: 'left' | 'right'
   const offArm = hand === 'right' ? rig.armL : rig.armR;
   const strikingElbow = hand === 'right' ? rig.elbowR : rig.elbowL;
   const offElbow = hand === 'right' ? rig.elbowL : rig.elbowR;
-  torso.rotation.y = pose.torsoYaw;
-  torso.rotation.x = pose.lean;
+  const blendOut = 1 - pose.weight;
+  const baseArmX = strikingArm.rotation.x, baseOffX = offArm.rotation.x;
+  torso.rotation.y = torso.rotation.y * blendOut + pose.torsoYaw;
+  torso.rotation.x = torso.rotation.x * blendOut + pose.lean;
   // Counter-rotate at the shoulder so the hand continues to sweep across the
   // intended facing-relative arc while the torso contributes its own twist.
-  const weight = Math.min(1, pose.kneeBend / 0.16);
+  const weight = pose.weight;
   const elbowBend = -0.35 * weight;
   // YXZ makes yaw a turn about the upright axis after raising the arm. Correct
   // for the sideways contribution of roll, including the bent forearm.
@@ -36,14 +38,14 @@ export function applyMeleePose(rig: Rig, pose: MeleePose, hand: 'left' | 'right'
   const sideways = Math.sin(pose.armZ);
   const rollBearing = Math.atan2(sideways, Math.max(0.001, forward));
   strikingArm.rotation.order = 'YXZ';
-  strikingArm.rotation.set(pose.armX, pose.armY - pose.torsoYaw - rollBearing * weight, pose.armZ);
-  offArm.rotation.x = pose.offArmX;
-  strikingElbow.rotation.x = elbowBend;
-  offElbow.rotation.x = -0.22 * weight;
-  legL.rotation.x = -pose.kneeBend;
-  legR.rotation.x = -pose.kneeBend * 0.7;
-  kneeL.rotation.x = pose.kneeBend * 1.8;
-  kneeR.rotation.x = pose.kneeBend * 1.4;
+  strikingArm.rotation.set(pose.armX + (baseArmX + .12) * blendOut, pose.armY - pose.torsoYaw - rollBearing * weight, pose.armZ);
+  offArm.rotation.x = pose.offArmX + (baseOffX + .12) * blendOut;
+  strikingElbow.rotation.x = strikingElbow.rotation.x * blendOut + elbowBend;
+  offElbow.rotation.x = offElbow.rotation.x * blendOut - 0.22 * weight;
+  legL.rotation.x = legL.rotation.x * (1 - pose.weight) - pose.kneeBend;
+  legR.rotation.x = legR.rotation.x * (1 - pose.weight) - pose.kneeBend * 0.7;
+  kneeL.rotation.x = kneeL.rotation.x * (1 - pose.weight) + pose.kneeBend * 1.8;
+  kneeR.rotation.x = kneeR.rotation.x * (1 - pose.weight) + pose.kneeBend * 1.4;
   body.position.y = -pose.kneeBend * 0.09;
 }
 
