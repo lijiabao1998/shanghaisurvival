@@ -31,6 +31,12 @@ jobs:
           python3 -m http.server 4173 --bind 127.0.0.1 --directory web/dist > /tmp/shanghai-street-server.log 2>&1 &
           for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:4173/survival.html >/dev/null; then break; fi; sleep 1; done
           QA_OUTPUT="$GITHUB_WORKSPACE/evidence/street-daynight" node web/tools/qa-street-daynight.mjs
+      - name: Preserve completed streetscape images before room traversal
+        uses: actions/upload-artifact@v4
+        with:
+          name: shanghai-streetscape-early-evidence
+          path: evidence/street-daynight/
+          retention-days: 7
       - name: Natural enterable-room browser acceptance
         run: |
           QA_OUTPUT="$GITHUB_WORKSPACE/evidence/interior-rooms" node web/tools/qa-interior-rooms.mjs

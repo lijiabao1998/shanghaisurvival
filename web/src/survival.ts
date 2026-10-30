@@ -1662,7 +1662,9 @@ fetch(dataUrl)
     streetDetails=createStreetDetails(data.roads??[],data.buildings,bounds);scene.add(streetDetails.group);
     const streets=roadGeometries(data.roads??[]);
     scene.add(new THREE.Mesh(streets.surface,applyPavementGrain(new THREE.MeshStandardMaterial({vertexColors:true,roughness:1,side:THREE.DoubleSide}),.07)));
-    scene.add(new THREE.Mesh(streets.edges,new THREE.MeshStandardMaterial({color:0x858786,roughness:1,side:THREE.DoubleSide})));
+    // Segment-wide outlines cross adjacent road ribbons at junctions and look like
+    // fictional white road markings. Actual raised kerbs are already in streetDetails.
+    streets.edges.dispose();
 
 
     for (let i = 0; i < containerCount; i++) {
