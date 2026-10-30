@@ -1491,7 +1491,7 @@ fetch(dataUrl)
 
     // Preserve every source vertex; fade only buildings intersecting the camera ray.
     shelter = selectShelter(data.buildings, data.spawn, collides, insideBuilding);
-    cityVisibility=createCityVisibility(data.buildings);scene.add(cityVisibility.group);
+    cityVisibility=createCityVisibility(data.buildings,true);scene.add(cityVisibility.group);
     if(shelter) {
       const marker=new THREE.Mesh(new THREE.BoxGeometry(1.2,2.4,.25),new THREE.MeshStandardMaterial({color:0x49c8d8,emissive:0x166c7a,emissiveIntensity:.8}));
       marker.position.set(shelter.outside[0],1.2,-shelter.outside[1]); marker.scale.set(.4,1,.4);scene.add(marker);
