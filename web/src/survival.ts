@@ -632,18 +632,22 @@ function updatePlayer(dt: number) {
   const speed = (wantRun ? RUN_SPEED : sneaking ? WALK_SPEED * 0.5 : WALK_SPEED) * (outbreak.hydration < 20 ? 0.75 : 1) * loadEffects(carriedWeight(inventory,arsenal)).speedMultiplier;
 
   let movedSpeed = 0;
-  if (moving && action === 'none') {
+  // Committed facing is retained, but a short controlled combat step prevents
+  // each swing from turning the whole body into a stationary statue.
+  if (moving && (action === 'none' || action === 'swing')) {
+    const stepSpeed = speed * (action === 'swing' ? .38 : 1);
     const len = Math.hypot(right + fwd, right - fwd);
     const dx = (right - fwd) / len;
     const dz = (right + fwd) / len;
-    const nx = px + dx * speed * dt;
-    const nz = pz + dz * speed * dt;
+    const oldX = px, oldZ = pz;
+    const nx = px + dx * stepSpeed * dt;
+    const nz = pz + dz * stepSpeed * dt;
     if (nx>=bounds.minX-8&&nx<=bounds.maxX+8&&!collides(nx, pz, 0.36)) px = nx;
     if (nz>=bounds.minY-8&&nz<=bounds.maxY+8&&!collides(px, nz, 0.36)) pz = nz;
     // Model faces +Z, and world z is -data y.
-    if (!mouseAimActive && !touchActionHeld) facing = Math.atan2(dx, -dz);
-    movedSpeed = speed;
-    walkPhase += dt * speed * 2.5;
+    if (action === 'none' && !mouseAimActive && !touchActionHeld) facing = Math.atan2(dx, -dz);
+    movedSpeed = dt > 0 ? Math.hypot(px - oldX, pz - oldZ) / dt : 0;
+    walkPhase += dt * movedSpeed * 2.5;
   }
 
   stamina = wantRun
@@ -682,22 +686,30 @@ function updatePlayer(dt: number) {
   animateRig(dt, movedSpeed);
 }
 
+let visualMove = 0, breathPhase = 0;
 function animateRig(dt: number, speed: number) {
   if (!rig) return;
   const { legL, legR, armL, armR, torso } = rig;
   comboWindow = Math.max(0, comboWindow - dt);
   resetRigJoints(rig);
-  const moving = speed > 0.05;
-  const amp = Math.min(1, speed / RUN_SPEED);
+  const targetMove = Math.min(1, speed / RUN_SPEED);
+  visualMove += (targetMove - visualMove) * (1 - Math.exp(-14 * dt));
+  breathPhase += dt * 1.8;
+  const moving = visualMove > .008;
+  const amp = visualMove;
+  const gaitWeight = Math.min(1, visualMove / .18);
 
-  const swingAmt = moving ? Math.sin(walkPhase) * (0.42 + amp * 0.55) : 0;
+  const swingAmt = moving ? Math.sin(walkPhase) * (0.42 + amp * 0.55) * gaitWeight : 0;
   legL.rotation.x = swingAmt;
   legR.rotation.x = -swingAmt;
   armL.rotation.x = moving ? -swingAmt * 0.75 : -0.12;
   armR.rotation.x = moving ? swingAmt * 0.55 : -0.12;
   armL.rotation.z = -0.05;
   armR.rotation.z = 0.05;
-  torso.rotation.set(moving ? 0.05 + amp * 0.1 : Math.sin(walkPhase * 0.4) * 0.02, 0, 0);
+  torso.rotation.set(.12 * amp + Math.sin(breathPhase) * .012,
+    Math.sin(walkPhase) * .065 * gaitWeight, Math.sin(walkPhase) * .025 * gaitWeight);
+  rig.body.position.y = Math.cos(walkPhase * 2) * .018 * gaitWeight;
+  rig.body.position.x = Math.sin(walkPhase) * .012 * gaitWeight;
 
   if(arsenal.equipped){armR.rotation.set(-Math.PI/2,0,0);armL.rotation.x=WEAPONS[arsenal.equipped].category==='rifle'?-1.1:-.2;}
   if(survivorSystems.hands.secondary==='qsz92-9')armL.rotation.set(-Math.PI/2,0,0);
@@ -707,6 +719,10 @@ function animateRig(dt: number, speed: number) {
     torso.rotation.x = 0.12;
   }
   applyLocomotionJoints(rig, walkPhase, moving, grounded);
+  if (grounded) {
+    rig.kneeL.rotation.x *= gaitWeight; rig.kneeR.rotation.x *= gaitWeight;
+    rig.elbowL.rotation.x *= gaitWeight; rig.elbowR.rotation.x *= gaitWeight;
+  }
   if (arsenal.equipped) rig.elbowR.rotation.x = 0;
   if(survivorSystems.hands.secondary==='qsz92-9')rig.elbowL.rotation.x=0;
 
@@ -1500,8 +1516,8 @@ function frame(dt: number) {
     hp=Math.max(0,hp-stepBody(survivorSystems.condition,dt));
     if (outbreak.hydration <= 0 || outbreak.satiety <= 0) hp = Math.max(0, hp - dt * 1.5);
     if (hp <= 0) { lose(survivorSystems.condition.bleeding>0?'因未處置的傷勢倒下。':'在耗盡補給後倒下。'); return; }
-    if (attackHeld || touchActionHeld) { if (touchActionHeld) aimNearest(); if(action==='none') dispatchHandAttack('primary'); }
-    if (mouseAimActive) { aimRay.setFromCamera(inputAim,camera); if(aimRay.ray.intersectPlane(groundPlane,aimHit)) facing=Math.atan2(aimHit.x-px,aimHit.z+pz); }
+    if (attackHeld || touchActionHeld) { if (touchActionHeld && action==='none') aimNearest(); if(action==='none') dispatchHandAttack('primary'); }
+    if (mouseAimActive && action !== 'swing') { aimRay.setFromCamera(inputAim,camera); if(aimRay.ray.intersectPlane(groundPlane,aimHit)) facing=Math.atan2(aimHit.x-px,aimHit.z+pz); }
     updatePlayer(dt);
     updateZombies(dt);
     if (phase !== 'play') return;

@@ -35,7 +35,10 @@ export function meleePose(kind: MeleeKind, progress: number, hand: MeleeHand = '
   const recover = ease((t - p.activeEnd) / (1 - p.activeEnd));
   const weight = t < p.activeStart ? wind : t < p.activeEnd ? 1 : 1 - recover;
   const sweepAngle = mix(p.startAngle, p.endAngle, cut) * side;
-  const torsoYaw = mix(-0.35, 0.34, cut) * weight * side;
+  // Hips/torso initiate the turn before the hand; the elbow unfolds through
+  // contact instead of remaining a rigid lever for the entire animation.
+  const drive = ease((t - p.activeStart + .045) / (p.activeEnd - p.activeStart));
+  const torsoYaw = mix(-0.32, 0.38, drive) * weight * side;
   const isBlade = kind === 'blade', isFist = kind === 'unarmed';
   // The arm comes up during the load, crosses the body in the active window,
   // then settles back; a blade descends more steeply than a horizontal pipe.
@@ -43,10 +46,13 @@ export function meleePose(kind: MeleeKind, progress: number, hand: MeleeHand = '
   const followX = isBlade ? -0.75 : isFist ? -1.45 : -1.28;
   return {
     phase, sweepAngle, torsoYaw, weight,
+    elbowBend: mix(-.82, -.14, cut) * weight,
+    weightShift: Math.sin(cut * Math.PI) * .035 * side * weight,
+    torsoRoll: mix(-.045, .065, drive) * side * weight,
     lean: (isFist ? 0.12 : 0.2) * weight + 0.08 * Math.sin(cut * Math.PI) * weight,
     armX: mix(loadedX, followX, cut) * weight - 0.12 * (1 - weight),
     armY: sweepAngle * weight,
-    armZ: ((isBlade ? mix(0.65, -0.3, cut) : isFist ? 0.15 : mix(0.8, -0.45, cut)) * weight + 0.05 * (1 - weight)) * side,
+    armZ: ((isBlade ? mix(0.65, -0.3, cut) : isFist ? 0.15 : mix(0.8, -0.45, cut)) * weight ) * side + 0.05 * (1 - weight) * (hand === 'left' ? -1 : 1),
     offArmX: mix(-0.55, -0.9, cut) * weight - 0.12 * (1 - weight),
     kneeBend: (isFist ? 0.16 : 0.25) * weight,
   };
