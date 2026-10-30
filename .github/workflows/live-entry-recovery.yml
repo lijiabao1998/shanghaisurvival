@@ -1,4 +1,4 @@
-name: Shanghai released survivor systems verification
+name: Shanghai integrated release live verification
 on:
   push:
     branches: [test/live-entry-recovery-20261030]
@@ -31,12 +31,12 @@ jobs:
             let html;
             do {
               html=await (await fetch(url+'?recovery='+Date.now())).text();
-              if(html.includes('survival-DzjyM__P.js'))break;
+              if((await (await fetch(url+'version.json?check='+Date.now())).json()).source_commit==='27ed3fccfd00c150a1ef6e3ced0dc33861156657' && html.includes('src="./assets/'))break;
               if(Date.now()>deadline)throw Error('Deployment recovery did not reach relative asset references in observation window');
               await new Promise(r=>setTimeout(r,15000));
             } while(true);
             report.version=await (await fetch(url+'version.json?recovery='+Date.now())).json();
-            assert.equal(report.version.source_commit,'f59881ba99684523648cd526785a1a4b5f6555b8');
+            assert.equal(report.version.source_commit,'27ed3fccfd00c150a1ef6e3ced0dc33861156657');
             const browser=await chromium.launch({args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
             try {
               for(const mobile of [false,true]){
