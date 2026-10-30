@@ -19,16 +19,18 @@ async function moveTo(p,target){
   const keys=axis===0?(delta>0?['KeyD','KeyS']:['KeyA','KeyW']):(delta>0?['KeyW','KeyD']:['KeyA','KeyS']);
   if(last&&Math.hypot(at[0]-last[0],at[1]-last[1])<.005)unchanged++;else unchanged=0;
   assert.ok(unchanged<25,`movement stalled at ${at}, target ${target}`);last=at;
-  try{for(const k of keys)await p.keyboard.down(k);await delay(25);}finally{for(const k of keys)await p.keyboard.up(k);}
+  try{for(const k of keys)await p.keyboard.down(k);await p.waitForFunction(old=>{const s=window.__modu.state();return Math.hypot(s.spawn[0]-old[0],s.spawn[1]-old[1])>.02;},{polling:'raf',timeout:5000},at);}catch(error){throw new Error(`No movement simulation while held at ${at}, target ${target}, state ${JSON.stringify(await state(p))}: ${error.message}`);}finally{for(const k of keys)await p.keyboard.up(k);}
  }
  throw new Error(`Doorway walk timed out toward ${target}; at ${(await state(p)).spawn}`);
 }
-async function corridor(p,from,to){const length=Math.hypot(to[0]-from[0],to[1]-from[1]),n=Math.ceil(length/.3);for(let i=1;i<=n;i++)await moveTo(p,[from[0]+(to[0]-from[0])*i/n,from[1]+(to[1]-from[1])*i/n]);}
-async function holdLoot(p,mobile){
+async function corridor(p,from,to){if(!(await state(p)).sneaking)await p.keyboard.press('KeyC');const length=Math.hypot(to[0]-from[0],to[1]-from[1]),n=Math.ceil(length/.3);for(let i=1;i<=n;i++)await moveTo(p,[from[0]+(to[0]-from[0])*i/n,from[1]+(to[1]-from[1])*i/n]);}
+async function holdLoot(p,mobile,expectedItem=null){
  await delay(200);
- if(!mobile){try{await p.keyboard.down('KeyE');await delay(4000);}finally{await p.keyboard.up('KeyE');}return;}
+ const before=expectedItem?(await state(p)).inventory[expectedItem]:null;
+ const held=()=>expectedItem?p.waitForFunction(({item,before})=>window.__modu.state().inventory[item]===before+1,{polling:'raf',timeout:30000},{item:expectedItem,before}):delay(1500);
+ if(!mobile){try{await p.keyboard.down('KeyE');await held();}finally{await p.keyboard.up('KeyE');}return;}
  const button=await p.waitForSelector('#survivor-touch-action',{visible:true}),box=await button.boundingBox();assert.ok(box);
- const cdp=await p.createCDPSession();try{await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+box.width/2,y:box.y+box.height/2}]});await delay(4000);}finally{await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await cdp.detach();}
+ const cdp=await p.createCDPSession();try{await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+box.width/2,y:box.y+box.height/2}]});await held();}finally{await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await cdp.detach();}
 }
 try{
  for(const mobile of [false,true]){
@@ -52,7 +54,7 @@ try{
    await corridor(p,room.entrance.outside,room.entrance.inside);assert.equal((await state(p)).activeInterior,room.id,'walked naturally through real door');
    await corridor(p,room.entrance.inside,loot.position);assert.equal((await state(p)).inShelter,false,'ordinary room has no safehouse modal/teleport');
    await p.screenshot({path:`${out}/${name}-${index+1}-interior-before.png`});const amount=(await state(p)).inventory[loot.item];
-   await holdLoot(p,mobile);assert.equal((await state(p)).inventory[loot.item],amount+1,'exactly one room supply granted');
+   await holdLoot(p,mobile,loot.item);assert.equal((await state(p)).inventory[loot.item],amount+1,'exactly one room supply granted');
    let snapshot=await saved(p);assert.equal(snapshot.data.interiorLoot[loot.id],true);assert.equal(snapshot.data.containers.length,baseline.data.containers.length,'ordinary save indices/count unchanged');
    await p.screenshot({path:`${out}/${name}-${index+1}-looted.png`});
    await resume(p);assert.equal((await saved(p)).data.interiorLoot[loot.id],true);const count=(await state(p)).inventory[loot.item];await holdLoot(p,mobile);assert.equal((await state(p)).inventory[loot.item],count,'no repeated loot after reload');
