@@ -62,12 +62,18 @@ export function parseSnapshot(raw: string, mapId: string): Snapshot | null {
     if ('interiorLoot' in s && (!isRecord(s.interiorLoot)
       || Object.keys(s.interiorLoot).length > 64
       || !Object.entries(s.interiorLoot).every(([id, looted]) =>
-        /^room-v1:[A-Za-z0-9_-]{1,128}:supply$/.test(id) && typeof looted === 'boolean'))) return null;
+        /^(?:room-v1:[A-Za-z0-9_-]{1,128}:supply|room-extra-v1:[A-Za-z0-9_-]{1,128}:(?:ammo|medkit|food)|room-tool-v1:[A-Za-z0-9_-]{1,128}:(?:cleaver|wrench))$/.test(id) && typeof looted === 'boolean'))) return null;
     if ('arsenal' in s && !validArsenal(s.arsenal)) return null;
     if ('survivorSystems' in s) {
       const equipment = s.arsenal as Arsenal | undefined ?? createLegacyArsenal(s.hasPistol as boolean, s.ammo as number);
       if (equipment && !s.arsenal && s.pistolEquipped) equipment.equipped='qsz92-9';
       if (!equipment || !validSurvivorSystems(s.survivorSystems, equipment)) return null;
+    }
+    if (isRecord(s.interiorLoot)) for(const [id,taken] of Object.entries(s.interiorLoot)) {
+      if(taken && id.startsWith('room-tool-v1:')) {
+        const tool=id.endsWith(':cleaver')?'cleaver':'wrench';
+        if(!(s.survivorSystems as SurvivorSystems|undefined)?.ownedTools?.includes(tool))return null;
+      }
     }
     if ('encounterVersion' in s && s.encounterVersion !== 1) return null;
     if ('helper' in s) {
