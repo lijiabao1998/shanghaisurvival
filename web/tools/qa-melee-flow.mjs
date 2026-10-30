@@ -48,10 +48,21 @@ try{
  report.checks.push('Offhand pipe animates left and spends no pistol ammunition; bag/pause block attack');
  await p.reload({waitUntil:'networkidle0'});const resume=await p.$('#campaign-mode button');if(resume){for(const b of await p.$$('#campaign-mode button')){if((await b.evaluate(e=>e.textContent)).includes('繼續')){await b.click();break;}}await p.waitForFunction(()=>window.__modu.state().phase==='play');assert.equal((await state(p)).survivorSystems.hands.secondary,'pipe');report.checks.push('Saved dual-hand equipment survives reload');}
  const mobile=await init({width:844,height:390,isMobile:true,hasTouch:true});
+ // Use observed travel rather than assuming real time equals simulated time on software GPU.
+ assert.equal(await mobile.evaluate(()=>window.__modu.combatFixture()),true);
  const mobileOrigin=(await state(mobile)).spawn;const joy=await (await mobile.$('#survivor-joystick')).boundingBox();const moveClient=await mobile.createCDPSession();
- await moveClient.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:joy.x+joy.width/2,y:joy.y+joy.height/2}]});
- await moveClient.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:joy.x+joy.width/2,y:joy.y+3}]});await wait(3000);await moveClient.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
- const moved=(await state(mobile)).spawn;assert.ok(Math.hypot(moved[0]-mobileOrigin[0],moved[1]-mobileOrigin[1])>5,'move away from contextual helper first');
+ const center={x:joy.x+joy.width/2,y:joy.y+joy.height/2};let heading=-Math.PI/2;let walked=false;
+ await moveClient.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[center]});
+ for(let attempt=0;attempt<20;attempt++){
+  const before=(await state(mobile)).spawn;
+  await moveClient.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:center.x+Math.cos(heading)*48,y:center.y+Math.sin(heading)*48}]});
+  await wait(1500);const after=(await state(mobile)).spawn;
+  report.mobileTravel??=[];report.mobileTravel.push({before,after,heading});
+  if(Math.hypot(after[0]-mobileOrigin[0],after[1]-mobileOrigin[1])>6){walked=true;break;}
+  if(Math.hypot(after[0]-before[0],after[1]-before[1])<.2)heading+=Math.PI/2;
+ }
+ await moveClient.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+ assert.ok(walked,'naturally walk away from contextual helper first');
  assert.equal(await mobile.evaluate(()=>window.__modu.combatFixture()),true);
  const box=await (await mobile.$('#survivor-touch-action')).boundingBox();const client=await mobile.createCDPSession();
  await client.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+box.width/2,y:box.y+box.height/2}]});
