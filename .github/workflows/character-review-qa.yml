@@ -1,0 +1,38 @@
+name: Shanghai character models and staged selection review
+on:
+  push:
+    branches: [test/shanghai-character-models-20261030]
+permissions:
+  contents: read
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build and regression tests
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+          for f in tools/test-*.mjs; do node "$f"; done
+          node tools/build-character-review.mjs
+      - name: Install official Chromium
+        run: |
+          npm install --prefix /tmp/browser --no-save playwright@1.56.1
+          /tmp/browser/node_modules/.bin/playwright install --with-deps chromium
+          echo "CHROME_PATH=$(node -e "console.log(require('/tmp/browser/node_modules/playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+      - name: Real model poses and menu interactions (not deployed)
+        run: |
+          python3 -m http.server 4193 --bind 127.0.0.1 --directory web/dist >/tmp/server.log 2>&1 &
+          EVIDENCE_DIR="$GITHUB_WORKSPACE/evidence" node web/tools/qa-character-review.mjs
+          EVIDENCE_DIR="$GITHUB_WORKSPACE/evidence" node web/tools/qa-selection-loading.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shanghai-character-review
+          path: evidence/
+          retention-days: 14

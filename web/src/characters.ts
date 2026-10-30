@@ -7,6 +7,7 @@
  * rider, a hardware-shop owner, a community nurse, a breakfast-stall keeper.
  */
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 export type CharSpec = {
   id: string;
@@ -79,108 +80,131 @@ export type Rig = {
   legR: THREE.Group;
 };
 
-const box = (w: number, h: number, d: number, color: number) =>
-  new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, roughness: 0.92 }));
-
-/** Slide a mesh down from its joint so the group's origin acts as the pivot. */
-const hang = (mesh: THREE.Mesh, y: number, x = 0, z = 0) => {
-  mesh.position.set(x, y, z);
-  return mesh;
-};
+// One shared vertex-colour material; static garment pieces are merged per joint.
+// No textures, skeleton textures, facial meshes or per-frame allocations.
+const clothMaterial = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: .88 });
+const WHITE = 0xf1eee8;
 
 export function buildRig(spec: CharSpec): Rig {
-  const h = spec.height;
-  const legLen = h * 0.50;
-  // Hair top is 1.23 head units above the neck. Match declared standing height.
-  const torsoLen = h * (1 - 0.50 - 0.115 * 1.23);
-  const headSize = h * 0.115;
-  const shoulder = h * 0.23 * spec.build;
-  const depth = h * 0.12;
-  const armLen = h * 0.29;
-
-  const root = new THREE.Group();
-  const body = new THREE.Group();
-  root.add(body);
-
-  // Separate lower limbs give the hips and knees independent pivots while
-  // retaining the original standing height and occupation colours.
-  const makeLeg = (side: number) => {
-    const leg = new THREE.Group();
-    leg.position.set(side * shoulder * 0.32, legLen, 0);
-    const upper = legLen * 0.51;
-    const lower = legLen - upper;
-    leg.add(hang(box(shoulder * 0.34, upper, depth * 0.86, spec.bottom), -upper / 2));
-    const knee = new THREE.Group();
-    knee.position.y = -upper;
-    knee.add(hang(box(shoulder * 0.34, lower, depth * 0.86, spec.bottom), -lower / 2));
-    knee.add(hang(box(shoulder * 0.34, h * 0.03, depth * 0.9, 0x23262a), -lower + h * 0.015));
-    leg.add(knee);
-    body.add(leg);
-    return { leg, knee };
+  const h=spec.height, legLen=h*.50, torsoLen=h*(1-.50-.115*1.23);
+  const headSize=h*.115, shoulder=h*.23*spec.build, depth=h*.12, armLen=h*.29;
+  const root=new THREE.Group(),body=new THREE.Group(),torso=new THREE.Group(),head=new THREE.Group();
+  root.add(body);body.add(torso);torso.position.y=legLen;torso.add(head);head.position.y=torsoLen;
+  root.name=`survivor-${spec.id}`;root.userData.characterId=spec.id;
+  const parts=new Map<THREE.Group,THREE.BufferGeometry[]>();
+  const add=(joint:THREE.Group,g:THREE.BufferGeometry,color:number,x=0,y=0,z=0,rz=0)=>{
+    g.rotateZ(rz);g.translate(x,y,z);
+    const c=new THREE.Color(color),n=g.getAttribute('position').count,colors=new Float32Array(n*3);
+    for(let i=0;i<n;i++)c.toArray(colors,i*3);
+    g.setAttribute('color',new THREE.BufferAttribute(colors,3));
+    if(g.index){const flat=g.toNonIndexed();g.dispose();g=flat;}
+    if(!parts.has(joint))parts.set(joint,[]);parts.get(joint)!.push(g);
   };
-  const { leg: legL, knee: kneeL } = makeLeg(-1);
-  const { leg: legR, knee: kneeR } = makeLeg(1);
-
-  const torso = new THREE.Group();
-  torso.position.set(0, legLen, 0);
-  torso.add(hang(box(shoulder, torsoLen, depth, spec.top), torsoLen / 2));
-  body.add(torso);
-
-  // Occupation silhouette: a second layer over the torso, never a logo.
-  if (spec.gear === 'apron' || spec.gear === 'coat') {
-    const front = box(shoulder * 0.78, torsoLen * 0.92, depth * 0.16, spec.gear === 'coat' ? 0xf1efe8 : spec.accent);
-    torso.add(hang(front, torsoLen * 0.46, 0, depth * 0.55));
-  } else if (spec.gear === 'vest') {
-    const vest = box(shoulder * 1.04, torsoLen * 0.66, depth * 1.06, spec.accent);
-    vest.material = new THREE.MeshStandardMaterial({ color: spec.accent, roughness: 0.7 });
-    torso.add(hang(vest, torsoLen * 0.42));
-  }
-  if (spec.gear === 'bag') {
-    const bag = box(shoulder * 0.52, torsoLen * 0.6, depth * 0.5, spec.accent);
-    torso.add(hang(bag, torsoLen * 0.5, shoulder * 0.42, -depth * 0.7));
-  }
-
-  const head = new THREE.Group();
-  head.position.set(0, torsoLen, 0);
-  const skull = box(headSize, headSize * 1.05, headSize * 0.92, spec.skin);
-  head.add(hang(skull, headSize * 0.55));
-  // Hair reads from above, which is the angle the game is mostly played at.
-  const hair = box(headSize * 1.06, headSize * 0.42, headSize * 1.0, spec.hair);
-  head.add(hang(hair, headSize * 1.02));
-  for (const side of [-1, 1]) {
-    const eye = box(headSize * 0.16, headSize * 0.12, headSize * 0.06, 0x1a1a1c);
-    eye.position.set(side * headSize * 0.24, headSize * 0.58, headSize * 0.47);
-    head.add(eye);
-  }
-  if (spec.gear === 'helmet') {
-    const helmet = box(headSize * 1.18, headSize * 0.5, headSize * 1.1, 0xe8e4d8);
-    head.add(hang(helmet, headSize * 1.12));
-  }
-  if (spec.gear === 'cap') {
-    const cap = box(headSize * 1.06, headSize * 0.26, headSize * 1.0, spec.accent);
-    head.add(hang(cap, headSize * 1.18));
-    head.add(hang(box(headSize * 0.9, headSize * 0.08, headSize * 0.42, spec.accent), headSize * 1.08, 0, headSize * 0.6));
-  }
-  torso.add(head);
-
-  const makeArm = (side: number) => {
-    const arm = new THREE.Group();
-    arm.position.set(side * shoulder * 0.56, torsoLen * 0.94, 0);
-    const upper = armLen * 0.52;
-    const lower = armLen - upper;
-    arm.add(hang(box(shoulder * 0.26, upper, depth * 0.72, spec.top), -upper / 2));
-    const elbow = new THREE.Group();
-    elbow.position.y = -upper;
-    elbow.add(hang(box(shoulder * 0.26, lower, depth * 0.72, spec.top), -lower / 2));
-    elbow.add(hang(box(shoulder * 0.22, h * 0.055, depth * 0.74, spec.skin), -lower + h * 0.03));
-    arm.add(elbow);
-    return { arm, elbow };
+  const box=(j:THREE.Group,w:number,ht:number,d:number,c:number,x=0,y=0,z=0,rz=0)=>add(j,new THREE.BoxGeometry(w,ht,d),c,x,y,z,rz);
+  const cyl=(j:THREE.Group,rt:number,rb:number,ht:number,c:number,x=0,y=0,z=0,sx=1,sz=1)=>{
+    const g=new THREE.CylinderGeometry(rt,rb,ht,10);g.scale(sx,1,sz);add(j,g,c,x,y,z);
   };
-  const { arm: armL, elbow: elbowL } = makeArm(-1);
-  const { arm: armR, elbow: elbowR } = makeArm(1);
-  torso.add(armL, armR);
-
-  return { root, body, torso, head, armL, armR, elbowL, elbowR, legL, legR, kneeL, kneeR };
+  const dark=new THREE.Color(spec.top).multiplyScalar(.62).getHex();
+  // Shaped shirt: narrower waist, shoulder yoke and a small standing collar.
+  cyl(torso,shoulder*.49,shoulder*.40,torsoLen*.86,spec.top,0,torsoLen*.47,0,1,depth/shoulder);
+  cyl(torso,shoulder*.39,shoulder*.49,torsoLen*.12,spec.top,0,torsoLen*.94,0,1,depth/shoulder);
+  cyl(torso,headSize*.30,headSize*.34,h*.045,dark,0,torsoLen*.99,0,1,.8);
+  box(torso,shoulder*.83,h*.025,depth*1.02,0x303439,0,h*.015);
+  box(torso,h*.035,h*.025,.014,0xb4aa86,0,h*.015,depth*.54);
+  // White, smooth egg silhouette: no eyes, nose, mouth or hair.
+  const points=[[0,0],[.25,.02],[.43,.22],[.50,.55],[.47,.86],[.34,1.08],[0,1.18]].map(([r,y])=>new THREE.Vector2(r*headSize,y*headSize));
+  const egg=new THREE.LatheGeometry(points,16);egg.scale(.97,1,.94);add(head,egg,WHITE,0,headSize*.02,0);
+  head.userData.faceless=true;
+  const makeLeg=(side:number)=>{
+    const leg=new THREE.Group(),knee=new THREE.Group();leg.position.set(side*shoulder*.32,legLen,0);body.add(leg);
+    const upper=legLen*.51,lower=legLen-upper;leg.add(knee);knee.position.y=-upper;
+    cyl(leg,shoulder*.18,shoulder*.155,upper,spec.bottom,0,-upper/2,0,1,.93);
+    cyl(knee,shoulder*.155,shoulder*.13,lower-h*.025,spec.bottom,0,-(lower-h*.025)/2,0,1,.96);
+    box(knee,shoulder*.31,h*.055,depth*1.15,0x252a2f,0,-lower+h*.0275,depth*.13);
+    box(knee,shoulder*.32,h*.012,depth*1.18,0x596064,0,-lower+h*.006,depth*.13);
+    return {leg,knee};
+  };
+  const {leg:legL,knee:kneeL}=makeLeg(-1),{leg:legR,knee:kneeR}=makeLeg(1);
+  const makeArm=(side:number)=>{
+    const arm=new THREE.Group(),elbow=new THREE.Group();torso.add(arm);arm.position.set(side*shoulder*.56,torsoLen*.94,0);
+    const upper=armLen*.52,lower=armLen-upper;arm.add(elbow);elbow.position.y=-upper;
+    cyl(arm,shoulder*.145,shoulder*.125,upper,spec.top,0,-upper/2,0,1,.95);
+    cyl(elbow,shoulder*.125,shoulder*.10,lower-h*.04,spec.top,0,-(lower-h*.04)/2,0,1,.95);
+    cyl(elbow,shoulder*.11,shoulder*.11,h*.025,dark,0,-lower+h*.047);
+    cyl(elbow,shoulder*.095,shoulder*.09,h*.055,WHITE,0,-lower+h*.018,0,1,.83);
+    return {arm,elbow};
+  };
+  const {arm:armL,elbow:elbowL}=makeArm(-1),{arm:armR,elbow:elbowR}=makeArm(1);
+  const front=depth*.54;
+  const pocket=(x:number,y:number,c=dark)=>box(torso,shoulder*.23,torsoLen*.17,.025,c,x,y,front+.015);
+  const strap=(x:number,c=spec.accent)=>box(torso,shoulder*.07,torsoLen*.88,.023,c,x,torsoLen*.48,front+.025);
+  const apron=(c:number)=>{
+    box(torso,shoulder*.65,torsoLen*.58,.032,c,0,torsoLen*.55,front+.015);
+    box(torso,shoulder*.89,torsoLen*.37,.04,c,0,torsoLen*.075,front+.022);
+    strap(-shoulder*.22,c);strap(shoulder*.22,c);pocket(0,torsoLen*.30,dark);
+  };
+  const cap=(c:number)=>{
+    cyl(head,headSize*.48,headSize*.53,headSize*.20,c,0,headSize*1.11,0,1,.98);
+    box(head,headSize*.95,headSize*.045,headSize*.48,c,0,headSize*1.01,headSize*.39);
+  };
+  const coat=()=>{
+    for(const side of [-1,1]){
+      box(torso,shoulder*.40,torsoLen*.96,.035,0xe9e8df,side*shoulder*.23,torsoLen*.37,front+.015);
+      box(torso,shoulder*.12,torsoLen*.29,.04,spec.accent,side*shoulder*.14,torsoLen*.78,front+.04,side*.28);
+      pocket(side*shoulder*.25,torsoLen*.28,0xc8cfc9);
+    }
+  };
+  // Each role has a distinct shape, not just a recoloured base body.
+  switch(spec.id){
+    case 'guard':
+      cap(0x293744);for(const side of [-1,1]){strap(side*shoulder*.29,0xd6c477);pocket(side*shoulder*.25,torsoLen*.52,0x1e2a37);}
+      box(torso,.065,.12,.055,0x20272a,-shoulder*.32,torsoLen*.80,front+.04);
+      box(torso,.009,.08,.009,0x363b40,-shoulder*.32,torsoLen*.94,front+.04);break;
+    case 'rider':{
+      const dome=new THREE.SphereGeometry(headSize*.59,12,8,0,Math.PI*2,0,Math.PI*.52);add(head,dome,0xf3c638,0,headSize*.84,0);
+      box(torso,shoulder*.96,torsoLen*.90,depth*.83,0xd9a82a,0,torsoLen*.48,-depth*.91);
+      box(torso,shoulder*.99,torsoLen*.08,depth*.88,0xf3e6ae,0,torsoLen*.88,-depth*.91);
+      strap(-shoulder*.28,0x343a3e);strap(shoulder*.28,0x343a3e);break;}
+    case 'hardware':
+      apron(0x826343);for(const side of [-1,1]){box(torso,.028,.18,.028,0xa9afb0,side*.07,torsoLen*.33,front+.055);box(torso,.05,.06,.028,0x343b3b,side*.07,torsoLen*.43,front+.055);}break;
+    case 'nurse':
+      coat();box(torso,.065,.08,.012,0x6f9da9,-shoulder*.23,torsoLen*.73,front+.06);
+      box(torso,.16,.18,.10,0xaec4c9,shoulder*.58,torsoLen*.12,0);break;
+    case 'teacher':
+      for(const side of [-1,1])box(torso,shoulder*.14,torsoLen*.30,.03,0x95765b,side*shoulder*.14,torsoLen*.75,front+.03,side*.3);
+      box(torso,.19,.23,.09,0x856448,shoulder*.56,torsoLen*.15,0);strap(shoulder*.30,0x856448);
+      box(torso,.145,.035,.095,0xe3d8b6,shoulder*.56,torsoLen*.34,0);break;
+    case 'stall':
+      apron(0x983f35);box(head,headSize*1.02,headSize*.14,headSize*.96,0xb55347,0,headSize*1.07);
+      box(head,headSize*.30,headSize*.32,headSize*.20,0xb55347,headSize*.44,headSize*.91,-headSize*.38);break;
+    case 'driver':
+      cap(0x2d4859);box(torso,.045,torsoLen*.48,.025,0xd2bc7b,0,torsoLen*.66,front+.02);
+      for(const side of [-1,1]){pocket(side*shoulder*.25,torsoLen*.63);box(torso,.09,.025,.08,0xc4c5ad,side*shoulder*.35,torsoLen*.94,0);}break;
+    case 'barber':
+      apron(0x343338);for(const side of [-1,1])box(torso,.015,.13,.014,0xbcc3c4,side*.035,torsoLen*.43,front+.06,side*.3);
+      box(torso,.06,.12,.02,0x797e80,shoulder*.22,torsoLen*.40,front+.05);break;
+    case 'sparky':
+      cyl(head,headSize*.48,headSize*.58,headSize*.27,0xd99939,0,headSize*1.10,0,1,1);
+      box(head,headSize*1.24,headSize*.045,headSize*1.13,0xd99939,0,headSize*.97);
+      for(const side of [-1,1]){box(torso,.12,.13,.085,0x91693c,side*shoulder*.40,torsoLen*.10,front);strap(side*shoulder*.27,0xcfa457);}break;
+    case 'pharmacy':
+      for(const side of [-1,1]){box(torso,shoulder*.38,torsoLen*.75,.045,0x5a947b,side*shoulder*.24,torsoLen*.48,front+.02);pocket(side*shoulder*.23,torsoLen*.30,0x416e5d);}
+      box(torso,.08,.07,.018,0xe1e9da,-shoulder*.23,torsoLen*.70,front+.05);break;
+    case 'student':
+      box(torso,shoulder*.69,torsoLen*.73,depth*.60,0x445782,0,torsoLen*.45,-depth*.78);
+      box(torso,shoulder*.60,torsoLen*.22,depth*.15,0x6b80b3,0,torsoLen*.23,-depth*1.14);
+      strap(-shoulder*.28,0x465675);strap(shoulder*.28,0x465675);
+      for(const arm of [armL,armR])box(arm,.027,armLen*.45,depth*.75,0xe1e3dc,0,-armLen*.24);break;
+    case 'chef':
+      coat();cyl(head,headSize*.52,headSize*.48,headSize*.45,0xf0efe7,0,headSize*1.30,0);
+      for(const side of [-1,1])for(const y of [.40,.57,.74])box(torso,.022,.022,.018,0x36383a,side*shoulder*.13,torsoLen*y,front+.05);
+      box(torso,shoulder*.9,.045,depth*1.08,0x303337,0,torsoLen*.10);break;
+  }
+  for(const [joint,geometries] of parts){
+    const merged=mergeGeometries(geometries,false)!;geometries.forEach(g=>g.dispose());
+    const mesh=new THREE.Mesh(merged,clothMaterial);mesh.name=joint===head?'faceless-white-head':'garment-batch';joint.add(mesh);
+  }
+  return {root,body,torso,head,armL,armR,elbowL,elbowR,legL,legR,kneeL,kneeR};
 }
 
 /** A held tool, pivoting from the right hand. */

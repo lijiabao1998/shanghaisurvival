@@ -201,9 +201,24 @@
     #side { pointer-events:auto; } #side .side-title button { float:right; color:inherit; background:none; border:0; cursor:pointer; }
     #side.bag-open { display:block; z-index:40; width:min(330px,calc(100vw - 48px)); right:24px; top:100px; padding:18px; background:#111d19; max-height:60vh; overflow:auto; }
     @media(any-pointer:coarse) { #dispatch { bottom:166px; padding:8px 12px; } #hint { display:none; } #hud { top:65px; } #side:not(.bag-open) { display:none; } }
+
+    #entry-loading{position:fixed;inset:0;z-index:200;display:grid;place-items:center;padding:24px;background:#101917;color:#eee7d6;text-align:center;font:14px system-ui}
+    #entry-loading[hidden],#overlay [hidden]{display:none!important}
+    .entry-box{width:min(100%,380px)}.entry-box h2{font-size:24px;letter-spacing:.14em}.entry-box p{line-height:1.9;min-height:54px}.entry-box small{color:#9cae9d}
+    .entry-mark{height:64px;display:flex;align-items:end;justify-content:center;gap:8px;margin:0 auto 32px}.entry-mark i{width:18px;height:42px;background:#d2bc8a;animation:entry-breathe 1.5s ease-in-out infinite}.entry-mark i:nth-child(2){height:58px;animation-delay:.2s}.entry-mark i:nth-child(3){animation-delay:.4s}
+    @keyframes entry-breathe{50%{opacity:.25;transform:translateY(-7px)}}
+    #entry-loading.failed .entry-mark i{animation:none;background:#bb826d}#entry-retry{padding:12px 24px;margin:10px;border:1px solid #ddc393;background:#334238;color:#fff;font:inherit;min-height:44px;cursor:pointer}
+    #selection-steps{display:flex;gap:18px;padding:16px 0;margin-bottom:18px;border-top:1px solid #384039;border-bottom:1px solid #384039;color:#94a193;font-size:12px}#selection-steps span{flex:1}#selection-steps b{display:inline-block;margin-right:6px;font-size:18px}#selection-steps [aria-current]{color:#eed39a}
+    #selection-role-stage{display:grid;grid-template-columns:160px 1fr;gap:18px}#role-categories{display:flex;flex-direction:column;gap:8px}#role-categories button,#selection-back,#resume-existing button{min-height:44px;padding:10px 12px;background:#1b2821;border:1px solid #465347;color:#cbd5c9;text-align:left;font:12px inherit;cursor:pointer;border-radius:3px}#role-categories button[aria-pressed=true]{background:#394331;border-color:#c6ad7a;color:#f4dda8}
+    #selection-role-stage .roster{grid-template-columns:repeat(4,minmax(0,1fr))}.who .face{width:32px;height:40px;border:0;box-shadow:none;background:var(--shirt);border-radius:7px 7px 2px 2px;position:relative;margin-top:15px}.who .face:before{content:'';position:absolute;top:-14px;left:8px;width:16px;height:20px;border-radius:48%;background:#eeeae0}#pick small{display:block;color:#9aa895;font-size:11px;margin-top:5px}#selection-back{margin-right:12px;min-height:50px;font-size:14px}.selection-eyebrow{display:block;font-size:10px;letter-spacing:.15em;color:#b9aa87}#selection-summary{padding:24px;margin-bottom:20px;background:#1a2821;border:1px solid #485448}#selection-summary h2{font-size:25px}#selection-summary p,#selection-summary small{line-height:1.9;color:#bbc7b9}#selection-summary hr{border:0;border-top:1px solid #455044;margin:22px 0}#resume-existing{margin-bottom:16px}#resume-existing button{border-color:#8ba58b;color:#e5eddc}
+    @media(max-width:600px){#selection-role-stage{display:block}#role-categories{flex-direction:row;overflow:auto;padding-bottom:12px;margin-bottom:8px;gap:6px}#role-categories button{flex:0 0 auto;white-space:nowrap}#selection-role-stage .roster{grid-template-columns:repeat(3,minmax(0,1fr))}#selection-steps{gap:6px;font-size:11px}#selection-steps b{display:block;margin-bottom:4px}#selection-back{width:100%;margin:0 0 10px;text-align:center}#selection-summary{padding:18px}.card .sub{font-size:12px;margin-bottom:14px}.menu-edition{margin-bottom:14px}#resume-existing button{width:100%;text-align:center}}
+    @media(prefers-reduced-motion:reduce){.entry-mark i{animation:none!important}}
   </style>
 </head>
 <body>
+  <section id="entry-loading" role="status" aria-live="polite" aria-busy="true">
+    <div class="entry-box"><span class="entry-mark" aria-hidden="true"><i></i><i></i><i></i></span><span class="selection-eyebrow">SHANGHAI SURVIVORS</span><h2>正在走進弄堂</h2><p id="entry-status">正在啟動遊戲程式…</p><button id="entry-retry" type="button" hidden>重新載入</button><small>準備街區與角色，請稍候。</small></div>
+  </section>
   <canvas id="c"></canvas>
   <div id="vignette"></div>
   <div id="hurt"></div>
@@ -264,6 +279,17 @@
     </div>
   </div>
 
-  <script type="module" src="/src/survival.ts"></script>
+  <script>
+    // This guard also works if the module fails before its loader can initialize.
+    function showBootFailure() {
+      const panel=document.getElementById('entry-loading');
+      if(panel.hidden)return;
+      panel.classList.add('failed');panel.setAttribute('aria-busy','false');
+      document.getElementById('entry-status').textContent='遊戲程式未能啟動。請重新載入；若持續失敗，請確認網路或瀏覽器的 WebGL 支援。';
+      const retry=document.getElementById('entry-retry');retry.hidden=false;retry.onclick=()=>location.reload();
+    }
+    addEventListener('error',showBootFailure);
+  </script>
+  <script type="module" src="/src/survival.ts" onerror="showBootFailure()"></script>
 </body>
 </html>

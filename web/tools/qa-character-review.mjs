@@ -1,0 +1,6 @@
+import puppeteer from 'puppeteer-core';
+import assert from 'node:assert/strict';
+import {mkdir,writeFile} from 'node:fs/promises';
+const output=process.env.EVIDENCE_DIR||'evidence';await mkdir(output,{recursive:true});
+const browser=await puppeteer.launch({executablePath:process.env.CHROME_PATH,headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+const errors=[];try{const page=await browser.newPage();page.on('pageerror',e=>errors.push(e.message));for(const [device,width,height] of [['desktop',1440,1200],['mobile',390,844]]){await page.setViewport({width,height,isMobile:device==='mobile',hasTouch:device==='mobile'});await page.goto('http://127.0.0.1:4193/character-review.html');await page.waitForSelector('body[data-ready=true]');assert.equal(await page.$$eval('.card canvas',c=>c.length),12);for(const pose of ['idle','walk','melee']){await page.click(`[data-pose=${pose}]`);await page.waitForFunction(p=>document.body.dataset.pose===p,{},pose);await page.screenshot({path:`${output}/${device}-models-${pose}.png`,fullPage:true});}}assert.deepEqual(errors,[]);await writeFile(`${output}/models-report.json`,JSON.stringify({commit:process.env.GITHUB_SHA,realBuildRig:true,poses:['idle','walk','melee'],characters:12,errors},null,2));}finally{await browser.close();}

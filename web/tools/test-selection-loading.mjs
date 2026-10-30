@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const runtime=readFileSync(new URL('../src/survival.ts',import.meta.url),'utf8');
+const html=readFileSync(new URL('../survival.html',import.meta.url),'utf8');
+const loader=readFileSync(new URL('../src/entry-loading.ts',import.meta.url),'utf8');
+const menu=runtime.slice(runtime.indexOf('function buildMenu()'),runtime.indexOf('// Campaign persistence'));
+for(const id of ['guard','rider','driver','hardware','sparky','nurse','pharmacy','teacher','student','stall','barber','chef'])assert.equal((menu.match(new RegExp(`'${id}'`,'g'))||[]).length,1,`${id} belongs to exactly one explicit group`);
+assert.ok(menu.includes('setStep(step-1)'));assert.ok(menu.includes("step===2?'進入街區':'下一步 →'"));
+assert.ok(menu.includes('else start(selected)'));assert.ok(!menu.includes('saveSnapshot'));
+assert.ok(runtime.includes('if (entering) return'));assert.ok(runtime.includes('finally { entering = false; }'));
+assert.ok(runtime.includes("loadingStage(resume ?"));assert.ok(runtime.includes('frame(0); renderer.render(scene, camera);\n  await paintOpportunity();\n  loadingDone()'));
+assert.ok(loader.includes("panel.classList.add('failed')"));assert.ok(html.includes('prefers-reduced-motion:reduce'));assert.ok(html.includes('onerror="showBootFailure()"'));
+console.log('PASS static grouping (12 IDs exactly once), three-stage/back/start boundary, real loader/render milestones, entry guard, accessible retry and reduced-motion CSS. Browser proof remains separate.');

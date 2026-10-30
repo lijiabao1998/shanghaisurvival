@@ -1,3 +1,4 @@
+import { loadingStage, loadingDone, loadingFailed, paintOpportunity } from './entry-loading';
 import { createSurvivorSystems, migrateSurvivorSystems, equipHand, carriedWeight, loadEffects, injureBody, stepBody, treatBody } from './survivor-systems';
 import { installSurvivorPanel } from './survivor-panel';
 import { WEAPONS, WEAPON_IDS, createLegacyArsenal, grantWeapon, grantAmmo, equipWeapon, consumeRound, type Arsenal, type WeaponId } from './arsenal';
@@ -1177,8 +1178,14 @@ function placeContainer(): { x: number; z: number } {
   return { x: px + 4, z: pz + 4 };
 }
 
-function start(chosen: CharSpec, resume: Snapshot | null = null) {
+let entering = false;
+async function start(chosen: CharSpec, resume: Snapshot | null = null) {
+  if (entering) return;
   if(mode==='sandbox'&&!resume&&savedGame?.status==='alive'&&!confirm('開始新沙盒會覆寫此候選版本進度；舊正式版存檔仍保留。確定開始？')) {el.overlay.classList.add('on');return;}
+  entering = true;
+  loadingStage(resume ? '正在恢復角色、物資與街區進度…' : '正在準備角色與新的街區…');
+  await paintOpportunity();
+  try {
   if(!resume)savedGame=null;
   elapsed=0; inShelter=false; shelterPanel.classList.remove('room-view');document.body.classList.remove('inspecting-shelter');resize(); helperOpen=false;helperPanel.hidden=true;helperState=createHelperState(); stash=emptyInventory(); restCount=0; saveTimer=0; saveWarning='';
   shelterPanel.hidden=true;
@@ -1218,6 +1225,12 @@ function start(chosen: CharSpec, resume: Snapshot | null = null) {
   if(mode==='sandbox')updateDaylight();
   if(inShelter) showShelter();
   persistCampaign();
+  loadingStage('正在繪製第一個遊戲畫面…');
+  frame(0); renderer.render(scene, camera);
+  await paintOpportunity();
+  loadingDone();
+  } catch (error) { loadingFailed(error); }
+  finally { entering = false; }
 }
 
 function showOverlay(title: string, body: string, button: string, stats?: [string, string][]) {
@@ -1225,6 +1238,7 @@ function showOverlay(title: string, body: string, button: string, stats?: [strin
   const card = el.overlay.querySelector<HTMLElement>('.card')!;
   el.overlay.querySelector('h1')!.textContent = title;
   el.overlay.querySelector('.sub')!.innerHTML = body;
+  for(const id of ['selection-steps','selection-role-stage','selection-summary','selection-back','resume-existing'])document.getElementById(id)?.setAttribute('hidden','');
   el.roster.style.display = 'none';
   el.roster.innerHTML = '';
   card.querySelector('#stats')?.remove();
@@ -1278,35 +1292,53 @@ function lose(reason = '沒能走出這條弄堂。') {
 function buildMenu() {
   installCampaignUI();
   installHelperUI();
-  el.roster.style.display = '';
-  el.pick.style.display = '';
-  el.roster.innerHTML = '';
-  for (const c of ROSTER) {
-    const card = document.createElement('button');card.type='button';card.setAttribute('aria-pressed','false');
-    card.className = 'who';
-    const face = document.createElement('div');
-    face.className = 'face';
-    face.style.background = `linear-gradient(160deg, #${c.hair.toString(16).padStart(6, '0')} 0 34%, #${c.skin.toString(16).padStart(6, '0')} 34% 100%)`;
-    face.style.borderTop = `3px solid #${c.top.toString(16).padStart(6, '0')}`;
-    const nm = document.createElement('div');
-    nm.className = 'nm'; nm.textContent = c.name;
-    const jb = document.createElement('div');
-    jb.className = 'jb'; jb.textContent = c.job;
-    const sx = document.createElement('div');
-    sx.className = 'sx'; sx.textContent = c.sex === 'f' ? '女' : '男';
-    card.append(face, nm, jb, sx);
-    card.onclick = () => {
-      el.roster.querySelectorAll('.who').forEach(w => {w.classList.remove('sel');w.setAttribute('aria-pressed','false');});
-      card.classList.add('sel');card.setAttribute('aria-pressed','true');
-      el.pick.className = '';
-      el.pick.innerHTML = `<b>${c.name}</b>·${c.job}·${c.sex === 'f' ? '女' : '男'}——${c.blurb}`;
-      el.ovBtn.disabled = false;
-      spec = c;
-    };
-    el.roster.appendChild(card);
+  const modes = document.querySelector<HTMLElement>('#campaign-mode')!;
+  const note = document.querySelector<HTMLElement>('#campaign-note')!;
+  const steps = document.createElement('nav'); steps.id = 'selection-steps'; steps.setAttribute('aria-label','開局步驟');
+  const stage = document.createElement('div'); stage.id = 'selection-role-stage';
+  const categories = document.createElement('div'); categories.id = 'role-categories'; categories.setAttribute('role','group'); categories.setAttribute('aria-label','職業背景分類');
+  el.roster.before(steps,stage); steps.after(modes,note); stage.append(categories,el.roster);
+  const summary = document.createElement('section'); summary.id = 'selection-summary';
+  const back = document.createElement('button'); back.type='button'; back.id='selection-back';back.textContent='← 上一步';
+  el.ovBtn.before(summary,back);
+  const groups = [
+    ['all','全部角色',ROSTER.map(c=>c.id)],
+    ['watch','守望與出行',['guard','rider','driver']],
+    ['craft','技術與修繕',['hardware','sparky']],
+    ['care','照護與教育',['nurse','pharmacy','teacher','student']],
+    ['neighbour','街坊與餐飲',['stall','barber','chef']],
+  ] as const;
+  let selected: CharSpec | null = null, step=0;
+  const setStep = (next: number) => {
+    step=Math.max(0,Math.min(2,next)); el.overlay.dataset.selectionStep=String(step);
+    steps.innerHTML=['選擇角色','開局方式','確認出發'].map((name,i)=>`<span ${i===step?'aria-current="step"':''}><b>0${i+1}</b> ${name}</span>`).join('');
+    stage.hidden=step!==0; modes.hidden=step!==1; note.hidden=step!==1; summary.hidden=step!==2;
+    el.pick.style.display=step===0?'':'none'; back.hidden=step===0;
+    el.ovBtn.textContent=step===2?'進入街區':'下一步 →'; el.ovBtn.disabled=!selected;
+    if(selected) summary.innerHTML=`<span class="selection-eyebrow">你的倖存者</span><h2>${selected.name} · ${selected.job}</h2><p>${selected.blurb}</p><hr><span class="selection-eyebrow">出發資訊</span><h3>${mode==='sandbox'?'生存沙盒 · 持久存檔':'8分鐘快速撤離 · 獨立挑戰'}</h3><p>${mode==='sandbox'?'返回藍色門標的安全屋，存放物資並生存下去。':'搜刮至少三處，最後一分鐘回到綠圈接應。'}</p><small>只有確認進入才會開始新遊戲；返回不會覆寫存檔。角色職業只影響外觀，沒有隱藏能力加成。</small>`;
+  };
+  for(const [id,label,ids] of groups){
+    const button=document.createElement('button'); button.type='button';button.dataset.category=id;
+    button.textContent=`${label} · ${ids.length}`;button.setAttribute('aria-pressed',String(id==='all'));
+    button.onclick=()=>{categories.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',String(b===button)));el.roster.querySelectorAll<HTMLElement>('.who').forEach(card=>{card.hidden=!(ids as readonly string[]).includes(card.dataset.character!);});};
+    categories.append(button);
   }
-  el.ovBtn.disabled = true;
-  el.ovBtn.onclick = () => { el.overlay.classList.remove('on'); start(spec); };
+  el.roster.innerHTML='';
+  for(const c of ROSTER){
+    const card=document.createElement('button');card.type='button';card.className='who';card.dataset.character=c.id;card.setAttribute('aria-pressed','false');
+    const face=document.createElement('div');face.className='face';face.setAttribute('aria-hidden','true');face.style.setProperty('--shirt',`#${c.top.toString(16).padStart(6,'0')}`);
+    const nm=document.createElement('div');nm.className='nm';nm.textContent=c.name;
+    const jb=document.createElement('div');jb.className='jb';jb.textContent=c.job;
+    card.append(face,nm,jb);
+    card.onclick=()=>{selected=c;spec=c;el.roster.querySelectorAll('.who').forEach(w=>{w.classList.toggle('sel',w===card);w.setAttribute('aria-pressed',String(w===card));});el.pick.className='';el.pick.innerHTML=`<b>${c.name}</b> · ${c.job}<br>${c.blurb}<small>職業為外觀背景，所有角色使用相同生存規則。</small>`;el.ovBtn.disabled=false;};
+    el.roster.append(card);
+  }
+  back.onclick=()=>{setStep(step-1);el.ovBtn.focus();};
+  el.ovBtn.onclick=()=>{if(!selected)return;if(step<2){setStep(step+1);back.focus();}else start(selected);};
+  // Continue stays available on the first screen, without changing the selected new-game character.
+  const resume=modes.querySelector<HTMLButtonElement>('button:last-child:nth-child(3)');
+  if(resume){const resumeBar=document.createElement('div');resumeBar.id='resume-existing';resumeBar.append(resume);steps.before(resumeBar);}
+  setStep(0);
 }
 
 // Campaign persistence owns one atomic snapshot: loot depletion and inventory never save separately.
@@ -1473,7 +1505,7 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden&&phase==='p
 // ---------------------------------------------------------------- 主循環
 
 function frame(dt: number) {
-  if (phase === 'play' && !paused && !bagOpen && !inShelter && !helperOpen) {
+  if (phase === 'play' && !entering && !paused && !bagOpen && !inShelter && !helperOpen) {
     if(mode==='quick')timeLeft -= dt;
     else { elapsed += dt; timeLeft = NIGHT_SECONDS - elapsed; updateDaylight(); refreshSupplySites(); }
     const nearbyThreat = zombies.some(z => z.faction.id === 'infected' && z.state !== 'dead' && Math.hypot(z.x - px, z.z - pz) < 4 && canSee(z.x, z.z, px, pz));
@@ -1559,9 +1591,12 @@ resize();
 
 // ---------------------------------------------------------------- 啟動
 
+loadingStage('正在讀取上海街區資料…');
 fetch(dataUrl)
   .then(r => { if (!r.ok) throw new Error(`資料載入失敗 ${r.status}`); return r.json() as Promise<GameBlock>; })
-  .then(data => {
+  .then(async data => {
+    loadingStage('正在建立街區、角色與安全屋…');
+    await paintOpportunity();
     block = data;
     landmarks = data.landmarks ?? [];
     const grid = wallGridOf(data, false);
@@ -1668,12 +1703,16 @@ fetch(dataUrl)
 
     if (params.has('play')) {
       el.overlay.classList.remove('on');
-      start(ROSTER[0]);
+      await start(ROSTER[0]);
     }
 
+    loadingStage('正在繪製街區預覽…');
     animate();
+    await paintOpportunity();
+    loadingDone();
   })
   .catch(err => {
+    loadingFailed(err);
     el.hint.textContent = `無法載入場景：${String(err)}`;
     console.error(err);
   });

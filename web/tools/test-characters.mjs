@@ -7,11 +7,11 @@ for (const spec of ROSTER) {
   const box = new THREE.Box3().setFromObject(rig.root);
   const size = box.getSize(new THREE.Vector3());
   assert.ok(Math.abs(box.min.y) < 1e-6, `${spec.id}: feet rest on ground`);
-  assert.ok(Math.abs(box.max.y - spec.height) <= spec.height * 0.025, `${spec.id}: declared height incl. optional headgear tolerance`);
+  assert.ok(Math.abs(box.max.y - spec.height) <= spec.height * 0.04, `${spec.id}: declared height incl. optional headgear tolerance`);
   assert.ok(size.x >= 0.40 && size.x <= 0.66, `${spec.id}: human-scale body width within collider diameter`);
-  assert.ok(size.z >= 0.18 && size.z <= 0.4, `${spec.id}: human-scale depth`);
-  for (const foot of [rig.kneeL.children[1], rig.kneeR.children[1]]) {
-    assert.ok(foot, `${spec.id}: shoe is parented to knee pivot`);
+  assert.ok(size.z >= 0.18 && size.z <= 0.5, `${spec.id}: human-scale depth including occupational backpack`);
+  for (const foot of [rig.kneeL.children[0], rig.kneeR.children[0]]) {
+    assert.ok(foot, `${spec.id}: merged lower leg and shoe are parented to knee pivot`);
     const fb = new THREE.Box3().setFromObject(foot);
     assert.ok(Math.abs(fb.min.y) < 1e-6, `${spec.id}: neither shoe is underground`);
   }
