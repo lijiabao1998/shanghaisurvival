@@ -1,3 +1,4 @@
+import { planInteriorRooms, roomFurnitureCollision, createInteriorRoomGeometry, type InteriorRoom } from './interior-rooms';
 import { createSurvivorSystems, migrateSurvivorSystems, equipHand, carriedWeight, loadEffects, injureBody, stepBody, treatBody } from './survivor-systems';
 import { installSurvivorPanel } from './survivor-panel';
 import { WEAPONS, WEAPON_IDS, createLegacyArsenal, grantWeapon, grantAmmo, equipWeapon, consumeRound, type Arsenal, type WeaponId } from './arsenal';
@@ -10,6 +11,9 @@ import { createCityVisibility } from './city-visibility';
 import { createLilongInterior, createShelterFloor, shelterInspectionPoints } from './shanghai-details';
 import { roadGeometries, nearbyRoadName, type StreetRoad } from './road-geometry';
 import { viewHeight, roomViewHeight } from './view';
+import { daylightProfile } from './daylight';
+import { createStreetDetails } from './street-details';
+let streetDetails: ReturnType<typeof createStreetDetails>|null=null;
 import { emptyInventory, replenishCaches, applyCacheLoot, loadSnapshot, saveSnapshot, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
 import { selectShelter, type Shelter } from './shelter';
 import { installTouchControls } from './touch-controls';
@@ -320,13 +324,17 @@ function buildZombies() {
 
 let block: GameBlock;
 let collides: (x: number, z: number, r?: number) => boolean;
+let baseWallCollision: typeof collides;
+let interiorRooms: InteriorRoom[]=[];
+const roomInsideTests=new Map<string,(x:number,z:number)=>boolean>();
+function activeInterior(){return interiorRooms.find(r=>roomInsideTests.get(r.id)?.(px,pz));}
 let insideBuilding: (x: number, z: number) => boolean;
 let landmarks: Landmark[] = [];
 let bounds = { minX: 0, maxX: 250, minY: 0, maxY: 250 };
 let px = 0, pz = 0, py = 0, vy = 0, facing = 0;
 let grounded = true;
 
-type Container = { x: number; z: number; mesh: THREE.Mesh; looted: boolean; cacheKind?: 'water'|'food'|'ammo'; cacheDay?: number };
+type Container = { x: number; z: number; mesh: THREE.Mesh; looted: boolean; cacheKind?: 'water'|'food'|'ammo'; cacheDay?: number; roomId?: string; roomItem?: 'water'|'food'|'battery'; roomLabel?: string; roomPosition?: [number,number] };
 const CACHE_RULES = {water:{name:'藍色互助水箱',seconds:2.5,noise:30,color:0x45cce3},food:{name:'綠色食物交接箱',seconds:3.5,noise:45,color:0x84c75a},ammo:{name:'紅色封鎖物資箱',seconds:5,noise:70,color:0xe65d4d}};
 const cacheMaterials=Object.fromEntries(Object.entries(CACHE_RULES).map(([id,r])=>[id,new THREE.MeshStandardMaterial({color:r.color,emissive:r.color,emissiveIntensity:.8})])) as Record<'water'|'food'|'ammo',THREE.MeshStandardMaterial>;
 const containers: Container[] = [];
@@ -957,7 +965,7 @@ function updateLoot(dt: number) {
 
   el.prompt.classList.add('on');
   const rule=lootTarget.cacheKind?CACHE_RULES[lootTarget.cacheKind]:null;
-  el.promptText.textContent=rule?`${rule.name}｜按住${rule.seconds}秒，聲響${rule.noise}m`:'按住 E 搜刮';
+  el.promptText.textContent=lootTarget.roomId?`${lootTarget.roomLabel}｜按住 E 搜刮一次`:rule?`${rule.name}｜按住${rule.seconds}秒，聲響${rule.noise}m`:'按住 E 搜刮';
   const holding = keys.has('KeyE');
   if (holding) {
     if (action !== 'loot') { action = 'loot'; actionT = 0; actionDur = 1e9; }
@@ -967,7 +975,10 @@ function updateLoot(dt: number) {
     setRing(lootProgress);
 
     if (lootProgress >= 1) {
-      if(lootTarget.cacheKind) {
+      if(lootTarget.roomId&&lootTarget.roomItem){
+        const item=lootTarget.roomItem;if(inventory[item]>=999){flashHint('背包已滿，物資保留。');lootProgress=0;return;}
+        inventory[item]+=1;lootTarget.looted=true;flashHint(`${lootTarget.roomLabel}：找到${ITEMS[item].label}。這處物資已取走。`);
+      } else if(lootTarget.cacheKind) {
         const kind=lootTarget.cacheKind;
         if(!applyCacheLoot(inventory,lootTarget)){flashHint('背包數量已滿，未領走補給。');lootProgress=0;return;}
         flashHint(`${CACHE_RULES[kind].name}：取得${kind==='ammo'?'1盒彈藥':'2份'+ITEMS[kind].label}。此點今天已領完。`);
@@ -1011,6 +1022,7 @@ function rollLoot(): ItemId {
 }
 
 function updatePlaceLabel() {
+  const room=activeInterior();if(room){el.place.textContent=`${room.label} · 可步行探索 / 按住 E 搜刮`;el.place.classList.add('on');return;}
   let best: Landmark | null = null;
   let bestDistance = 46;
   for (const l of landmarks) {
@@ -1048,8 +1060,8 @@ function updateHud() {
   const hh = Math.floor(minutes / 60);
   const mm = Math.floor(minutes % 60);
   el.clock.textContent = `${hh.toString().padStart(2,'0')}:${mm.toString().padStart(2, '0')}`;
-  el.nightFill.style.width = `${Math.min(100, t * 100)}%`;
-  el.phase.textContent = mode==='sandbox' ? `day ${dayPhase(elapsed).day}` : t > 0.82 ? 'dawn' : 'night';
+  el.nightFill.style.width = `${mode==='sandbox'?dayPhase(elapsed).hour/24*100:Math.min(100,t*100)}%`;
+  el.phase.textContent = mode==='sandbox' ? `${daylightProfile(dayPhase(elapsed).hour).stage} · 第${dayPhase(elapsed).day}天` : t > 0.82 ? 'dawn' : 'night';
 
   el.hp.style.width = `${hp}%`;
   el.sta.style.width = `${stamina}%`;
@@ -1169,7 +1181,7 @@ function resetWorld() {
   syncEyes();
 
   for (const c of containers) {
-    const spot = placeContainer();
+    const spot = c.roomPosition?{x:c.roomPosition[0],z:c.roomPosition[1]}:placeContainer();
     delete c.cacheKind;delete c.cacheDay;
     c.x = spot.x; c.z = spot.z; c.looted = false;
     c.mesh.position.set(c.x, 0.26, -c.z);
@@ -1348,7 +1360,8 @@ function buildMenu() {
 function campaignElapsed() { return elapsed; }
 function snapshotCampaign(): Snapshot {
   return { version:1,encounterVersion:1,mapId:dataUrl,characterId:spec.id,elapsed,hp:phase==='lose'?0:hp,stamina,battery,outbreak:{...outbreak},inventory:{...inventory},stash:{...stash},helper:{...helperState},arsenal:structuredClone(arsenal),survivorSystems:structuredClone(survivorSystems),ammo,hasPistol,pistolEquipped,position:[px,pz],shelterId:shelter?.id??'',inShelter,looted,kills,restCount,status:phase==='lose'?'dead':'alive',
-    containers:containers.map(c=>({x:c.x,z:c.z,looted:c.looted,...(c.cacheKind?{cacheKind:c.cacheKind,cacheDay:c.cacheDay}:{})})),
+    interiorLoot:Object.fromEntries(containers.filter(c=>c.roomId).map(c=>[c.roomId!,c.looted])),
+    containers:containers.filter(c=>!c.roomId).map(c=>({x:c.x,z:c.z,looted:c.looted,...(c.cacheKind?{cacheKind:c.cacheKind,cacheDay:c.cacheDay}:{})})),
     enemies:zombies.map(z=>({x:z.x,z:z.z,hp:Math.max(0,z.hp),state:z.state,faction:z.faction.id,home:[z.hx,z.hz],patrol:[z.patrolX,z.patrolZ],lastKnown:[z.lastX,z.lastZ],returning:z.returning,retreat:z.retreat})) };
 }
 function persistCampaign() {
@@ -1357,9 +1370,9 @@ function persistCampaign() {
   catch {saveWarning='存檔失敗：瀏覽器封鎖儲存，請勿關閉本頁。';}
 }
 function isCompatibleSave(s:Snapshot|null):s is Snapshot {
-  if(!s||s.status!=='alive'||s.hp<=0||s.shelterId!==shelter?.id||s.containers.length!==containers.length||s.enemies.length!==zombies.length||!ROSTER.some(c=>c.id===s.characterId))return false;
+  if(!s||s.status!=='alive'||s.hp<=0||s.shelterId!==shelter?.id||s.containers.length!==containers.filter(c=>!c.roomId).length||s.enemies.length!==zombies.length||!ROSTER.some(c=>c.id===s.characterId))return false;
   const onMap=(x:number,z:number)=>x>=bounds.minX-10&&x<=bounds.maxX+10&&z>=bounds.minY-10&&z<=bounds.maxY+10;
-  return s.containers.every(c=>onMap(c.x,c.z)&&!collides(c.x,c.z,.25))&&s.enemies.every((e,i)=>onMap(e.x,e.z)&&e.faction===profileFor(i).id);
+  return s.containers.every(c=>onMap(c.x,c.z)&&!baseWallCollision(c.x,c.z,.25))&&s.enemies.every((e,i)=>onMap(e.x,e.z)&&e.faction===profileFor(i).id);
 }
 function restoreCampaign(s:Snapshot) {
   elapsed=s.elapsed;timeLeft=NIGHT_SECONDS-elapsed;hp=s.hp;stamina=s.stamina;battery=s.battery;
@@ -1372,6 +1385,7 @@ function restoreCampaign(s:Snapshot) {
   if(shelter&&(px<bounds.minX-8||px>bounds.maxX+8||pz<bounds.minY-8||pz>bounds.maxY+8||collides(px,pz,.36))){[px,pz]=shelter.outside;saveWarning='舊存檔位置在街區外或牆內，已移回安全屋門口；物資與進度保留。';}
   inShelter=s.inShelter;looted=s.looted;kills=s.kills;restCount=s.restCount;
   s.containers.forEach((c,i)=>{delete containers[i].cacheKind;delete containers[i].cacheDay;Object.assign(containers[i],c);paintContainer(containers[i]);});
+  containers.filter(c=>c.roomId).forEach(c=>{c.looted=s.interiorLoot?.[c.roomId!]===true;paintContainer(c);});
   s.enemies.forEach((z,i)=>{
     const enemy=zombies[i],home=z.home??[z.x,z.z],patrol=z.patrol??home;
     Object.assign(enemy,z,{faction:profileFor(i),hx:home[0],hz:home[1],patrolX:patrol[0],patrolZ:patrol[1],
@@ -1392,7 +1406,7 @@ function paintContainer(c:Container) {
 function installSupplySites() {
   // Migrate old v1 in place: retain every box's looted flag; never refill during upgrade.
   if(!containers.some(c=>c.cacheKind)) {
-    const ordered=[...containers].sort((a,b)=>Math.hypot(a.x-block.spawn[0],a.z-block.spawn[1])-Math.hypot(b.x-block.spawn[0],b.z-block.spawn[1]));
+    const ordered=containers.filter(c=>!c.roomId).sort((a,b)=>Math.hypot(a.x-block.spawn[0],a.z-block.spawn[1])-Math.hypot(b.x-block.spawn[0],b.z-block.spawn[1]));
     (['water','food','ammo'] as const).forEach((kind,i)=>{const c=ordered[i];if(c){c.cacheKind=kind;c.cacheDay=dayPhase(elapsed).day;}});
   }
   containers.forEach(paintContainer);
@@ -1439,11 +1453,16 @@ function installHelperUI() {
   new MutationObserver(()=>{const touch=document.querySelector<HTMLElement>('#survivor-touch-controls');if(touch)touch.hidden=helperOpen||inShelter||el.overlay.classList.contains('on');}).observe(helperPanel,{attributes:true,attributeFilter:['hidden']});
 }
 function updateDaylight() {
-  const light=dayPhase(elapsed).daylight;
-  hemi.intensity=1.1+light*1.5;moon.intensity=.4+light*1.4;
-  const color=new THREE.Color(0x0a1017).lerp(new THREE.Color(0x829da3),light);
-  scene.background=color;if(scene.fog instanceof THREE.Fog)scene.fog.color.copy(color);
+  const profile=daylightProfile(dayPhase(elapsed).hour);
+  streetDetails?.setNight(profile.lamps);
+  hemi.color.setHex(profile.hemiSky);hemi.groundColor.setHex(profile.ground);hemi.intensity=profile.hemiIntensity;
+  moon.color.setHex(profile.key);moon.intensity=profile.keyIntensity;
+  // Keep a camera-facing key so narrow lanes remain legible on mobile at night.
+  renderer.toneMappingExposure=profile.exposure;
+  if(scene.background instanceof THREE.Color)scene.background.setHex(profile.sky);
+  if(scene.fog instanceof THREE.Fog){scene.fog.color.setHex(profile.sky);scene.fog.near=profile.fogNear;scene.fog.far=profile.fogFar;}
 }
+
 function clearControlState(){bufferedHand=null;comboWindow=0;impactPause=0;keys.clear();attackHeld=false;touchActionHeld=false;action='none';lootTarget=null;lootProgress=0;setRing(0);el.prompt.classList.remove('on');}
 function enterShelter() {
   if(!shelter||mode!=='sandbox')return;
@@ -1549,7 +1568,7 @@ function frame(dt: number) {
     40,
   ));
   camera.lookAt(target);
-  visibilityTimer-=dt;if(visibilityTimer<=0){visibilityTimer=.1;cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:undefined);}
+  visibilityTimer-=dt;if(visibilityTimer<=0){visibilityTimer=.1;cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:activeInterior()?.focus);}
 }
 
 const clock = new THREE.Clock();
@@ -1564,7 +1583,7 @@ function animate() {
  * fewer than two frames in 300 ms; the simulation visibility timer is not a UI gate. */
 function refreshShelterView() {
   resize();
-  cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:undefined);
+  cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:activeInterior()?.focus);
   visibilityTimer=.1;
   const target=new THREE.Vector3(px,1,-pz);
   camera.position.copy(target).add(new THREE.Vector3(40,56,40));camera.lookAt(target);
@@ -1600,7 +1619,7 @@ fetch(dataUrl)
     block = data;
     landmarks = data.landmarks ?? [];
     const grid = wallGridOf(data, false);
-    collides = makeCollider(grid);
+    collides = baseWallCollision = makeCollider(grid);
     insideBuilding = makeInsideTest(data);
 
     bounds = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
@@ -1625,6 +1644,9 @@ fetch(dataUrl)
       if(shelterBuilding){scene.add(createLilongInterior(shelterBuilding,shelter),createShelterFloor(shelterBuilding));roomFocus=shelterInspectionPoints(shelterBuilding,shelter);}
       shelterLamp=new THREE.PointLight(0xffd6aa,5,8,2);shelterLamp.position.set(shelter.inside[0],2.8,-shelter.inside[1]);shelterLamp.visible=false;scene.add(shelterLamp);
     }
+    interiorRooms=planInteriorRooms(data,shelter?[shelter.id]:[]);
+    for(const room of interiorRooms){const b=data.buildings.find(b=>b.id===room.buildingId)!;scene.add(createInteriorRoomGeometry(room,b));roomInsideTests.set(room.id,makeInsideTest({buildings:[b],spawn:room.entrance.inside}));}
+    collides=(x,z,r=.35)=>baseWallCollision(x,z,r)||interiorRooms.some(room=>roomFurnitureCollision(room,x,z,r));
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(
         bounds.maxX - bounds.minX + 320,
@@ -1636,6 +1658,7 @@ fetch(dataUrl)
     ground.position.set((bounds.minX + bounds.maxX) / 2, -0.02, -(bounds.minY + bounds.maxY) / 2);
     scene.add(ground);
     // Render the already bundled real OSM network; preserve CMAB/OSM positions.
+    streetDetails=createStreetDetails(data.roads??[],data.buildings,bounds);scene.add(streetDetails.group);
     const streets=roadGeometries(data.roads??[]);
     scene.add(new THREE.Mesh(streets.surface,new THREE.MeshStandardMaterial({vertexColors:true,roughness:1,side:THREE.DoubleSide})));
     scene.add(new THREE.Mesh(streets.edges,new THREE.MeshStandardMaterial({color:0x9b9a87,roughness:1,side:THREE.DoubleSide})));
@@ -1648,6 +1671,7 @@ fetch(dataUrl)
       containers.push({ x: 0, z: 0, mesh, looted: false });
     }
 
+    for(const room of interiorRooms)for(const loot of room.loot){const mesh=new THREE.Mesh(containerGeo,containerMat);scene.add(mesh);containers.push({x:loot.position[0],z:loot.position[1],mesh,looted:false,roomId:loot.id,roomItem:loot.item,roomLabel:room.label,roomPosition:[...loot.position]});}
     muzzle = new THREE.PointLight(0xffd6a0, 9, 16, 2);
     muzzle.visible = false;
     scene.add(muzzle);
@@ -1668,7 +1692,7 @@ fetch(dataUrl)
       (window as unknown as { __modu: unknown }).__modu = {
         state: () => ({
           helper:{...helperState},helperOpen, fadedBuildings:cityVisibility?.fadedIds(), cityMeshes:cityVisibility?.stats(),
-          phase, mode, inShelter, shelter: shelter ? {...shelter,door:[...shelter.door],inside:[...shelter.inside],outside:[...shelter.outside]} : null, stash:{...stash}, restCount, roomView:shelterPanel.classList.contains('room-view'), cameraViewHeight:camera.top-camera.bottom, streetZoom:viewZoom, hp, battery, stamina, timeLeft, kills, paused, bagOpen, sneaking, looted, outbreak: { ...outbreak },
+          phase, mode, inShelter, shelter: shelter ? {...shelter,door:[...shelter.door],inside:[...shelter.inside],outside:[...shelter.outside]} : null, stash:{...stash}, restCount, dayNight:daylightProfile(dayPhase(elapsed).hour), streetDetails:streetDetails?.stats, streetPlacements:streetDetails?.placements, interiorRooms:interiorRooms.map(r=>({id:r.id,label:r.label,entrance:r.entrance,loot:r.loot,furniture:r.furniture})), activeInterior:activeInterior()?.id??null, roomView:shelterPanel.classList.contains('room-view'), cameraViewHeight:camera.top-camera.bottom, streetZoom:viewZoom, hp, battery, stamina, timeLeft, kills, paused, bagOpen, sneaking, looted, outbreak: { ...outbreak },
           zombies: zombies.length, awake: zombies.filter(z => z.state === 'chase').length,
           dead: zombies.filter(z => z.state === 'dead').length,
           factions: Object.fromEntries(['infected','military','police','raider'].map(id => [id,zombies.filter(z => z.faction.id === id).length])),

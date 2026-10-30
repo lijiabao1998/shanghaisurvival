@@ -32,6 +32,15 @@ export function lilongFacade(building:Building):DetailBatch {
     panel(x,0,.36,3.15,0x845748,.06);
     for(let y=.25;y<3.1;y+=.28)panel(x,y,.36,.025,0xab8a70,.068);
   }
+  // Weathered stone plinth and staggered exposed-brick joints: original geometry,
+  // below windows and outside the existing 1.6 m gateway, not painted shop logos.
+  for(const side of [-1,1]){
+    const x=mid+side*1.62-.18;
+    for(let row=0;row<4;row++)panel(x+(row%2?.09:.23),.34+row*.56,.018,.24,0xb4a38b,.071);
+    const start=side<0?Math.max(.2,mid-3.5):mid+1.82;
+    const width=side<0?mid-1.82-start:Math.min(1.68,length-.2-start);
+    if(width>.2){panel(start,.06,width,.22,0x746f61,.06);panel(start,.28,width,.045,0xb2a78e,.075);}
+  }
   // Slim iron drying rails below upper windows. They stay close to the wall and
   // are included in the owning building's faded index range, not new draw calls.
   const y=3.05,width=Math.min(3.4,length/2-1.8);

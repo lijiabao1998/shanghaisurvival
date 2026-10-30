@@ -16,6 +16,40 @@ test('full roundtrip preserves looted containers, killed enemies and all resourc
   const s=fresh(), store=memory(); assert.ok(saveSnapshot(store,'save',s)); const restored=loadSnapshot(store,'save','block.json');
   assert.deepEqual(restored,s); restored.stash.water++; assert.equal(s.stash.water,2);
 });
+test('legacy saves without interior loot remain unchanged',()=>{
+ const s=fresh(),loaded=parseSnapshot(encode(s),'block.json');
+ assert.deepEqual(loaded,s);assert.equal('interiorLoot' in loaded,false);
+});
+test('interior depletion survives repeated reload without changing ordinary container indices',()=>{
+ const s={...fresh(),interiorLoot:{'room-v1:cmab_327821_0:supply':true,'room-v1:cmab_327816_0:supply':false}};
+ const store=memory();assert.ok(saveSnapshot(store,'save',s));
+ for(let i=0;i<3;i++){
+  const loaded=loadSnapshot(store,'save','block.json');
+  assert.deepEqual(loaded.interiorLoot,s.interiorLoot);assert.deepEqual(loaded.containers,s.containers);
+  assert.ok(saveSnapshot(store,'save',loaded));
+ }
+});
+test('interior loot table allows empty and at most 64 stable boolean entries',()=>{
+ for(const interiorLoot of [{},Object.fromEntries(Array.from({length:64},(_,i)=>[`room-v1:building_${i}:supply`,i%2===0]))]){
+  const s={...fresh(),interiorLoot};assert.deepEqual(parseSnapshot(encode(s),'block.json'),s);
+ }
+ const s={...fresh(),interiorLoot:Object.fromEntries(Array.from({length:65},(_,i)=>[`room-v1:building_${i}:supply`,true]))};
+ assert.equal(parseSnapshot(encode(s),'block.json'),null);
+});
+test('malformed interior loot rejects atomically and never overwrites the previous save',()=>{
+ const store=memory(),good={...fresh(),interiorLoot:{'room-v1:cmab_327821_0:supply':true}};
+ assert.ok(saveSnapshot(store,'save',good));const before=store.getItem('save');
+ const invalid=[null,[],true,0,'yes',{'room-v1:cmab_327821_0:supply':1},{'room-v1:cmab_327821_0:supply':'true'},
+  {'room-v1:cmab_327821_0:supply':null},{'room-v1::supply':true},{'room-v2:a:supply':true},{'room-v1:a:other':true},
+  {'room-v1:a:b:supply':true},{'room-v1:a/supply':true},{'room-v1:a:supply\n':true},
+  {[`room-v1:${'a'.repeat(129)}:supply`]:true},JSON.parse('{"__proto__":true}'),{'constructor':true},
+  Object.fromEntries(Array.from({length:65},(_,i)=>[`room-v1:b${i}:supply`,true]))];
+ for(const interiorLoot of invalid){
+  const bad={...fresh(),interiorLoot};assert.equal(parseSnapshot(encode(bad),'block.json'),null);
+  assert.equal(saveSnapshot(store,'save',bad),false);assert.equal(store.getItem('save'),before);
+ }
+ assert.deepEqual(loadSnapshot(store,'save','block.json'),good);
+});
 test('missing save starts without state',()=>assert.equal(loadSnapshot(memory(),'save','block.json'),null));
 test('malformed, null, empty and old/unknown versions rejected',()=>{
   for(const raw of ['', '{', 'null', '[]', '{}', encode({...fresh(),version:0}),encode({...fresh(),version:2})]) assert.equal(parseSnapshot(raw,'block.json'),null);
