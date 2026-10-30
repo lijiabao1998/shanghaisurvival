@@ -1,0 +1,36 @@
+name: Survivor systems candidate QA
+on:
+  push:
+    branches: [feat/survivor-loadout-foundation-20261030]
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build and complete rule/runtime regressions
+        working-directory: web
+        run: |
+          npm ci
+          GOMAXPROCS=1 NODE_OPTIONS=--max-old-space-size=128 npm run build
+          for f in tools/test-*.mjs; do node "$f"; done
+      - name: Install official browser for isolated screenshot test
+        run: |
+          npm install --prefix /tmp/shanghai-browser --no-save playwright@1.56.1
+          /tmp/shanghai-browser/node_modules/.bin/playwright install --with-deps chromium
+          echo "QA_BROWSER=$(node -e "console.log(require('/tmp/shanghai-browser/node_modules/playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+      - name: Natural flow and labelled fixture browser acceptance
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory web/dist >/tmp/shanghai-qa-server.log 2>&1 &
+          QA_OUTPUT="$GITHUB_WORKSPACE/evidence/survivor-systems" node web/tools/qa-survivor-systems.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: survivor-systems-browser-evidence
+          path: evidence/survivor-systems/
+          retention-days: 7
