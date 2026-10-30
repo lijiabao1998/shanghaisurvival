@@ -1,7 +1,7 @@
 # 雙手裝備、身體狀態與負重：獨立候選施工方案
 
 盤點日期：2026-10-30。基準 `main@5eae3e5207ad355dc0e41bda8321620ec17dec1f`。
-本分支只準備方案；尚未改遊戲行為，不代表雙持已可玩。不部署、不合併。
+本分支已實作第一階段候選（下方記錄）；規則與建置通過，但真瀏覽器自然流程／畫面驗證受阻，不能視為可發布或已實玩通過。不部署、不合併。
 
 ## 使用者方向與邊界
 
@@ -45,7 +45,7 @@
 
 ## 分階段落地與檔案界線
 
-**0：本分支（已準備）** — 唯讀盤點、基準回歸與設計；沒有 runtime diff，不干擾其他施工。
+**0：盤點（已完成）** — 唯讀盤點、基準回歸與設計；其後依授權展開獨立候選實作。
 
 **1A：純規則核心** — 新增 `loadout.ts`、`body-condition.ts`、`carry-load.ts` 與 Node 測試；在 `campaign.ts` 加擴充驗證／遷移與 legacy fixtures。所有規則不依賴 Three/DOM；提供派生狀態與 action intent，不直接操作骨架。
 
@@ -72,3 +72,26 @@
 - `cd web && npm run build`：TypeScript noEmit 與 Vite production build 通過；既有 shared chunk 約514KB 的警告仍存在，非 build failure。
 - 初次從 repo 根目錄執行全測試遇 esbuild 相對路徑錯誤；改為測試所需 `web/` 工作目錄後全數通過，未修改測試或程式來掩蓋錯誤。
 - 此次沒有 UI／runtime 修改，因此沒有把基準畫面冒充新系統截圖；第一階段 UI 完成後仍須瀏覽器操作與截圖驗證。
+
+
+## 第一階段候選實作（2026-10-30）
+
+- 已實作 `survivor-systems.ts`：雙手裝備、軟負重、全身流血／疼痛、醫療包／有成本休息處置。主手鐵管＋副手手槍，或主手手槍＋副手鐵管；步槍占雙手。不支援兩把同型槍。
+- 主攻擊保留左鍵／手機情境鍵；**R／手機副手鍵**使用副手，共用現有 action gate。副手射擊不改 canonical 主手，不多領彈藥。主副手掛在 elbowR/elbowL，左右近戰使用同手姿態與掃掠判傷。
+- 與近戰工作者協調整合 PR #3 的 `99493c21b27207c17aade0da52e36a5223897cac`；保留其肘膝骨架、命中窗、單次命中與中斷邏輯。三個 survival.ts 衝突逐段保留雙方邏輯。沒有改 PR #2 的室內外檔案／分支。
+- 版本化 `survivorSystems.version=1` 擴充已驗證；候選只寫 `shanghai-survivors:systems-v1:${dataUrl}`。candidate key 不存在才讀舊 v1 key；存在但損毀不偷偷恢復更舊進度。舊正式存檔不刪、不寫。
+- 新裝備／背包／身體三頁籤，深炭灰、骨白與暗紅；44px 控件、安全區、捲動內容、固定關閉、鍵盤頁籤與焦點循環。這些是已實作的設計，尚非真瀏覽器視覺驗收結論。
+- 最終本機驗證：25 個 `tools/test-*.mjs` 全部通過；含 campaign 41項、arsenal runtime 11項、純規則12項。`GOMAXPROCS=1 NODE_OPTIONS=--max-old-space-size=128 npm run build` 通過。未限制記憶體的一次建置遭 exit137，降資源後重跑通過；既有大 chunk 警告仍在。
+- `qa-survivor-systems.mjs` 已準備自然新局→步行→安全屋存放／休息→返回→刷新續玩及手機畫面流程；高負重／受傷／裝備測試有明確標記 fixture，不冒充自然搜刮。腳本語法檢查通過，**瀏覽器流程尚未執行通過**。
+
+### 驗收阻擋與發布界線
+
+本機 Chromium 啟動遭 Unix socket sandbox 拒絕；按已授權範圍申請 escalation 後，執行器在 bwrap 初始化因受限制的 sessions 路徑唯讀而失敗，未執行瀏覽器。未要求讀取該受限路徑，亦未繞過。既有 CUA cloud browser 連本機候選 localhost 回 connection refused。
+
+依使用者最新「只在 ONNA 自己機器、不再開 Codex 環境」指示，沒有新增 Codex task，也沒有觸發 GitHub Actions 或轉往使用者桌面。分支不新增遠端執行 workflow。保留本機程式、回歸與待跑 QA 腳本，以 draft PR 供審查。
+
+**待補**：真瀏覽器自然搜刮／敵人命中／雙手武器掛點／手機橫直屏／中斷恢復／存檔續玩，以及實際截圖。不得將 Node VM 回歸、幾何測試或生成示意圖說成已完成這些驗收。未合併、未部署。
+
+### 後續授權更新
+
+使用者在得知本機瀏覽器及候選上傳受阻後，明確指定「用 GitHub 的 Ubuntu」。因此本候選新增僅對本分支執行的 Ubuntu QA workflow，運行建置／規則回歸／隔離 localhost 瀏覽器與截圖；不使用新 Codex 環境、不部署正式站、不修改正式存檔。上方限制記錄是先前階段，不代表此後未獲此專項授權。瀏覽器驗收結果另記，不能預先視作通過。

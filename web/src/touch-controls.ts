@@ -30,6 +30,8 @@ export function installTouchControls(): void {
         width:140px; text-align:center; color:#c4d2c3; font:10px system-ui,sans-serif; }
       #survivor-touch-action { right:max(20px,env(safe-area-inset-right)); bottom:calc(29px + env(safe-area-inset-bottom));
         width:72px; height:72px; border-color:#edc87b!important; color:#ffe4a4!important; }
+      #survivor-touch-secondary[hidden]{display:none}
+      #survivor-touch-secondary { right:110px; bottom:calc(37px + env(safe-area-inset-bottom)); width:56px;height:56px;font-size:12px!important; }
       #survivor-touch-crouch { right:max(30px,env(safe-area-inset-right)); bottom:calc(115px + env(safe-area-inset-bottom)); width:52px; height:52px; }
       #survivor-touch-menu { left:calc(50% - 52px); top:calc(8px + env(safe-area-inset-top)); width:46px; height:46px; }
       #survivor-touch-bag { left:calc(50% + 4px); top:calc(8px + env(safe-area-inset-top)); width:46px; height:46px; font-size:12px!important; }
@@ -47,6 +49,7 @@ export function installTouchControls(): void {
   root.setAttribute('aria-label', '觸控操作');
   root.innerHTML = `<div id="survivor-joystick" role="group" aria-label="移動搖桿，推到底奔跑"><i id="survivor-stick"></i></div>
     <button id="survivor-touch-action" type="button" aria-label="情境互動，按住持續">互動</button>
+    <button id="survivor-touch-secondary" type="button" aria-label="副手攻擊" hidden>副手</button>
     <button id="survivor-touch-crouch" type="button" aria-label="切換潛行">蹲</button>
     <button id="survivor-touch-menu" type="button" aria-label="暫停選單">☰</button>
     <button id="survivor-touch-bag" type="button" aria-label="背包">背包</button>`;
@@ -123,7 +126,7 @@ export function installTouchControls(): void {
     actionEvent('start');
   });
   for (const [id, code] of [
-    ['survivor-touch-crouch', 'KeyC'], ['survivor-touch-menu', 'Escape'], ['survivor-touch-bag', 'Tab'],
+    ['survivor-touch-secondary','KeyR'], ['survivor-touch-crouch', 'KeyC'], ['survivor-touch-menu', 'Escape'], ['survivor-touch-bag', 'Tab'],
   ]) {
     root.querySelector<HTMLButtonElement>(`#${id}`)!.addEventListener('click', e => {
       e.preventDefault(); e.stopPropagation(); releaseAll(); key(code, true); key(code, false);
