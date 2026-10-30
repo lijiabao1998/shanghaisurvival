@@ -9,8 +9,71 @@ function face(out:DetailBatch,vertices:number[][],color:number){
   const c=new THREE.Color(color);
   for(const i of [0,1,2,0,2,3]){out.positions.push(...vertices[i]);out.colors.push(c.r,c.g,c.b);}
 }
+export type BuildingAppearance = 'maintained'|'shuttered'|'weathered';
+/** Art direction only: never a claim that the real address is abandoned or locked. */
+export function buildingAppearance(id:string):BuildingAppearance {
+  let hash=2166136261;for(const c of id)hash=Math.imul(hash^c.charCodeAt(0),16777619);
+  const bucket=(hash>>>0)%10;return bucket<5?'maintained':bucket<8?'shuttered':'weathered';
+}
+/** Bounded upper-storey details on up to three substantial exterior walls.
+ * They share the owning facade batch and its player-occlusion fade. */
+function livedInWalls(building:Building,out:DetailBatch){
+  const ring=building.footprint,state=buildingAppearance(building.id),height=building.height_m;
+  if(!Number.isFinite(height)||height<4)return;
+  let area=0;for(let i=0;i<ring.length;i++){const a=ring[i],b=ring[(i+1)%ring.length];area+=a[0]*b[1]-b[0]*a[1];}
+  const door=doorEdgeIndex(ring),sign=area>=0?1:-1;
+  const edges=ring.map((a,i)=>({a,b:ring[(i+1)%ring.length],i,len:Math.hypot(ring[(i+1)%ring.length][0]-a[0],ring[(i+1)%ring.length][1]-a[1])})).filter(e=>e.len>=5.2).sort((a,b)=>(a.i===door?-1:b.i===door?1:b.len-a.len)).slice(0,3);
+  for(const [index,e] of edges.entries()){
+    const ux=(e.b[0]-e.a[0])/e.len,uz=(e.b[1]-e.a[1])/e.len,nx=sign*uz,nz=-sign*ux;
+    const at=(u:number,y:number,n=.075)=>[e.a[0]+ux*u+nx*n,y,-(e.a[1]+uz*u+nz*n)];
+    const panel=(u:number,y:number,w:number,h:number,color:number,n=.075)=>face(out,[at(u,y,n),at(u+w,y,n),at(u+w,y+h,n),at(u,y+h,n)],color);
+    const box=(u:number,y:number,w:number,h:number,depth:number,color:number)=>{
+      const back=[at(u,y),at(u+w,y),at(u+w,y+h),at(u,y+h)],front=[at(u,y,depth),at(u+w,y,depth),at(u+w,y+h,depth),at(u,y+h,depth)];
+      face(out,front,color);for(let i=0;i<4;i++)face(out,[back[i],back[(i+1)%4],front[(i+1)%4],front[i]],color);
+    };
+    // Readable projecting sills and occupancy differences align with the existing
+    // window grid; no second copy of windows, no fabricated miniature signage.
+    const count=Math.floor((e.len-1)/2.8);
+    if(height>4.8&&count>0)for(const n of [...new Set([0,Math.min(count-1,1)])]){
+      const centre=(n+1)*e.len/(count+1),left=centre-.66;
+      panel(left,3.08,1.32,.12,0x8f8979,.22);
+      face(out,[at(left,3.2,.035),at(left+1.32,3.2,.035),at(left+1.32,3.2,.25),at(left,3.2,.25)],0xc1b59a);
+      if(state==='maintained'){
+        panel(centre-.45,3.23,.25,.95,0xaeb8a7,.08);panel(centre+.2,3.23,.25,.95,0xaeb8a7,.08);
+      }else if(state==='shuttered'){
+        panel(centre-.48,3.25,.96,.2,0x847059,.1);panel(centre-.48,3.76,.96,.2,0x9b8365,.1);
+        // A single diagonal brace makes the boarded-window state legible at zoom.
+        face(out,[at(centre-.46,3.3,.12),at(centre-.34,3.25,.12),at(centre+.46,4.17,.12),at(centre+.34,4.22,.12)],0x665743);
+      }else{
+        // Dark broken-pane silhouette plus two remaining glass shards, not an
+        // actual opening or a collision change.
+        panel(centre-.46,3.23,.92,1.08,0x242c2d,.085);
+        face(out,[at(centre-.44,3.25,.1),at(centre-.08,3.25,.1),at(centre-.32,3.63,.1),at(centre-.44,3.8,.1)],0x6d807c);
+        panel(centre+.15,3.95,.28,.32,0x576c69,.1);
+      }
+    }
+    // Folded rectangular downpipe, kept at the facade edge rather than the door.
+    const pipeX=e.len-.32,pipeTop=Math.min(height-.4,5.6);
+    panel(pipeX,.36,.10,pipeTop-.36,0x5b645d,.16);
+    face(out,[at(pipeX,.36,.06),at(pipeX,.36,.16),at(pipeX,pipeTop,.16),at(pipeX,pipeTop,.06)],0x889183);
+    panel(pipeX-.045,1.1,.19,.065,0xa19d89,.18);panel(pipeX-.045,3,.19,.065,0xa19d89,.18);
+    // One outdoor AC per building, above head height; housing and louvers are
+    // large shapes, no tiny text or separate fan/cylinder meshes.
+    if(index===1&&height>5.6){
+      const acX=Math.max(.45,e.len-1.55);box(acX,4.65,.95,.57,.42,state==='weathered'?0x858578:0xb8b6a2);
+      for(const dy of [.13,.29,.45])panel(acX+.12,4.65+dy,.7,.045,0x626d66,.43);
+    }
+    if(state==='weathered'){
+      const x=.28;
+      face(out,[at(x,.42,.08),at(x+1.18,.42,.08),at(x+.95,1.45,.08),at(x+.12,1.78,.08)],0x796755);
+      panel(x+.15,.72,.68,.06,0xae8d71,.09);panel(x+.28,1.02,.52,.06,0xae8d71,.09);
+    }
+    out.features++;
+  }
+}
 export function lilongFacade(building:Building):DetailBatch {
   const out=batch(),ring=building.footprint,edge=doorEdgeIndex(ring);
+  livedInWalls(building,out);
   if(edge<0)return out;
   const a=ring[edge],b=ring[(edge+1)%ring.length],dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hypot(dx,dy);
   if(length<5.2||building.height_m<4)return out;

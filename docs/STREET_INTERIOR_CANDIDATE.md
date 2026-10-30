@@ -15,3 +15,10 @@ All new geometry is procedural original art; no source photograph is redistribut
 
 ## Verification boundaries
 Pure geometry, save/parser and runtime-contract tests are separate from browser screenshots. Browser time/room placement fixtures must be explicitly labelled. Candidate screenshots are not user visual acceptance or proof of production deployment. No merge or release is implied by this document.
+
+## Detail-density iteration (following user feedback)
+- Existing footprints remain unchanged: this increases visual detail density, NOT the number of buildings or playable blocks.
+- Deterministic maintained / shuttered-window / weathered art states; these do not assert the real address is damaged and do not lock the original door.
+- Up to three facade sides receive sills, drainpipes, AC units, shutters/boards and chipped surfaces; facade budget 300k vertices. Rooftop service boxes, vents and selected tanks remain within original footprints and join the existing hidden-roof batch.
+- Three interiors receive recognizable bedclothes, domestic sink/cupboard fittings, open shelf goods and workbench tools. No added loot or changed save identifiers.
+- Total city geometry remains three meshes with stable buffers. This is an engineering draw-call/geometry budget, NOT evidence of physical-phone FPS.

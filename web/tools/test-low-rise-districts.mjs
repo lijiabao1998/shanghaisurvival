@@ -11,7 +11,7 @@ assert.equal(city.group.children.length,3,'no per-building draw calls');
 for(const mesh of city.group.children){
  const p=mesh.geometry.getAttribute('position'),c=mesh.geometry.getAttribute('color');
  assert.equal(p.count,c.count,'each vertex gets color');
- for(let i=0;i<p.count;i++){assert.ok(Number.isFinite(p.getX(i)+p.getY(i)+p.getZ(i)));assert.ok(p.getY(i)<=12.01,'visual height capped at three storeys');}
+ for(let i=0;i<p.count;i++){assert.ok(Number.isFinite(p.getX(i)+p.getY(i)+p.getZ(i)));assert.ok(p.getY(i)<=(mesh.name==='city-visible-roofs'?14:12.01),'three-storey walls; bounded rooftop service fittings only');}
  assert.ok(mesh.material.vertexColors);
 }
 const colors=city.group.children[0].geometry.getAttribute('color');
@@ -24,4 +24,4 @@ for(let i=0;i<100;i++){
 }
 const again=createCityVisibility(data.buildings,true);
 for(let i=0;i<3;i++)assert.deepEqual(again.group.children[i].geometry.getAttribute('position').array,city.group.children[i].geometry.getAttribute('position').array,'deterministic appearance');
-console.log(`PASS ${data.buildings.length} buildings: <=12 m visual height, varied facades, unchanged sources, deterministic output, 3 stable meshes, occlusion conservation`);
+console.log(`PASS ${data.buildings.length} buildings: <=12 m walls / <=14 m roof fittings, varied facades, unchanged sources, deterministic output, 3 stable meshes, occlusion conservation`);

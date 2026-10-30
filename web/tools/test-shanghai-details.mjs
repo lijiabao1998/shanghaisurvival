@@ -12,7 +12,7 @@ for(const b of data.buildings){
  if(d.features)decorated++;vertices+=d.positions.length/3;
 }
 assert.ok(decorated>300,'whole map receives gates, not one staged facade');
-assert.ok(vertices<150000,'bounded batch geometry budget');
+assert.ok(vertices<300000,'bounded batch geometry budget');
 const collides=makeCollider(wallGridOf(data,false)),inside=makeInsideTest(data),s=selectShelter(data.buildings,data.spawn,collides,inside),b=data.buildings.find(b=>b.id===s.id);
 const mesh=createLilongInterior(b,s);assert.ok(mesh.userData.features>=4,'real safehouse contains readable domestic details');
 const p=mesh.geometry.getAttribute('position'),localInside=makeInsideTest({buildings:[b],spawn:s.inside});
