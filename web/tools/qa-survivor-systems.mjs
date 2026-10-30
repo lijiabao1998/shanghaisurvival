@@ -13,8 +13,10 @@ async function init(viewport){const context=await browser.createBrowserContext()
 async function newGame(p){await p.click('.who');await p.click('#ov-btn');await p.waitForFunction(()=>window.__modu.state().phase==='play');}
 try{
  const p=await init({width:1440,height:900});await newGame(p);assert.match(await p.title(),/上海/);await p.screenshot({path:`${out}/01-desktop-play.png`});
+ await press(p,'Tab');await p.screenshot({path:`${out}/00-desktop-field-record.png`});await p.click('#survivor-kit-tab-body');await p.screenshot({path:`${out}/00-desktop-body.png`});await press(p,'Escape');
  // Natural walk to the nearby safehouse, put supplies, paid rest, return.
- await p.keyboard.down('KeyW');await p.keyboard.down('KeyD');await delay(650);await p.keyboard.up('KeyW');await p.keyboard.up('KeyD');await press(p,'KeyE');
+ const startZ=(await state(p)).spawn[1];await p.keyboard.down('KeyW');await p.keyboard.down('KeyD');
+ await p.waitForFunction(z=>window.__modu.state().spawn[1]>=z+2.1,{timeout:15000},startZ);await p.keyboard.up('KeyW');await p.keyboard.up('KeyD');await press(p,'KeyE');
  await p.waitForSelector('#shelter-panel:not([hidden])');
  await p.locator('.shelter-stock>div:nth-child(1) button:nth-of-type(1)').click();
  await p.locator('.shelter-stock>div:nth-child(2) button:nth-of-type(1)').click();
@@ -41,4 +43,4 @@ try{
  await mobile.setViewport({width:844,height:390,isMobile:true,hasTouch:true});await mobile.screenshot({path:`${out}/09-mobile-landscape.png`});
  assert.equal(await mobile.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);report.checks.push('390×844 touch bag/body/close/reopen plus 844×390 landscape have no document overflow');
  assert.deepEqual(report.errors,[]);report.passed=true;
-}catch(e){report.passed=false;report.failure=e.stack;console.error(e);process.exitCode=1;}finally{await writeFile(`${out}/report.json`,JSON.stringify(report,null,2));await browser.close();}
+}catch(e){report.passed=false;report.failure=e.stack;console.error(e);process.exitCode=1;for(const [i,p] of (await browser.pages()).entries()){try{await p.screenshot({path:`${out}/failure-${i}.png`});await writeFile(`${out}/failure-${i}.txt`,await p.evaluate(()=>document.body.innerText));}catch{}}}finally{await writeFile(`${out}/report.json`,JSON.stringify(report,null,2));await browser.close();}
