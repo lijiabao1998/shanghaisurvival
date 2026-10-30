@@ -7,8 +7,9 @@ import { decideEncounterBehavior } from './encounter-behavior';
 import { findLocalPath, type LocalWaypoint } from './navigation';
 import { createHelperState, exchangeWithHelper, aidHelper, receiveHelperCare } from './helper';
 import { createCityVisibility } from './city-visibility';
+import { createLilongInterior, createShelterFloor, shelterInspectionPoints } from './shanghai-details';
 import { roadGeometries, nearbyRoadName, type StreetRoad } from './road-geometry';
-import { viewHeight } from './view';
+import { viewHeight, roomViewHeight } from './view';
 import { emptyInventory, replenishCaches, applyCacheLoot, loadSnapshot, saveSnapshot, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
 import { selectShelter, type Shelter } from './shelter';
 import { installTouchControls } from './touch-controls';
@@ -42,6 +43,8 @@ let outbreak = createOutbreak();
 let mode: 'sandbox' | 'quick' = 'sandbox';
 let elapsed = 0;
 let inShelter = false;
+let shelterLamp: THREE.PointLight | null = null;
+let roomFocus:ReadonlyArray<readonly [number,number]>=[];
 let shelter: Shelter | null = null;
 let cityVisibility:ReturnType<typeof createCityVisibility>|null=null;
 let visibilityTimer=0;
@@ -1177,7 +1180,7 @@ function placeContainer(): { x: number; z: number } {
 function start(chosen: CharSpec, resume: Snapshot | null = null) {
   if(mode==='sandbox'&&!resume&&savedGame?.status==='alive'&&!confirm('開始新沙盒會覆寫此候選版本進度；舊正式版存檔仍保留。確定開始？')) {el.overlay.classList.add('on');return;}
   if(!resume)savedGame=null;
-  elapsed=0; inShelter=false; helperOpen=false;helperPanel.hidden=true;helperState=createHelperState(); stash=emptyInventory(); restCount=0; saveTimer=0; saveWarning='';
+  elapsed=0; inShelter=false; shelterPanel.classList.remove('room-view');document.body.classList.remove('inspecting-shelter');resize(); helperOpen=false;helperPanel.hidden=true;helperState=createHelperState(); stash=emptyInventory(); restCount=0; saveTimer=0; saveWarning='';
   shelterPanel.hidden=true;
   spec = chosen;
   document.querySelector<HTMLElement>('#campaign-mode')?.setAttribute('hidden','');
@@ -1417,7 +1420,7 @@ function enterShelter() {
 function leaveShelter() {
   if(!shelter)return;
   inShelter=false;paused=false;[px,pz]=shelter.outside;if(playerRoot)playerRoot.position.set(px,0,-pz);
-  shelterPanel.hidden=true;
+  shelterPanel.hidden=true;shelterPanel.classList.remove('room-view');document.body.classList.remove('inspecting-shelter');refreshShelterView();
   document.querySelector<HTMLElement>('#survivor-touch-controls')?.removeAttribute('hidden');
   clearControlState();invuln=1.5;persistCampaign();flashHint('離開安全屋。先找水與罐頭，別把所有物資帶出去。');
 }
@@ -1426,6 +1429,9 @@ function showShelter() {
   const touch=document.querySelector<HTMLElement>('#survivor-touch-controls');if(touch)touch.hidden=true;
   shelterPanel.replaceChildren();
   const title=document.createElement('h2');title.textContent='弄堂安全屋';shelterPanel.append(title);
+  const roomView=document.createElement('button');roomView.className='room-view-toggle';
+  const syncRoomView=()=>{const viewing=shelterPanel.classList.contains('room-view');roomView.textContent=viewing?'開啟物資面板':'看看屋內';roomView.setAttribute('aria-pressed',String(viewing));document.body.classList.toggle('inspecting-shelter',viewing&&inShelter);refreshShelterView();};
+  roomView.onclick=()=>{shelterPanel.classList.toggle('room-view');syncRoomView();};syncRoomView();shelterPanel.append(roomView);
   const info=document.createElement('p');info.textContent='門已關好。物品可逐個存取；休息消耗庫存一水一罐頭，推進2分鐘。';shelterPanel.append(info);
   const controls=document.createElement('div');controls.className='shelter-stock';
   for(const id of Object.keys(ITEMS) as ItemId[]) {
@@ -1440,12 +1446,12 @@ function showShelter() {
   shelterPanel.append(controls);
   const rest=document.createElement('button');rest.textContent='休息：庫存 1水＋1罐頭';rest.disabled=stash.water<1||stash.food<1;
   rest.onclick=()=>{const state={hp,stamina,outbreak,inventory,stash,elapsed,restCount};if(restAtShelter(state)){treatBody(survivorSystems.condition,'rest');hp=state.hp;stamina=state.stamina;elapsed=state.elapsed;restCount=state.restCount;updateDaylight();refreshSupplySites();persistCampaign();showShelter();flashHint('休息完成，補充體力與水分；街區時間已前進。');}};
-  const exit=document.createElement('button');exit.textContent='返回街區';exit.onclick=leaveShelter;
+  const exit=document.createElement('button');exit.className='shelter-exit';exit.textContent='返回街區';exit.onclick=leaveShelter;
   shelterPanel.append(rest,exit);
   const status=document.createElement('p');status.textContent=`HP ${Math.round(hp)} · 水分 ${Math.round(outbreak.hydration)} · 飽足 ${Math.round(outbreak.satiety)} · 第${dayPhase(elapsed).day}天 ${saveWarning}`;shelterPanel.append(status);
 }
 function installCampaignUI() {
-  const style=document.createElement('style');style.textContent=`#campaign-mode[hidden]{display:none}#campaign-mode{margin:12px 0;display:flex;gap:8px;flex-wrap:wrap}#campaign-mode button,#shelter-panel button{min-height:44px;padding:8px 12px;border:1px solid #93b6ad;background:#203631;color:#f4ecda;border-radius:6px;font:inherit;cursor:pointer}#campaign-mode button:disabled,#shelter-panel button:disabled{opacity:.4;cursor:default}#shelter-panel{position:fixed;z-index:60;right:3vw;top:10vh;width:min(430px,88vw);max-height:78vh;overflow:auto;background:#142422f5;color:#f4ecda;border:1px solid #70b4ac;padding:16px;border-radius:10px;font:14px system-ui}#shelter-panel[hidden]{display:none}.shelter-stock>div{display:flex;align-items:center;gap:7px;margin:7px 0}.shelter-stock span{flex:1}#shelter-panel>button{margin:10px 8px 0 0}#campaign-mode .selected{background:#486354}`;document.head.append(style);
+  const style=document.createElement('style');style.textContent=`#campaign-mode[hidden]{display:none}#campaign-mode{margin:12px 0;display:flex;gap:8px;flex-wrap:wrap}#campaign-mode button,#shelter-panel button{min-height:44px;padding:8px 12px;border:1px solid #93b6ad;background:#203631;color:#f4ecda;border-radius:6px;font:inherit;cursor:pointer}#campaign-mode button:disabled,#shelter-panel button:disabled{opacity:.4;cursor:default}#shelter-panel{position:fixed;z-index:60;right:3vw;top:10vh;width:min(430px,88vw);max-height:78vh;overflow:auto;background:#142422f5;color:#f4ecda;border:1px solid #70b4ac;padding:16px;border-radius:10px;font:14px system-ui}#shelter-panel[hidden]{display:none}#shelter-panel.room-view{top:auto;bottom:max(16px,env(safe-area-inset-bottom));width:auto;max-width:88vw;padding:8px 14px}#shelter-panel.room-view>:not(.room-view-toggle):not(.shelter-exit){display:none}body.inspecting-shelter #hud,body.inspecting-shelter #side,body.inspecting-shelter #dispatch,body.inspecting-shelter #hint{visibility:hidden}body.inspecting-shelter #vignette{opacity:.2}.shelter-stock>div{display:flex;align-items:center;gap:7px;margin:7px 0}.shelter-stock span{flex:1}#shelter-panel>button{margin:10px 8px 0 0}#campaign-mode .selected{background:#486354}`;document.head.append(style);
   shelterPanel=document.createElement('section');shelterPanel.id='shelter-panel';shelterPanel.hidden=true;shelterPanel.setAttribute('aria-label','安全屋物資與休息');document.body.append(shelterPanel);
   new MutationObserver(()=>{const touch=document.querySelector<HTMLElement>('#survivor-touch-controls');if(touch)touch.hidden=!shelterPanel.hidden||helperOpen||el.overlay.classList.contains('on');}).observe(shelterPanel,{attributes:true,attributeFilter:['hidden']});
   const modes=document.createElement('div');modes.id='campaign-mode';
@@ -1497,6 +1503,7 @@ function frame(dt: number) {
   }
 
   if (paused || bagOpen || inShelter || helperOpen) updateHud();
+  if(shelterLamp)shelterLamp.visible=inShelter;
   shake = Math.max(0, shake - dt * 2.4);
   camShake = Math.max(0, camShake - dt * 3);
   const jitter = camShake * 0.5;
@@ -1507,7 +1514,7 @@ function frame(dt: number) {
     40,
   ));
   camera.lookAt(target);
-  visibilityTimer-=dt;if(visibilityTimer<=0){visibilityTimer=.1;cityVisibility?.update(px,pz);}
+  visibilityTimer-=dt;if(visibilityTimer<=0){visibilityTimer=.1;cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:undefined);}
 }
 
 const clock = new THREE.Clock();
@@ -1518,10 +1525,23 @@ function animate() {
   renderer.render(scene, camera);
 }
 
+/** Commit room zoom and occlusion in one UI transaction. A slow GPU may render
+ * fewer than two frames in 300 ms; the simulation visibility timer is not a UI gate. */
+function refreshShelterView() {
+  resize();
+  cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:undefined);
+  visibilityTimer=.1;
+  const target=new THREE.Vector3(px,1,-pz);
+  camera.position.copy(target).add(new THREE.Vector3(40,56,40));camera.lookAt(target);
+  if(shelterLamp)shelterLamp.visible=inShelter;
+  renderer.render(scene,camera);
+}
+
 function resize() {
   renderer.setSize(innerWidth, innerHeight, false);
   const a = innerWidth / innerHeight;
-  const viewSize = viewHeight(a,matchMedia('(any-pointer:coarse)').matches,viewZoom);
+  const inspecting=inShelter&&shelterPanel?.classList.contains('room-view');
+  const viewSize = inspecting?roomViewHeight(a):viewHeight(a,matchMedia('(any-pointer:coarse)').matches,viewZoom);
   camera.left = -viewSize * a / 2;
   camera.right = viewSize * a / 2;
   camera.top = viewSize / 2;
@@ -1531,6 +1551,7 @@ function resize() {
 addEventListener('resize', resize);
 addEventListener('wheel', e => {
   e.preventDefault();
+  if(inShelter&&shelterPanel.classList.contains('room-view'))return;
   viewZoom = THREE.MathUtils.clamp(viewZoom * (e.deltaY < 0 ? 1.1 : .9), .5, 2.2);
   resize();
 }, { passive: false });
@@ -1565,8 +1586,9 @@ fetch(dataUrl)
     if(shelter) {
       const marker=new THREE.Mesh(new THREE.BoxGeometry(1.2,2.4,.25),new THREE.MeshStandardMaterial({color:0x49c8d8,emissive:0x166c7a,emissiveIntensity:.8}));
       marker.position.set(shelter.outside[0],1.2,-shelter.outside[1]); marker.scale.set(.4,1,.4);scene.add(marker);
-      const floor=new THREE.Mesh(new THREE.CircleGeometry(2,24),new THREE.MeshStandardMaterial({color:0x9f956d,side:THREE.DoubleSide}));floor.rotation.x=-Math.PI/2;floor.position.set(shelter.inside[0],.03,-shelter.inside[1]);scene.add(floor);
-      for(const [dx,dz,color] of [[.7,0,0x976731],[-.7,0,0x536d67]]){const prop=new THREE.Mesh(new THREE.BoxGeometry(.5,.45,1),new THREE.MeshStandardMaterial({color}));prop.position.set(shelter.inside[0]+dx,.25,-shelter.inside[1]+dz);scene.add(prop);}
+      const shelterBuilding=data.buildings.find(b=>b.id===shelter!.id);
+      if(shelterBuilding){scene.add(createLilongInterior(shelterBuilding,shelter),createShelterFloor(shelterBuilding));roomFocus=shelterInspectionPoints(shelterBuilding,shelter);}
+      shelterLamp=new THREE.PointLight(0xffd6aa,5,8,2);shelterLamp.position.set(shelter.inside[0],2.8,-shelter.inside[1]);shelterLamp.visible=false;scene.add(shelterLamp);
     }
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(
@@ -1611,7 +1633,7 @@ fetch(dataUrl)
       (window as unknown as { __modu: unknown }).__modu = {
         state: () => ({
           helper:{...helperState},helperOpen, fadedBuildings:cityVisibility?.fadedIds(), cityMeshes:cityVisibility?.stats(),
-          phase, hp, battery, stamina, timeLeft, kills, paused, bagOpen, sneaking, looted, outbreak: { ...outbreak },
+          phase, mode, inShelter, shelter: shelter ? {...shelter,door:[...shelter.door],inside:[...shelter.inside],outside:[...shelter.outside]} : null, stash:{...stash}, restCount, roomView:shelterPanel.classList.contains('room-view'), cameraViewHeight:camera.top-camera.bottom, streetZoom:viewZoom, hp, battery, stamina, timeLeft, kills, paused, bagOpen, sneaking, looted, outbreak: { ...outbreak },
           zombies: zombies.length, awake: zombies.filter(z => z.state === 'chase').length,
           dead: zombies.filter(z => z.state === 'dead').length,
           factions: Object.fromEntries(['infected','military','police','raider'].map(id => [id,zombies.filter(z => z.faction.id === id).length])),

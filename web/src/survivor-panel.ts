@@ -69,6 +69,7 @@ export function installSurvivorPanel(options: SurvivorPanelOptions) {
   dialog.append(header, tabs, content, footer); overlay.append(dialog); document.body.append(overlay);
   overlay.addEventListener('pointerdown', event => event.stopPropagation());
   overlay.addEventListener('keydown', event => {
+    if (overlay.hidden) return; // A stale focused child must not swallow game keys.
     if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); options.close(); return; }
     if (event.key !== 'Tab') { event.stopPropagation(); return; }
     const focusable = [...dialog.querySelectorAll<HTMLElement>('button:not(:disabled), [tabindex="0"]')].filter(el => !el.hidden);
@@ -172,6 +173,13 @@ export function installSurvivorPanel(options: SurvivorPanelOptions) {
     if (overlay.hidden) previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     overlay.hidden = false; render(true); closeButton.focus({ preventScroll: true });
   }
-  function close() { overlay.hidden = true; previousFocus?.focus({ preventScroll: true }); previousFocus = null; }
+  function close() {
+    overlay.hidden = true;
+    if (previousFocus?.isConnected && !overlay.contains(previousFocus)) previousFocus.focus({ preventScroll: true });
+    // body, removed or disabled controls may not accept focus. Explicitly release
+    // a hidden dialog child so subsequent Escape reaches the game's pause handler.
+    if (document.activeElement instanceof HTMLElement && overlay.contains(document.activeElement)) document.activeElement.blur();
+    previousFocus = null;
+  }
   return { open, close, render, isOpen: () => !overlay.hidden, destroy: () => { close(); overlay.remove(); } };
 }

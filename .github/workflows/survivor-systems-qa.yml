@@ -1,7 +1,7 @@
 name: Survivor systems candidate QA
 on:
   push:
-    branches: [feat/survivor-loadout-foundation-20261030]
+    branches: [feat/survivor-loadout-foundation-20261030, feat/shanghai-identity-details-20261030]
 permissions:
   contents: read
 jobs:

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { cityWalls, roofGeometry, type Building } from './world';
 import { buildingOccludesPlayer } from './occlusion';
+import { lilongFacade } from './shanghai-details';
 
 type Range = { wallStart:number;wallEnd:number;roofStart:number;roofEnd:number;building:Building;minX:number;maxX:number;minZ:number;maxZ:number };
 /** Three fixed meshes: solid walls, faded walls and solid roofs. Geometry attributes
@@ -48,6 +49,7 @@ export function createCityVisibility(buildings:Building[], lowRise = false) {
         }
       }
     }
+    if(lowRise){const detail=lilongFacade(rendered);walls.push(...detail.positions);wallColors.push(...detail.colors);}
     wg.dispose();rg.dispose();
     const xs=building.footprint.map(p=>p[0]),zs=building.footprint.map(p=>p[1]);
     ranges.push({building:rendered,wallStart,wallEnd:walls.length/3,roofStart,roofEnd:roofs.length/3,minX:Math.min(...xs),maxX:Math.max(...xs),minZ:Math.min(...zs),maxZ:Math.max(...zs)});
@@ -70,13 +72,16 @@ export function createCityVisibility(buildings:Building[], lowRise = false) {
   roofBuffer.setIndex(new THREE.BufferAttribute(top,1).setUsage(THREE.DynamicDrawUsage));
   let lastKey:string|null=null,lastX=NaN,lastZ=NaN;
   let fadedIds:string[]=[];
-  function update(x:number,z:number):boolean {
-    if(x===lastX&&z===lastZ)return false;lastX=x;lastZ=z;
+  let lastFocus:ReadonlyArray<readonly [number,number]>|undefined;
+  function update(x:number,z:number,focus?:ReadonlyArray<readonly [number,number]>):boolean {
+    // Focus is a precomputed immutable indoor grid, used only during room inspection.
+    // Changing inspection mode must invalidate the cache even at stationary coordinates.
+    if(x===lastX&&z===lastZ&&focus===lastFocus)return false;lastX=x;lastZ=z;lastFocus=focus;
     const hidden=new Set<string>();
     for(const r of ranges){
-      // Camera ray projected into data coordinates is (40,-40).
-      if(r.maxX<x||r.minX>x+40||r.maxZ<z-40||r.minZ>z)continue;
-      if(buildingOccludesPlayer(r.building,x,z))hidden.add(r.building.id);
+      // Same orthographic camera ray from every visible furniture-area focus point.
+      const blocks=(px:number,pz:number)=>!(r.maxX<px||r.minX>px+40||r.maxZ<pz-40||r.minZ>pz)&&buildingOccludesPlayer(r.building,px,pz);
+      if(blocks(x,z)||focus?.some(p=>blocks(p[0],p[1])))hidden.add(r.building.id);
     }
     const key=[...hidden].join('|');if(key===lastKey)return false;lastKey=key;fadedIds=[...hidden];
     let n=0,g=0,t=0;
