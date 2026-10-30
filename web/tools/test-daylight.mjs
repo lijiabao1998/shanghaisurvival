@@ -6,3 +6,5 @@ assert.equal(day.lamps,0);assert.equal(night.lamps,1);assert.ok(day.hemiIntensit
 assert.deepEqual(profile(24),night);assert.deepEqual(profile(NaN),profile(8));
 for(let h=0;h<24;h+=.05){const p=profile(h);for(const k of ['lamps','daylight'])assert.ok(p[k]>=0&&p[k]<=1);assert.ok(p.hemiIntensity>=1.15,'night remains readable');assert.ok(Number.isFinite(p.sky));}
 console.log('PASS visible day/night palettes, twilight stages, lamps, readable night and continuous campaign clock mapping');
+
+assert.ok(profile(12).vignette<.2);assert.ok(profile(0).vignette>.75);

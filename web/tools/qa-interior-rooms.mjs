@@ -10,7 +10,7 @@ const report={scope:'candidate real input; isolated entrance-position/dead-enemy
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const state=p=>p.evaluate(()=>window.__modu.state());
 async function saved(p){return p.evaluate(()=>{const key=Object.keys(localStorage).find(k=>k.startsWith('shanghai-survivors:systems-v1:'));return key?{key,data:JSON.parse(localStorage.getItem(key))}:null;});}
-async function resume(p){await p.reload({waitUntil:'networkidle0'});await p.waitForFunction(()=>window.__modu);let found=false;for(const b of await p.$$('#campaign-mode button'))if((await b.evaluate(e=>e.textContent)).includes('繼續')){await b.click();found=true;break;}assert.ok(found,'continue button exists');await p.waitForFunction(()=>window.__modu.state().phase==='play');}
+async function resume(p,navigate=false){if(navigate)await p.goto(url,{waitUntil:'networkidle0'});else await p.reload({waitUntil:'networkidle0'});await p.waitForFunction(()=>window.__modu);let found=false;for(const b of await p.$$('#campaign-mode button'))if((await b.evaluate(e=>e.textContent)).includes('繼續')){await b.click();found=true;break;}assert.ok(found,'continue button exists');await p.waitForFunction(()=>window.__modu.state().phase==='play');}
 async function moveTo(p,target){
  const started=Date.now();let unchanged=0,last=null;
  while(Date.now()-started<25000){
@@ -40,11 +40,15 @@ try{
   for(let index=0;index<rooms.length;index++){
    const room=rooms[index],loot=room.loot[0],fixture=structuredClone(baseline.data);
    fixture.position=[...room.entrance.outside];fixture.inShelter=false;fixture.interiorLoot={};fixture.enemies=fixture.enemies.map(e=>({...e,hp:0,state:'dead'}));
-   // Pause before fixture injection to prevent the old run's periodic save racing the fixture.
-   await p.keyboard.press('Escape');assert.equal((await state(p)).paused,true);
+   // Leave gameplay first: pagehide/visibilitychange deliberately persist even while paused.
+   // A same-origin inert document retains storage access without patching the game's save handlers.
+   const fixtureUrl=new URL('/__qa_interior_fixture__.html',url).href;
+   const intercept=request=>request.url()===fixtureUrl?request.respond({status:200,contentType:'text/html',body:'<!doctype html><title>Isolated QA fixture staging</title>'}):request.continue();
+   await p.setRequestInterception(true);p.on('request',intercept);
+   await p.goto(fixtureUrl,{waitUntil:'load'});p.off('request',intercept);await p.setRequestInterception(false);
    await p.evaluate(({key,data})=>localStorage.setItem(key,JSON.stringify(data)),{key:baseline.key,data:fixture});
-   report.fixtures.push({viewport:name,room:room.id,position:fixture.position,enemies:'all dead',origin:'natural new-game save; only position/inShelter/interiorLoot/enemies changed'});
-   await resume(p);const before=await state(p);assert.ok(Math.hypot(before.spawn[0]-fixture.position[0],before.spawn[1]-fixture.position[1])<.1,'fixture retained at real door outside');
+   const fixtureEvidence={viewport:name,room:room.id,position:fixture.position,enemies:'all dead',origin:'natural new-game save; only position/inShelter/interiorLoot/enemies changed',staged:(await saved(p)).data.position};report.fixtures.push(fixtureEvidence);assert.deepEqual(fixtureEvidence.staged,fixture.position);
+   await resume(p,true);const before=await state(p);fixtureEvidence.actual=before.spawn;fixtureEvidence.savedAfterResume=(await saved(p)).data.position;assert.deepEqual(fixtureEvidence.savedAfterResume,fixture.position,'no lifecycle handler overwrote staged fixture');assert.ok(Math.hypot(before.spawn[0]-fixture.position[0],before.spawn[1]-fixture.position[1])<.1,`fixture retained at real door outside: expected ${fixture.position}, actual ${before.spawn}`);
    await corridor(p,room.entrance.outside,room.entrance.inside);assert.equal((await state(p)).activeInterior,room.id,'walked naturally through real door');
    await corridor(p,room.entrance.inside,loot.position);assert.equal((await state(p)).inShelter,false,'ordinary room has no safehouse modal/teleport');
    await p.screenshot({path:`${out}/${name}-${index+1}-interior-before.png`});const amount=(await state(p)).inventory[loot.item];

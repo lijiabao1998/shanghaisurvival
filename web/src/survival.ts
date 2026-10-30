@@ -1455,6 +1455,7 @@ function installHelperUI() {
 function updateDaylight() {
   const profile=daylightProfile(dayPhase(elapsed).hour);
   streetDetails?.setNight(profile.lamps);
+  document.documentElement.style.setProperty('--day-vignette',String(profile.vignette));
   hemi.color.setHex(profile.hemiSky);hemi.groundColor.setHex(profile.ground);hemi.intensity=profile.hemiIntensity;
   moon.color.setHex(profile.key);moon.intensity=profile.keyIntensity;
   // Keep a camera-facing key so narrow lanes remain legible on mobile at night.

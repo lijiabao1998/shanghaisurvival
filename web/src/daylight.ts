@@ -9,5 +9,5 @@ export function daylightProfile(rawHour:number) {
  const stage=hour<5||hour>=19?'夜晚':hour<7?'黎明':hour<17?'白晝':'黃昏';
  const lamps=1-clamp((daylight-.08)/.27);
  const sky=mix(mix(0x101a2b,0xa8c6cf,daylight),0xb58b74,twilight*.55);
- return {hour,daylight,stage,lamps,sky,hemiSky:mix(0x768ba8,0xd7edec,daylight),ground:mix(0x27313b,0x9a8d70,daylight),key:mix(mix(0xa5bce3,0xffefd0,daylight),0xffba80,twilight*.7),hemiIntensity:1.15+daylight*1.65,keyIntensity:.65+daylight*1.8,exposure:1.15+daylight*.12,fogNear:90+daylight*50,fogFar:280+daylight*180};
+ return {hour,daylight,stage,lamps,sky,vignette:.82-daylight*.68,hemiSky:mix(0x768ba8,0xd7edec,daylight),ground:mix(0x27313b,0x9a8d70,daylight),key:mix(mix(0xa5bce3,0xffefd0,daylight),0xffba80,twilight*.7),hemiIntensity:1.15+daylight*1.65,keyIntensity:.65+daylight*1.8,exposure:1.15+daylight*.12,fogNear:90+daylight*50,fogFar:280+daylight*180};
 }
