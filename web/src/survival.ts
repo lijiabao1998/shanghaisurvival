@@ -11,6 +11,8 @@ import { emptyInventory, replenishCaches, applyCacheLoot, loadSnapshot, saveSnap
 import { selectShelter, type Shelter } from './shelter';
 import { installTouchControls } from './touch-controls';
 import { sweepMove, segmentClear } from './combat';
+import { MELEE_PROFILES, meleePose, sweptMeleeAngle, angleInSweep, type MeleeHand } from './melee-motion';
+import { applyMeleePose, resetRigJoints, applyLocomotionJoints, applyThrowJoints } from './rig-motion';
 import { profileFor, type FactionProfile } from './factions';
 import { createOutbreak, stepOutbreak, applySupply, canEvacuate } from './outbreak';
 /**
@@ -208,8 +210,9 @@ function spawnCharacter(spec: CharSpec) {
   playerRoot.add(ring);
 
   weapon = buildWeapon('pipe');
-  weapon.position.set(0, -spec.height * 0.27, 0.03);
-  rig.armR.add(weapon);
+  weapon.position.set(0, -spec.height * 0.27 + spec.height * 0.29 * 0.52, 0.03);
+  weapon.rotation.x = Math.PI;
+  rig.elbowR.add(weapon);
 
   scene.add(playerRoot);
 }
@@ -339,9 +342,10 @@ let arsenal:Arsenal=createLegacyArsenal(false,0)!;
 function syncArsenal(){hasPistol=arsenal.owned.length>0;pistolEquipped=arsenal.equipped!==null;ammo=arsenal.equipped?arsenal.rounds[WEAPONS[arsenal.equipped].calibre]:arsenal.rounds['9mm'];}
 function updateWeaponVisual(){
   if(!rig)return;
-  if(weapon){rig.armR.remove(weapon);weapon.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>m.dispose());}});}
+  if(weapon){rig.elbowR.remove(weapon);weapon.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>m.dispose());}});}
   weapon=arsenal.equipped?buildFirearm(arsenal.equipped):buildWeapon('pipe');
-  weapon.position.set(0,-spec.height*.27,.03);rig.armR.add(weapon);
+  if (!arsenal.equipped) weapon.rotation.x = Math.PI;
+  weapon.position.set(0,-spec.height*.27+spec.height*.29*.52,.03);rig.elbowR.add(weapon);
 }
 let runNoiseTimer = 0, lootNoiseTimer = 0;
 let lootTarget: Container | null = null;
@@ -349,6 +353,10 @@ let lootProgress = 0;
 let walkPhase = 0;
 let action: 'none' | 'swing' | 'throw' | 'shoot' | 'loot' = 'none';
 let actionT = 0, actionDur = 0, actionFired = false;
+let swingCount = 0;
+let swingHand: MeleeHand = 'right';
+// A single committed swing may overlap several frames and several enemies.
+const swingHits = new Set<Zombie>();
 let muzzle: THREE.PointLight | null = null;
 let muzzleT = 0;
 const inventory: Record<ItemId, number> = { water: 1, food: 1, medkit: 0, battery: 0, ammo: 0, pistol: 0 };
@@ -383,7 +391,7 @@ addEventListener('keydown', e => {
   if (phase !== 'play') return;
   if(helperOpen){if(e.code==='Escape')closeHelper();return;}
   if(inShelter) { if(e.code==='Escape')leaveShelter(); return; }
-  if (e.code === 'Escape') { if (bagOpen) toggleBag(false); else paused = !paused; keys.clear(); attackHeld = false; touchActionHeld = false; return; }
+  if (e.code === 'Escape') { if (bagOpen) toggleBag(false); else { paused = !paused; releaseGameplayInput(); } return; }
   if (e.code === 'Tab' || e.code === 'KeyI') { toggleBag(!bagOpen); return; }
   if (paused || bagOpen || inShelter) return;
   keys.add(e.code);
@@ -403,12 +411,13 @@ addEventListener('keyup', e => keys.delete(e.code));
 function releaseGameplayInput() {
   keys.clear(); attackHeld = false; touchActionHeld = false;
   if (action === 'loot') { action = 'none'; lootProgress = 0; setRing(0); }
+  else if (action !== 'none') { action = 'none'; actionT = 0; actionFired = false; swingHits.clear(); }
 }
 addEventListener('blur', releaseGameplayInput);
 document.addEventListener('visibilitychange', () => { if (document.hidden) releaseGameplayInput(); });
 function toggleBag(open: boolean) {
   bagOpen = open;
-  keys.clear(); attackHeld=false;touchActionHeld=false;
+  releaseGameplayInput();
   el.side.classList.toggle('bag-open', open);
   el.side.setAttribute('aria-label', open ? '背包，點選物品使用；Esc關閉' : '背包');
 }
@@ -450,8 +459,8 @@ canvas.addEventListener('pointermove',e=>{
   if (aimRay.ray.intersectPlane(groundPlane,aimHit)) facing=Math.atan2(aimHit.x-px,aimHit.z+pz);
 });
 canvas.addEventListener('pointerdown',e=>{ if(e.pointerType === 'mouse' && e.button===0 && phase==='play' && !paused && !bagOpen && !helperOpen) attackHeld=true; });
-addEventListener('pointerup',()=>{attackHeld=false;});
-addEventListener('pointercancel',()=>{attackHeld=false;touchActionHeld=false;keys.delete('KeyE');});
+addEventListener('pointerup',e=>{if(e.pointerType==='mouse' && e.button===0) attackHeld=false;});
+addEventListener('pointercancel',e=>{if(e.pointerType==='mouse') attackHeld=false;});
 addEventListener('survivor-action',e=>{
   const start=(e as CustomEvent).detail.phase==='start';
   if (!start) {touchActionHeld=false;keys.delete('KeyE');return;}
@@ -463,10 +472,14 @@ installTouchControls();
 
 // ---------------------------------------------------------------- 動作
 
-function startSwing() {
-  if (action !== 'none' || stamina < 6) return;
-  action = 'swing'; actionT = 0; actionDur = 0.36; actionFired = false;
-  stamina = Math.max(0, stamina - 6);
+function startSwing(hand: MeleeHand = 'right') {
+  const profile = MELEE_PROFILES.blunt;
+  if (action !== 'none' || arsenal.equipped || stamina < profile.stamina) return;
+  action = 'swing'; actionT = 0; actionDur = profile.duration; actionFired = false;
+  swingHand = hand;
+  swingCount++;
+  swingHits.clear();
+  stamina = Math.max(0, stamina - profile.stamina);
   makeNoise(px, pz, HEAR_SWING);
 }
 
@@ -480,16 +493,19 @@ function forwardXZ() {
   return { x: Math.sin(facing), z: -Math.cos(facing) };
 }
 
-function meleeHit() {
-  const f = forwardXZ();
+function meleeHit(from: number, to: number) {
   for (const zb of zombies) {
-    if (zb.state === 'dead') continue;
+    if (zb.state === 'dead' || swingHits.has(zb)) continue;
     const dx = zb.x - px, dz = zb.z - pz;
     const d = Math.hypot(dx, dz);
-    if (d > 2.4 || d < 0.01) continue;
-    const dot = (dx / d) * f.x + (dz / d) * f.z;
-    if (dot < 0.45 || !canSee(px, pz, zb.x, zb.z)) continue;
+    if (d > 1.8 || d < 0.01) continue;
+    const bearing = Math.atan2(dx, -dz) - facing;
+    const tolerance = Math.asin(Math.min(1, 0.34 / d));
+    if (!angleInSweep(bearing, from, to, tolerance) || !canSee(px, pz, zb.x, zb.z)) continue;
+    swingHits.add(zb);
     damageZombie(zb, 45, dx / d, dz / d, 1.6);
+    zb.attackCd = Math.max(zb.attackCd, 0.5);
+    camShake = Math.max(camShake, 0.22);
   }
 }
 
@@ -593,7 +609,7 @@ function updatePlayer(dt: number) {
 
   stamina = wantRun
     ? Math.max(0, stamina - 22 * dt)
-    : Math.min(100, stamina + 14 * dt);
+    : action === 'swing' ? stamina : Math.min(100, stamina + 14 * dt);
 
   if (wantRun) {
     runNoiseTimer -= dt;
@@ -630,6 +646,7 @@ function updatePlayer(dt: number) {
 function animateRig(dt: number, speed: number) {
   if (!rig) return;
   const { legL, legR, armL, armR, torso } = rig;
+  resetRigJoints(rig);
   const moving = speed > 0.05;
   const amp = Math.min(1, speed / RUN_SPEED);
 
@@ -648,17 +665,17 @@ function animateRig(dt: number, speed: number) {
     armL.rotation.x = -0.8; armR.rotation.x = -0.6;
     torso.rotation.x = 0.12;
   }
+  applyLocomotionJoints(rig, walkPhase, moving, grounded);
+  if (arsenal.equipped) rig.elbowR.rotation.x = 0;
 
   if (action !== 'none') {
+    const previousT = actionT;
     actionT += dt;
     const t = Math.min(1, actionT / actionDur);
     if (action === 'swing') {
-      const k = t < 0.4 ? t / 0.4 : 1 - (t - 0.4) / 0.6;
-      armR.rotation.x = -2.2 * k;
-      armR.rotation.z = 0.45 * k;
-      torso.rotation.y = -0.45 * k;
-      torso.rotation.x = 0.18 * k;
-      if (!actionFired && t >= 0.38) { actionFired = true; meleeHit(); }
+      applyMeleePose(rig, meleePose('blunt', t, swingHand), swingHand);
+      const swept = sweptMeleeAngle('blunt', previousT / actionDur, t, swingHand);
+      if (swept) meleeHit(swept.from, swept.to);
     } else if(action==='shoot'){
       armR.rotation.set(-Math.PI/2-.09*Math.sin(t*Math.PI),0,0);
       torso.rotation.y=0;torso.rotation.x=0;
@@ -667,6 +684,7 @@ function animateRig(dt: number, speed: number) {
       armR.rotation.x = -1.6 * k;
       armR.rotation.z = -0.3 * k;
       torso.rotation.y = 0.35 * k;
+      applyThrowJoints(rig, t);
       if (actionFired) { armR.rotation.x = -0.9; }
       if (!actionFired && t >= 0.45) { actionFired = true; throwBrick(); }
     } else if (action === 'loot') {
@@ -1017,7 +1035,7 @@ function updateBag() {
     row.type = 'button';
     row.setAttribute('aria-label', `${label}，${id === 'pistol' ? '切換裝備' : '點擊使用'}`);
     row.disabled=helperOpen;
-    row.onclick = () => { if(helperOpen)return; if (id === 'pistol') { pistolEquipped = !pistolEquipped; flashHint(pistolEquipped ? '已裝備手槍，左鍵攻擊' : '已裝備鐵管，左鍵攻擊'); } else if (id !== 'kill') useItem(id); };
+    row.onclick = () => { if(helperOpen)return; if (id === 'pistol') selection(arsenal.equipped ? null : arsenal.owned[0] ?? null); else if (id !== 'kill') useItem(id); };
     row.className = `row ${count > 0 ? 'has' : 'empty'}`;
     row.innerHTML =
       `<span class="dot" style="background:${ITEM_COLOR[id as ItemId]}"></span>` +
@@ -1545,7 +1563,8 @@ fetch(dataUrl)
           zombies: zombies.length, awake: zombies.filter(z => z.state === 'chase').length,
           dead: zombies.filter(z => z.state === 'dead').length,
           factions: Object.fromEntries(['infected','military','police','raider'].map(id => [id,zombies.filter(z => z.faction.id === id).length])),
-          inventory: { ...inventory }, ammo, hasPistol,
+          inventory: { ...inventory }, ammo, hasPistol, equipped: arsenal.equipped,
+          action, actionProgress: actionDur ? actionT / actionDur : 0, attackHeld, touchActionHeld, swingCount,
           spawn: [px, pz], facing,
         }),
         start: (id = ROSTER[0].id) => {

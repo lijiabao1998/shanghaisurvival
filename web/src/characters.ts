@@ -71,6 +71,10 @@ export type Rig = {
   head: THREE.Group;
   armL: THREE.Group;
   armR: THREE.Group;
+  elbowL: THREE.Group;
+  elbowR: THREE.Group;
+  kneeL: THREE.Group;
+  kneeR: THREE.Group;
   legL: THREE.Group;
   legR: THREE.Group;
 };
@@ -98,17 +102,24 @@ export function buildRig(spec: CharSpec): Rig {
   const body = new THREE.Group();
   root.add(body);
 
-  const legL = new THREE.Group();
-  legL.position.set(-shoulder * 0.32, legLen, 0);
-  legL.add(hang(box(shoulder * 0.34, legLen, depth * 0.86, spec.bottom), -legLen / 2));
-  legL.add(hang(box(shoulder * 0.34, h * 0.03, depth * 0.9, 0x23262a), -legLen + h * 0.015));
-  body.add(legL);
-
-  const legR = new THREE.Group();
-  legR.position.set(shoulder * 0.32, legLen, 0);
-  legR.add(hang(box(shoulder * 0.34, legLen, depth * 0.86, spec.bottom), -legLen / 2));
-  legR.add(hang(box(shoulder * 0.34, h * 0.03, depth * 0.9, 0x23262a), -legLen + h * 0.015));
-  body.add(legR);
+  // Separate lower limbs give the hips and knees independent pivots while
+  // retaining the original standing height and occupation colours.
+  const makeLeg = (side: number) => {
+    const leg = new THREE.Group();
+    leg.position.set(side * shoulder * 0.32, legLen, 0);
+    const upper = legLen * 0.51;
+    const lower = legLen - upper;
+    leg.add(hang(box(shoulder * 0.34, upper, depth * 0.86, spec.bottom), -upper / 2));
+    const knee = new THREE.Group();
+    knee.position.y = -upper;
+    knee.add(hang(box(shoulder * 0.34, lower, depth * 0.86, spec.bottom), -lower / 2));
+    knee.add(hang(box(shoulder * 0.34, h * 0.03, depth * 0.9, 0x23262a), -lower + h * 0.015));
+    leg.add(knee);
+    body.add(leg);
+    return { leg, knee };
+  };
+  const { leg: legL, knee: kneeL } = makeLeg(-1);
+  const { leg: legR, knee: kneeR } = makeLeg(1);
 
   const torso = new THREE.Group();
   torso.position.set(0, legLen, 0);
@@ -155,15 +166,21 @@ export function buildRig(spec: CharSpec): Rig {
   const makeArm = (side: number) => {
     const arm = new THREE.Group();
     arm.position.set(side * shoulder * 0.56, torsoLen * 0.94, 0);
-    arm.add(hang(box(shoulder * 0.26, armLen, depth * 0.72, spec.top), -armLen / 2));
-    arm.add(hang(box(shoulder * 0.22, h * 0.055, depth * 0.74, spec.skin), -armLen + h * 0.03));
-    return arm;
+    const upper = armLen * 0.52;
+    const lower = armLen - upper;
+    arm.add(hang(box(shoulder * 0.26, upper, depth * 0.72, spec.top), -upper / 2));
+    const elbow = new THREE.Group();
+    elbow.position.y = -upper;
+    elbow.add(hang(box(shoulder * 0.26, lower, depth * 0.72, spec.top), -lower / 2));
+    elbow.add(hang(box(shoulder * 0.22, h * 0.055, depth * 0.74, spec.skin), -lower + h * 0.03));
+    arm.add(elbow);
+    return { arm, elbow };
   };
-  const armL = makeArm(-1);
-  const armR = makeArm(1);
+  const { arm: armL, elbow: elbowL } = makeArm(-1);
+  const { arm: armR, elbow: elbowR } = makeArm(1);
   torso.add(armL, armR);
 
-  return { root, body, torso, head, armL, armR, legL, legR };
+  return { root, body, torso, head, armL, armR, elbowL, elbowR, legL, legR, kneeL, kneeR };
 }
 
 /** A held tool, pivoting from the right hand. */

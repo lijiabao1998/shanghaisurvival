@@ -10,8 +10,8 @@ for (const spec of ROSTER) {
   assert.ok(Math.abs(box.max.y - spec.height) <= spec.height * 0.025, `${spec.id}: declared height incl. optional headgear tolerance`);
   assert.ok(size.x >= 0.40 && size.x <= 0.66, `${spec.id}: human-scale body width within collider diameter`);
   assert.ok(size.z >= 0.18 && size.z <= 0.4, `${spec.id}: human-scale depth`);
-  for (const foot of [rig.legL.children[1], rig.legR.children[1]]) {
-    assert.ok(foot, `${spec.id}: shoe is parented to leg pivot`);
+  for (const foot of [rig.kneeL.children[1], rig.kneeR.children[1]]) {
+    assert.ok(foot, `${spec.id}: shoe is parented to knee pivot`);
     const fb = new THREE.Box3().setFromObject(foot);
     assert.ok(Math.abs(fb.min.y) < 1e-6, `${spec.id}: neither shoe is underground`);
   }
