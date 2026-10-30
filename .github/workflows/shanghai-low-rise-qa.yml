@@ -139,7 +139,11 @@ jobs:
               assert.equal(await mp.evaluate(()=>__modu.state().inShelter),false);
               assert.equal(await mp.evaluate(()=>document.body.classList.contains('inspecting-shelter')),false);
               await mp.screenshot({path:'evidence/06-mobile-play.png',fullPage:true});
+              report.mobileBeforeReload=await mp.evaluate(()=>({state:__modu.state(),storage:{...localStorage}}));
               await mp.reload({waitUntil:'networkidle'});
+              await mp.waitForFunction(()=>!!window.__modu,{timeout:45000});
+              report.mobileAfterReload=await mp.evaluate(()=>({state:__modu.state(),storage:{...localStorage},menu:document.querySelector('#campaign-mode')?.textContent,note:document.querySelector('#campaign-note')?.textContent}));
+              await mp.screenshot({path:'evidence/09-mobile-resume-menu.png',fullPage:true});
               await mp.getByRole('button',{name:/繼續第/}).click();
               await mp.waitForFunction(()=>__modu.state().phase==='play');
               report.mobileResumed=await mp.evaluate(()=>__modu.state());
