@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {weaponAtSite,nearestWeaponSite,exchangeWeapon} from '../src/weapon-acquisition.ts';
 import {createLegacyArsenal,WEAPON_IDS} from '../src/arsenal.ts';
 const sites=Array.from({length:12},(_,i)=>({x:i,z:0,looted:false,...(i<3?{cacheKind:['water','food','ammo'][i]}:{})}));
-assert.deepEqual(sites.map(s=>weaponAtSite(sites,s)),[null,null,null,...WEAPON_IDS,null,null,null,null,null,null]);
+assert.deepEqual(sites.map(s=>weaponAtSite(sites,s)),[null,null,null,...WEAPON_IDS.slice(0,3),null,null,null,null,null,null]);
 assert.equal(nearestWeaponSite(sites,0,0),sites[3]);sites[3].looted=true;
 assert.equal(weaponAtSite(sites,sites[3]),WEAPON_IDS[0]);assert.equal(nearestWeaponSite(sites,0,0),sites[4]);
 const reloaded=structuredClone(sites);assert.equal(weaponAtSite(reloaded,reloaded[4]),WEAPON_IDS[1]);assert.equal(reloaded[3].looted,true);

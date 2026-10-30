@@ -1,5 +1,5 @@
 /** Named weapons with fictional arcade balance values, not real operating specifications. */
-export const WEAPON_IDS = ['qsz92-9', 'qbz95-1', 'qbz191'] as const;
+export const WEAPON_IDS = ['qsz92-9', 'qbz95-1', 'qbz191', 'compact9', 'service9', 'heavy9', 'carbine58', 'marksman58', 'support58'] as const;
 export type WeaponId = typeof WEAPON_IDS[number];
 export const CALIBRES = ['9mm', '5.8-rifle'] as const;
 export type Calibre = typeof CALIBRES[number];
@@ -9,6 +9,13 @@ export const WEAPONS: Readonly<Record<WeaponId, WeaponSpec>> = Object.freeze({
   'qsz92-9': Object.freeze({ id: 'qsz92-9', name: 'QSZ-92-9', calibre: '9mm', category: 'pistol', cooldown: .28, damage: 90, range: 28 }),
   'qbz95-1': Object.freeze({ id: 'qbz95-1', name: 'QBZ-95-1', calibre: '5.8-rifle', category: 'rifle', cooldown: .18, damage: 65, range: 36 }),
   'qbz191': Object.freeze({ id: 'qbz191', name: 'QBZ-191', calibre: '5.8-rifle', category: 'rifle', cooldown: .22, damage: 75, range: 40 }),
+  // Original generic game variants; these names/values do not specify real firearms.
+  compact9: Object.freeze({ id: 'compact9', name: '袖珍手槍', calibre: '9mm', category: 'pistol', cooldown: .22, damage: 58, range: 20 }),
+  service9: Object.freeze({ id: 'service9', name: '勤務手槍', calibre: '9mm', category: 'pistol', cooldown: .3, damage: 82, range: 30 }),
+  heavy9: Object.freeze({ id: 'heavy9', name: '重型手槍', calibre: '9mm', category: 'pistol', cooldown: .48, damage: 112, range: 32 }),
+  carbine58: Object.freeze({ id: 'carbine58', name: '短卡賓', calibre: '5.8-rifle', category: 'rifle', cooldown: .16, damage: 54, range: 30 }),
+  marksman58: Object.freeze({ id: 'marksman58', name: '精準步槍', calibre: '5.8-rifle', category: 'rifle', cooldown: .65, damage: 125, range: 55 }),
+  support58: Object.freeze({ id: 'support58', name: '支援步槍', calibre: '5.8-rifle', category: 'rifle', cooldown: .13, damage: 46, range: 34 }),
 });
 const MAX = 1_000_000;
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);

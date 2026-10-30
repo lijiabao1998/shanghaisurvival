@@ -1,6 +1,7 @@
 import { createSurvivorSystems, migrateSurvivorSystems, equipHand, carriedWeight, loadEffects, injureBody, stepBody, treatBody } from './survivor-systems';
 import { installSurvivorPanel } from './survivor-panel';
 import { WEAPONS, WEAPON_IDS, createLegacyArsenal, grantWeapon, grantAmmo, equipWeapon, consumeRound, type Arsenal, type WeaponId } from './arsenal';
+import { createRound, stepRound, type Round } from './ballistics';
 import { weaponAtSite, nearestWeaponSite, exchangeWeapon } from './weapon-acquisition';
 import { buildFirearm } from './weapon-visuals';
 import { planEncounters } from './encounters';
@@ -338,6 +339,17 @@ const containerUsed = new THREE.MeshStandardMaterial({ color: 0x3a3d3a, roughnes
 
 type Projectile = { mesh: THREE.Mesh; x: number; z: number; y: number; vx: number; vz: number; vy: number; life: number; kind: 'brick' | 'bottle' };
 const projectiles: Projectile[] = [];
+const firearmRounds: {round:Round;mesh:THREE.Mesh;dx:number;dz:number;knock:number}[]=[];
+const roundGeo=new THREE.SphereGeometry(.065,4,3);
+const roundMaterial=new THREE.MeshBasicMaterial({color:0xffdd87});
+function clearFirearmRounds(){for(const p of firearmRounds)scene.remove(p.mesh);firearmRounds.length=0;}
+function updateFirearmRounds(dt:number){
+  const targets=zombies.flatMap((z,id)=>z.state==='dead'?[]:[{id,x:z.x,z:z.z,radius:.48,bottom:0,top:1.85}]);
+  for(let i=firearmRounds.length-1;i>=0;i--){const p=firearmRounds[i];const hit=stepRound(p.round,dt,targets,(x,_y,z,r)=>collides(x,z,r));const pos=p.round.position;p.mesh.position.set(pos.x,pos.y,-pos.z);
+    if(hit?.kind==='target'){const target=zombies[Number(hit.targetId)];if(target&&target.state!=='dead')damageZombie(target,hit.damage,p.dx,p.dz,p.knock);}
+    if(!p.round.alive){scene.remove(p.mesh);firearmRounds.splice(i,1);}
+  }
+}
 const brickGeo = new THREE.BoxGeometry(0.16, 0.1, 0.22);
 const brickMat = new THREE.MeshStandardMaterial({ color: 0x8d5b45, roughness: 1 });
 
@@ -430,6 +442,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyK') startThrow();
   if (e.code === 'KeyQ') shove();
   if (e.code === 'KeyR') dispatchHandAttack('secondary');
+  if (e.code === 'KeyG') {if(arsenal.equipped)dispatchHandAttack('primary');else if(survivorSystems.hands.secondary&&survivorSystems.hands.secondary!=='pipe')dispatchHandAttack('secondary');else flashHint('先在背包裝備槍械。');}
 });
 addEventListener('keyup', e => keys.delete(e.code));
 function releaseGameplayInput() {
@@ -573,18 +586,9 @@ function fire(id: WeaponId | null = arsenal.equipped, hand: MeleeHand = 'right')
     muzzle.position.set(px + f.x * 0.8, py + 1.35, -(pz + f.z * 0.8));
     muzzle.visible = true;
   }
-  let best: Zombie | null = null;
-  let bestD = gun.range;
-  for (const zb of zombies) {
-    if (zb.state === 'dead') continue;
-    const dx = zb.x - px, dz = zb.z - pz;
-    const along = dx * f.x + dz * f.z;
-    if (along < 0.5 || along > bestD) continue;
-    const perp = Math.abs(dx * f.z - dz * f.x);
-    if (perp > 0.85 || !canSee(px,pz,zb.x,zb.z)) continue;
-    best = zb; bestD = along;
-  }
-  if (best) damageZombie(best, gun.damage, f.x, f.z, gun.category==='rifle'?2.5:1.8);
+  // Stylised finite-speed simulation; no hitscan and no real-world performance claim.
+  const round=createRound({origin:{x:px,y:py+1.35,z:pz},direction:{x:f.x,y:0,z:f.z},speed:gun.category==='rifle'?110:70,range:gun.range,damage:gun.damage});
+  if(round){const mesh=new THREE.Mesh(roundGeo,roundMaterial);mesh.position.set(px,py+1.35,-pz);scene.add(mesh);firearmRounds.push({round,mesh,dx:f.x,dz:f.z,knock:gun.category==='rifle'?2.5:1.8});}
   updateBag();
 }
 
@@ -1166,7 +1170,7 @@ function resetWorld() {
     c.mesh.visible = true;
   }
   for (const p of projectiles) scene.remove(p.mesh);
-  projectiles.length = 0;
+  projectiles.length = 0;clearFirearmRounds();
 }
 
 function placeContainer(): { x: number; z: number } {
@@ -1513,6 +1517,7 @@ function frame(dt: number) {
     updateZombies(dt);
     if (phase !== 'play') return;
     updateProjectiles(dt);
+    updateFirearmRounds(dt);
     updateLoot(dt);
     updateHud();
     updatePlaceLabel();
@@ -1664,7 +1669,7 @@ fetch(dataUrl)
           dead: zombies.filter(z => z.state === 'dead').length,
           factions: Object.fromEntries(['infected','military','police','raider'].map(id => [id,zombies.filter(z => z.faction.id === id).length])),
           inventory: { ...inventory }, arsenal:structuredClone(arsenal),survivorSystems:structuredClone(survivorSystems),weight:carriedWeight(inventory,arsenal),ammo, hasPistol, equipped: arsenal.equipped,
-          action, swingHand, shootHand, swingStroke, bufferedHand, impactPause,
+          flyingRounds:firearmRounds.length, action, swingHand, shootHand, swingStroke, bufferedHand, impactPause,
           combatTargets: zombies.slice(0, 8).map(z=>({x:z.x,z:z.z,hp:z.hp,state:z.state})), actionProgress: actionDur ? actionT / actionDur : 0, attackHeld, touchActionHeld, swingCount,
           spawn: [px, pz], facing,
           searchSites:containers.map(c=>({x:c.x,z:c.z,looted:c.looted,cacheKind:c.cacheKind,weapon:weaponAtSite(containers,c)})),

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import * as THREE from 'three';
+import { WEAPON_IDS, WEAPONS } from '../src/arsenal.ts';
 import { buildFirearm } from '../src/weapon-visuals.ts';
 const signatures = new Set();
 const expected = {
@@ -7,7 +8,7 @@ const expected = {
   'qbz95-1': { min:[-.0415,-.4,-.165], max:[.0415,.386,.1595], triangles:132, parts:10 },
   'qbz191': { min:[-.0365,-.435,-.165], max:[.0365,.3695,.1295], triangles:144, parts:11 },
 };
-for (const id of ['qsz92-9','qbz95-1','qbz191']) {
+for (const id of WEAPON_IDS) {
   const gun=buildFirearm(id);
   assert.ok(gun instanceof THREE.Group);
   assert.equal(gun.userData.muzzleAxis,'-Y');
@@ -15,11 +16,11 @@ for (const id of ['qsz92-9','qbz95-1','qbz191']) {
   const bounds=new THREE.Box3().setFromObject(gun),size=bounds.getSize(new THREE.Vector3());
   assert.ok([...bounds.min.toArray(),...bounds.max.toArray()].every(Number.isFinite));
   assert.ok(size.y>size.x && size.y>size.z,'long axis must be local Y');
-  assert.ok(size.y<(id==='qsz92-9'?.3:.9));
+  assert.ok(size.y<(WEAPONS[id].category==='pistol'?.4:1.1));
   assert.ok(bounds.min.y<0 && bounds.max.y>0,'grip-origin prop extends both directions');
   assert.equal(gun.children.length,3,'batch by material, maximum three draw calls');
-  assert.equal(gun.userData.parts.length,expected[id].parts);
-  for(const [axis,index] of ['x','y','z'].map((a,i)=>[a,i])) {
+  if(expected[id])assert.equal(gun.userData.parts.length,expected[id].parts);
+  if(expected[id])for(const [axis,index] of ['x','y','z'].map((a,i)=>[a,i])) {
     assert.ok(Math.abs(bounds.min[axis]-expected[id].min[index])<1e-6,'minimum bounds preserved');
     assert.ok(Math.abs(bounds.max[axis]-expected[id].max[index])<1e-6,'maximum bounds preserved');
   }
@@ -35,8 +36,8 @@ for (const id of ['qsz92-9','qbz95-1','qbz191']) {
     for(let i=0;i<normals.count;i++) assert.ok(Math.abs(Math.hypot(normals.getX(i),normals.getY(i),normals.getZ(i))-1)<1e-6,'unit normals preserved');
     triangles+=(mesh.geometry.index?.count??positions.count)/3;
   }
-  assert.equal(materials.size,3);assert.equal(triangles,expected[id].triangles);
-  if(id!=='qsz92-9') {
+  assert.equal(materials.size,3);if(expected[id])assert.equal(triangles,expected[id].triangles);assert.ok(triangles<=180);
+  if(WEAPONS[id].category==='rifle') {
     assert.ok(gun.userData.parts.find(p=>p.name==='barrel').y<0);
     const mag=gun.userData.parts.find(p=>p.name==='magazine');
     assert.equal(Math.sign(mag.y),id==='qbz95-1'?1:-1);
@@ -46,7 +47,7 @@ for (const id of ['qsz92-9','qbz95-1','qbz191']) {
   gun.traverse(o=>{if(o instanceof THREE.Mesh)o.geometry.dispose();});
   materials.forEach(m=>m.dispose());
 }
-assert.equal(signatures.size,3);
+assert.equal(signatures.size,9);
 assert.throws(()=>buildFirearm('unknown'),RangeError);
 const a=buildFirearm('qbz191'),b=buildFirearm('qbz191');
 assert.notEqual(a.children[0].material,b.children[0].material,'independent props may be disposed safely');

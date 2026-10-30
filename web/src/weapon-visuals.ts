@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
-export type FirearmVisualId = 'qsz92-9' | 'qbz95-1' | 'qbz191';
+import { WEAPONS, isWeaponId, type WeaponId } from './arsenal.ts';
+export type FirearmVisualId = WeaponId;
 
 /**
  * Stylised game props, not dimensionally accurate replicas or equipment claims.
@@ -11,7 +12,7 @@ export type FirearmVisualId = 'qsz92-9' | 'qbz95-1' | 'qbz191';
  * Geometry stays in metres and uses just three materials per disposable prop.
  */
 export function buildFirearm(id: FirearmVisualId): THREE.Group {
-  if (!['qsz92-9', 'qbz95-1', 'qbz191'].includes(id)) throw new RangeError('Unknown firearm visual');
+  if (!isWeaponId(id)) throw new RangeError('Unknown firearm visual');
   const group = new THREE.Group();
   group.name = `firearm:${id}`;
   group.userData = { visualId: id, muzzleAxis: '-Y', stylised: true };
@@ -29,7 +30,7 @@ export function buildFirearm(id: FirearmVisualId): THREE.Group {
     const mesh = new THREE.Mesh(new THREE.CylinderGeometry(.014, .014, length, 6, 1), body);
     mesh.name = 'barrel'; mesh.position.set(0, cy, cz); group.add(mesh);
   };
-  if (id === 'qsz92-9') {
+  if (WEAPONS[id].category === 'pistol') {
     box('slide', .039, .205, .045, -.055, .035);
     box('frame', .043, .145, .035, -.032, .001, polymer);
     box('grip', .038, .061, .095, .024, -.052, polymer);
@@ -61,6 +62,24 @@ export function buildFirearm(id: FirearmVisualId): THREE.Group {
     box('rail', .034, .405, .016, -.128, .087, accent);
     box('front-sight', .02, .02, .035, -.295, .112);
     box('rear-sight', .02, .02, .035, .024, .112);
+  }
+  // Original low-poly variants: alter silhouette before batching, not just names.
+  const proportions: Partial<Record<FirearmVisualId, [number, number, number]>> = {
+    compact9:[.95,.78,.85], service9:[1,1.08,1], heavy9:[1.28,1.23,1.1],
+    carbine58:[.95,.78,.95], marksman58:[1,1.22,1], support58:[1.2,1.08,1.1],
+  };
+  const scale=proportions[id];
+  if(scale)for(const child of group.children){child.position.multiply(new THREE.Vector3(...scale));child.scale.set(...scale);}
+  if(id==='service9')box('under-rail',.032,.09,.018,-.07,-.026,accent);
+  if(id==='heavy9')box('barrel-shroud',.053,.085,.045,-.20,.032,accent);
+  if(id==='carbine58')box('compact-sight',.03,.05,.04,-.08,.10,accent);
+  if(id==='marksman58'){
+    box('optic-body',.045,.20,.045,-.08,.14,accent);
+    box('optic-mount',.025,.075,.035,-.08,.105,polymer);
+  }
+  if(id==='support58'){
+    box('box-magazine',.10,.11,.17,-.115,-.13,polymer);
+    box('carry-handle',.025,.14,.025,-.10,.16,accent);
   }
   // Bake component transforms, then batch by material: three meshes/draw calls
   // per prop instead of one per component. Keep tiny descriptive metadata for

@@ -1,4 +1,4 @@
-import { isWeaponId, validArsenal, type Arsenal, type WeaponId } from './arsenal.ts';
+import { WEAPONS, isWeaponId, validArsenal, type Arsenal, type WeaponId } from './arsenal.ts';
 import type { Inventory } from './campaign.ts';
 
 /** Original arcade rules, not a medical or real-world weapon model. */
@@ -12,7 +12,7 @@ export type SurvivorSystems = {
 const record = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const meter = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v) && v >= 0 && v <= 100;
 const count = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0 && v <= 1_000_000;
-const rifle = (v: unknown) => v === 'qbz95-1' || v === 'qbz191';
+const rifle = (v: unknown) => isWeaponId(v) && WEAPONS[v].category === 'rifle';
 const item = (v: unknown): v is HandItem => v === 'pipe' || isWeaponId(v);
 const owned = (v: HandItem, arsenal: Arsenal) => v === 'pipe' || arsenal.owned.includes(v);
 export const primaryGun = (state: SurvivorSystems): WeaponId | null => state.hands.primary === 'pipe' ? null : state.hands.primary;
@@ -66,7 +66,7 @@ export function equipHand(state: SurvivorSystems, arsenal: Arsenal, slot: 'prima
 /** Fictional kg-like balancing weights, not physical specifications. */
 export const CARRY_CAPACITY = 12;
 const SUPPLY_WEIGHT = { water: .6, food: .45, medkit: .5, battery: .2, ammo: .12, pistol: 0 } as const;
-const GUN_WEIGHT: Record<WeaponId, number> = { 'qsz92-9': .8, 'qbz95-1': 3.2, qbz191: 3.4 };
+const GUN_WEIGHT: Record<WeaponId, number> = { 'qsz92-9': .8, 'qbz95-1': 3.2, qbz191: 3.4, compact9: .5, service9: .85, heavy9: 1.2, carbine58: 2.6, marksman58: 4.2, support58: 4.8 };
 export function carriedWeight(inventory: Inventory, arsenal: Arsenal): number | null {
   if (!record(inventory) || Object.keys(inventory).length !== 6 || !validArsenal(arsenal)
     || !Object.keys(SUPPLY_WEIGHT).every(id => count(inventory[id as keyof Inventory]))) return null;
