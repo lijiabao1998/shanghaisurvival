@@ -1,3 +1,4 @@
+import {createSurvivorSystems,equipHand} from '../src/survivor-systems.ts';
 import { createLegacyArsenal, grantWeapon, equipWeapon, consumeRound } from '../src/arsenal.ts';
 import assert from 'node:assert/strict';
 import { emptyInventory, parseSnapshot, saveSnapshot, loadSnapshot, transferItem, restAtShelter, dayPhase, replenishCaches, applyCacheLoot } from '../src/campaign.ts';
@@ -164,4 +165,30 @@ test('death persists arsenal and spent rounds without revival or duplicate award
  const s={...fresh(),status:'dead',hp:0};s.arsenal=createLegacyArsenal(true,0);grantWeapon(s.arsenal,'qbz95-1');equipWeapon(s.arsenal,'qbz95-1');consumeRound(s.arsenal);
  const store=memory();assert.ok(saveSnapshot(store,'save',s));const r=loadSnapshot(store,'save','block.json');assert.deepEqual(r,s);assert.equal(r.status,'dead');assert.equal(r.hp,0);assert.equal(r.arsenal.rounds['5.8-rifle'],5);assert.equal(r.arsenal.rounds['9mm'],0);
 });
+
+test('survivor extension is optional for both legacy and current arsenal saves',()=>{
+ for(const withArsenal of [false,true]){const s=fresh();if(withArsenal)s.arsenal=createLegacyArsenal(true,7);const before=encode(s),r=parseSnapshot(before,'block.json');assert.equal(encode(r),before);assert.equal('survivorSystems' in r,false);}
+});
+test('survivor hand and injury state roundtrip keeps supplies enemies and ammunition exact',()=>{
+ const s=fresh();s.arsenal=createLegacyArsenal(true,7);s.survivorSystems=createSurvivorSystems(s.arsenal);assert.ok(equipHand(s.survivorSystems,s.arsenal,'secondary','qsz92-9'));s.survivorSystems.condition={bleeding:12,pain:26};s.inventory.water=4;
+ const store=memory();assert.ok(saveSnapshot(store,'save',s));const r=loadSnapshot(store,'save','block.json');assert.deepEqual(r,s);assert.equal(r.arsenal.rounds['9mm'],7);assert.equal(r.survivorSystems.hands.primary,'pipe');assert.equal(r.survivorSystems.hands.secondary,'qsz92-9');r.survivorSystems.condition.bleeding=0;assert.equal(s.survivorSystems.condition.bleeding,12);
+});
+test('invalid survivor extension rejects entire save without silently treating injuries',()=>{
+ const s=fresh();s.arsenal=createLegacyArsenal(true,7);const good=createSurvivorSystems(s.arsenal);
+ for(const bad of [null,{},[],{...good,version:2},{...good,extra:1},{...good,hands:{primary:'pipe'}},{...good,hands:{primary:'pipe',secondary:'pipe'}},{...good,hands:{primary:'pipe',secondary:'qbz191'}},{...good,condition:{bleeding:-1,pain:0}},{...good,condition:{bleeding:NaN,pain:0}},{...good,condition:{bleeding:0,pain:101}},{...good,condition:{bleeding:0,pain:0,extra:1}}])assert.equal(parseSnapshot(encode({...s,survivorSystems:bad}),'block.json'),null);
+});
+test('survivor primary must agree with canonical equipped and rifles cannot have an offhand',()=>{
+ const s=fresh();s.arsenal=createLegacyArsenal(true,7);grantWeapon(s.arsenal,'qbz191');s.survivorSystems=createSurvivorSystems(s.arsenal);s.survivorSystems.hands.primary='qsz92-9';assert.equal(parseSnapshot(encode(s),'block.json'),null);equipWeapon(s.arsenal,'qsz92-9');assert.ok(parseSnapshot(encode(s),'block.json'));
+ s.survivorSystems.hands={primary:'qbz191',secondary:'pipe'};equipWeapon(s.arsenal,'qbz191');assert.equal(parseSnapshot(encode(s),'block.json'),null);s.survivorSystems.hands.secondary=null;assert.ok(parseSnapshot(encode(s),'block.json'));
+});
+test('legacy pistol equipped mirror and survivor extension use the same migration rule',()=>{
+ const s=fresh();s.pistolEquipped=true;const legacy=createLegacyArsenal(true,s.ammo);equipWeapon(legacy,'qsz92-9');s.survivorSystems=createSurvivorSystems(legacy);assert.ok(parseSnapshot(encode(s),'block.json'));
+ s.survivorSystems.hands.primary='pipe';assert.equal(parseSnapshot(encode(s),'block.json'),null);
+});
+test('failed survivor extension write retains the complete previous snapshot',()=>{
+ const s=fresh(),store=memory();s.arsenal=createLegacyArsenal(true,7);s.survivorSystems=createSurvivorSystems(s.arsenal);s.survivorSystems.condition.bleeding=20;assert.ok(saveSnapshot(store,'save',s));const before=store.getItem('save');
+ const bad=structuredClone(s);bad.survivorSystems.condition.pain=Infinity;bad.inventory.water=99;assert.equal(saveSnapshot(store,'save',bad),false);assert.equal(store.getItem('save'),before);
+ const denied={...store,setItem(){throw new Error('quota');}};const good=structuredClone(s);good.survivorSystems.condition.bleeding=0;assert.equal(saveSnapshot(denied,'save',good),false);assert.equal(store.getItem('save'),before);assert.deepEqual(loadSnapshot(store,'save','block.json'),s);
+});
+
 console.log(`${passed} campaign tests passed`);

@@ -1,3 +1,5 @@
+import { createSurvivorSystems, migrateSurvivorSystems, equipHand, carriedWeight, loadEffects, injureBody, stepBody, treatBody } from './survivor-systems';
+import { installSurvivorPanel } from './survivor-panel';
 import { WEAPONS, WEAPON_IDS, createLegacyArsenal, grantWeapon, grantAmmo, equipWeapon, consumeRound, type Arsenal, type WeaponId } from './arsenal';
 import { buildFirearm } from './weapon-visuals';
 import { planEncounters } from './encounters';
@@ -12,6 +14,8 @@ import { emptyInventory, replenishCaches, applyCacheLoot, loadSnapshot, saveSnap
 import { selectShelter, type Shelter } from './shelter';
 import { installTouchControls } from './touch-controls';
 import { sweepMove, segmentClear } from './combat';
+import { MELEE_PROFILES, meleePose, sweptMeleeAngle, angleInSweep, type MeleeHand } from './melee-motion';
+import { applyMeleePose, resetRigJoints, applyLocomotionJoints, applyThrowJoints } from './rig-motion';
 import { profileFor, type FactionProfile } from './factions';
 import { createOutbreak, stepOutbreak, applySupply, canEvacuate } from './outbreak';
 /**
@@ -57,6 +61,7 @@ let helperActor:THREE.Mesh|null=null;
 let sneaking = false;
 let paused = false;
 let bagOpen = false;
+let survivorPanel: ReturnType<typeof installSurvivorPanel> | null = null;
 let attackHeld = false;
 let touchActionHeld = false;
 let pistolEquipped = false;
@@ -155,7 +160,12 @@ addEventListener('error', e => {
 const params = new URLSearchParams(location.search);
 const rawData = params.get('data');
 const dataUrl = rawData ? (rawData.includes('/') ? rawData : `./data/${rawData}`) : './data/block.json';
-const saveKey = `shanghai-survivors:v1:${dataUrl}`;
+// Candidate writes are isolated: old production cannot erase the new extension.
+const legacySaveKey = `shanghai-survivors:v1:${dataUrl}`;
+const saveKey = `shanghai-survivors:systems-v1:${dataUrl}`;
+function loadCandidateSave(): Snapshot | null {
+  try { return localStorage.getItem(saveKey) === null ? loadSnapshot(localStorage,legacySaveKey,dataUrl) : loadSnapshot(localStorage,saveKey,dataUrl); } catch { return null; }
+}
 
 // ---------------------------------------------------------------- 渲染
 
@@ -188,6 +198,8 @@ let playerRoot: THREE.Group | null = null;
 let torch: THREE.SpotLight | null = null;
 let halo: THREE.PointLight | null = null;
 let weapon: THREE.Group | null = null;
+let offhandWeapon: THREE.Group | null = null;
+let shootHand: MeleeHand = 'right';
 let camShake = 0;
 
 function spawnCharacter(spec: CharSpec) {
@@ -211,8 +223,9 @@ function spawnCharacter(spec: CharSpec) {
   playerRoot.add(ring);
 
   weapon = buildWeapon('pipe');
-  weapon.position.set(0, -spec.height * 0.27, 0.03);
-  rig.armR.add(weapon);
+  weapon.position.set(0, -spec.height * 0.27 + spec.height * 0.29 * 0.52, 0.03);
+  weapon.rotation.x = Math.PI;
+  rig.elbowR.add(weapon);
 
   scene.add(playerRoot);
 }
@@ -339,19 +352,31 @@ let kills = 0;
 let looted = 0;
 let hasPistol = false, ammo = 0;
 let arsenal:Arsenal=createLegacyArsenal(false,0)!;
+let survivorSystems=createSurvivorSystems(arsenal)!;
 function syncArsenal(){hasPistol=arsenal.owned.length>0;pistolEquipped=arsenal.equipped!==null;ammo=arsenal.equipped?arsenal.rounds[WEAPONS[arsenal.equipped].calibre]:arsenal.rounds['9mm'];}
 function updateWeaponVisual(){
   if(!rig)return;
-  if(weapon){rig.armR.remove(weapon);weapon.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>m.dispose());}});}
-  weapon=arsenal.equipped?buildFirearm(arsenal.equipped):buildWeapon('pipe');
-  weapon.position.set(0,-spec.height*.27,.03);rig.armR.add(weapon);
+  for(const old of [weapon,offhandWeapon])if(old){old.removeFromParent();old.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>m.dispose());}});}
+  const attach=(id:WeaponId|'pipe',hand:MeleeHand)=>{
+    const model=id==='pipe'?buildWeapon('pipe'):buildFirearm(id);
+    if(id==='pipe')model.rotation.x=Math.PI;
+    model.position.set(0,-spec.height*.27+spec.height*.29*.52,.03);
+    (hand==='right'?rig!.elbowR:rig!.elbowL).add(model);return model;
+  };
+  weapon=attach(survivorSystems.hands.primary,'right');
+  offhandWeapon=survivorSystems.hands.secondary?attach(survivorSystems.hands.secondary,'left'):null;
 }
+
 let runNoiseTimer = 0, lootNoiseTimer = 0;
 let lootTarget: Container | null = null;
 let lootProgress = 0;
 let walkPhase = 0;
 let action: 'none' | 'swing' | 'throw' | 'shoot' | 'loot' = 'none';
 let actionT = 0, actionDur = 0, actionFired = false;
+let swingCount = 0;
+let swingHand: MeleeHand = 'right';
+// A single committed swing may overlap several frames and several enemies.
+const swingHits = new Set<Zombie>();
 let muzzle: THREE.PointLight | null = null;
 let muzzleT = 0;
 const inventory: Record<ItemId, number> = { water: 1, food: 1, medkit: 0, battery: 0, ammo: 0, pistol: 0 };
@@ -386,7 +411,7 @@ addEventListener('keydown', e => {
   if (phase !== 'play') return;
   if(helperOpen){if(e.code==='Escape')closeHelper();return;}
   if(inShelter) { if(e.code==='Escape')leaveShelter(); return; }
-  if (e.code === 'Escape') { if (bagOpen) toggleBag(false); else paused = !paused; keys.clear(); attackHeld = false; touchActionHeld = false; return; }
+  if (e.code === 'Escape') { if (bagOpen) toggleBag(false); else { paused = !paused; releaseGameplayInput(); } return; }
   if (e.code === 'Tab' || e.code === 'KeyI') { toggleBag(!bagOpen); return; }
   if (paused || bagOpen || inShelter) return;
   keys.add(e.code);
@@ -401,18 +426,21 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyJ') startSwing();
   if (e.code === 'KeyK') startThrow();
   if (e.code === 'KeyQ') shove();
+  if (e.code === 'KeyR') dispatchHandAttack('secondary');
 });
 addEventListener('keyup', e => keys.delete(e.code));
 function releaseGameplayInput() {
   keys.clear(); attackHeld = false; touchActionHeld = false;
   if (action === 'loot') { action = 'none'; lootProgress = 0; setRing(0); }
+  else if (action !== 'none') { action = 'none'; actionT = 0; actionFired = false; swingHits.clear(); }
 }
 addEventListener('blur', releaseGameplayInput);
 document.addEventListener('visibilitychange', () => { if (document.hidden) releaseGameplayInput(); });
 function toggleBag(open: boolean) {
   bagOpen = open;
-  keys.clear(); attackHeld=false;touchActionHeld=false;
-  el.side.classList.toggle('bag-open', open);
+  releaseGameplayInput();
+  el.side.classList.remove('bag-open');
+  survivorPanel?.[open ? 'open' : 'close']();
   el.side.setAttribute('aria-label', open ? '背包，點選物品使用；Esc關閉' : '背包');
 }
 function contextualInteract(): boolean {
@@ -453,8 +481,8 @@ canvas.addEventListener('pointermove',e=>{
   if (aimRay.ray.intersectPlane(groundPlane,aimHit)) facing=Math.atan2(aimHit.x-px,aimHit.z+pz);
 });
 canvas.addEventListener('pointerdown',e=>{ if(e.pointerType === 'mouse' && e.button===0 && phase==='play' && !paused && !bagOpen && !helperOpen) attackHeld=true; });
-addEventListener('pointerup',()=>{attackHeld=false;});
-addEventListener('pointercancel',()=>{attackHeld=false;touchActionHeld=false;keys.delete('KeyE');});
+addEventListener('pointerup',e=>{if(e.pointerType==='mouse' && e.button===0) attackHeld=false;});
+addEventListener('pointercancel',e=>{if(e.pointerType==='mouse') attackHeld=false;});
 addEventListener('survivor-action',e=>{
   const start=(e as CustomEvent).detail.phase==='start';
   if (!start) {touchActionHeld=false;keys.delete('KeyE');return;}
@@ -466,10 +494,20 @@ installTouchControls();
 
 // ---------------------------------------------------------------- 動作
 
-function startSwing() {
-  if (action !== 'none' || stamina < 6) return;
-  action = 'swing'; actionT = 0; actionDur = 0.36; actionFired = false;
-  stamina = Math.max(0, stamina - 6);
+function dispatchHandAttack(slot:'primary'|'secondary') {
+  if(phase!=='play'||paused||bagOpen||inShelter||helperOpen||action!=='none')return;
+  const item=survivorSystems.hands[slot],hand=slot==='primary'?'right':'left';
+  if(item==='pipe')startSwing(hand);else if(item)fire(item,hand);
+}
+
+function startSwing(hand: MeleeHand = 'right') {
+  const profile = MELEE_PROFILES.blunt;
+  if (action !== 'none' || survivorSystems.hands[hand==='left'?'secondary':'primary'] !== 'pipe' || stamina < profile.stamina) return;
+  action = 'swing'; actionT = 0; actionDur = profile.duration; actionFired = false;
+  swingHand = hand;
+  swingCount++;
+  swingHits.clear();
+  stamina = Math.max(0, stamina - profile.stamina);
   makeNoise(px, pz, HEAR_SWING);
 }
 
@@ -483,16 +521,19 @@ function forwardXZ() {
   return { x: Math.sin(facing), z: -Math.cos(facing) };
 }
 
-function meleeHit() {
-  const f = forwardXZ();
+function meleeHit(from: number, to: number) {
   for (const zb of zombies) {
-    if (zb.state === 'dead') continue;
+    if (zb.state === 'dead' || swingHits.has(zb)) continue;
     const dx = zb.x - px, dz = zb.z - pz;
     const d = Math.hypot(dx, dz);
-    if (d > 2.4 || d < 0.01) continue;
-    const dot = (dx / d) * f.x + (dz / d) * f.z;
-    if (dot < 0.45 || !canSee(px, pz, zb.x, zb.z)) continue;
+    if (d > 1.8 || d < 0.01) continue;
+    const bearing = Math.atan2(dx, -dz) - facing;
+    const tolerance = Math.asin(Math.min(1, 0.34 / d));
+    if (!angleInSweep(bearing, from, to, tolerance) || !canSee(px, pz, zb.x, zb.z)) continue;
+    swingHits.add(zb);
     damageZombie(zb, 45, dx / d, dz / d, 1.6);
+    zb.attackCd = Math.max(zb.attackCd, 0.5);
+    camShake = Math.max(camShake, 0.22);
   }
 }
 
@@ -507,10 +548,11 @@ function throwBrick() {
   });
 }
 
-function fire() {
-  if (!arsenal.equipped || action !== 'none') return;
-  const gun=WEAPONS[arsenal.equipped];
-  if(!consumeRound(arsenal))return;syncArsenal();
+function fire(id: WeaponId | null = arsenal.equipped, hand: MeleeHand = 'right') {
+  if (!id || !arsenal.owned.includes(id) || action !== 'none') return;
+  const gun=WEAPONS[id];
+  if(!consumeRound({...arsenal,equipped:id}))return;syncArsenal();
+  shootHand=hand;
   action = 'shoot'; actionT = 0; actionDur = gun.cooldown; actionFired = true;
   muzzleT = 0.07;
   camShake = Math.max(camShake, 0.7);
@@ -557,7 +599,7 @@ function useItem(id: ItemId) {
   if (id === 'water' || id === 'food' || id === 'medkit') applySupply(outbreak, id);
   if (id === 'water') { stamina = Math.min(100, stamina + 35); flashHint('喝水補充水分，體力回復。'); }
   if (id === 'food') { hp = Math.min(100, hp + 14); flashHint('吃了罐頭，補充飽足，HP +14。'); }
-  if (id === 'medkit') { hp = Math.min(100, hp + 45); flashHint('處置傷口，暴露壓力降低，HP +45（虛構機制）。'); }
+  if (id === 'medkit') { treatBody(survivorSystems.condition,'medkit'); hp = Math.min(100, hp + 45); flashHint('處置傷口，暴露壓力降低，HP +45（虛構機制）。'); }
   if (id === 'battery') { battery = Math.min(100, battery + BATTERY_PICKUP); flashHint(`換了電池，電量 ${Math.round(battery)}%。`); }
   if (id === 'ammo') { syncArsenal();flashHint('9毫米手槍彈 +6（不可用於步槍）。'); }
   updateBag();persistCampaign();
@@ -568,7 +610,7 @@ function flashHint(text: string) {
   el.hint.textContent = text;
   hintTimer = 2.4;
 }
-const HINT_DEFAULT = 'WASD 移動 · Shift 跑 · C 潛行 · 左鍵攻擊 · Q 推開 · E 互動 · Tab 背包 · F 燈 · Esc 暫停';
+const HINT_DEFAULT = 'WASD 移動 · Shift 跑 · C 潛行 · 左鍵攻擊 · Q 推開 · E 互動 · R 副手 · Tab 背包 · F 燈 · Esc 暫停';
 
 // ---------------------------------------------------------------- 更新
 
@@ -577,7 +619,7 @@ function updatePlayer(dt: number) {
   const fwd = Number(keys.has('KeyW') || keys.has('ArrowUp')) - Number(keys.has('KeyS') || keys.has('ArrowDown'));
   const moving = right !== 0 || fwd !== 0;
   const wantRun = !sneaking && moving && (keys.has('ShiftLeft') || keys.has('ShiftRight')) && stamina > 1 && action === 'none';
-  const speed = (wantRun ? RUN_SPEED : sneaking ? WALK_SPEED * 0.5 : WALK_SPEED) * (outbreak.hydration < 20 ? 0.75 : 1);
+  const speed = (wantRun ? RUN_SPEED : sneaking ? WALK_SPEED * 0.5 : WALK_SPEED) * (outbreak.hydration < 20 ? 0.75 : 1) * loadEffects(carriedWeight(inventory,arsenal)).speedMultiplier;
 
   let movedSpeed = 0;
   if (moving && action === 'none') {
@@ -595,8 +637,8 @@ function updatePlayer(dt: number) {
   }
 
   stamina = wantRun
-    ? Math.max(0, stamina - 22 * dt)
-    : Math.min(100, stamina + 14 * dt);
+    ? Math.max(0, stamina - 22 * dt * loadEffects(carriedWeight(inventory,arsenal)).staminaMultiplier)
+    : action === 'swing' ? stamina : Math.min(100, stamina + 14 * dt);
 
   if (wantRun) {
     runNoiseTimer -= dt;
@@ -633,6 +675,7 @@ function updatePlayer(dt: number) {
 function animateRig(dt: number, speed: number) {
   if (!rig) return;
   const { legL, legR, armL, armR, torso } = rig;
+  resetRigJoints(rig);
   const moving = speed > 0.05;
   const amp = Math.min(1, speed / RUN_SPEED);
 
@@ -646,30 +689,33 @@ function animateRig(dt: number, speed: number) {
   torso.rotation.set(moving ? 0.05 + amp * 0.1 : Math.sin(walkPhase * 0.4) * 0.02, 0, 0);
 
   if(arsenal.equipped){armR.rotation.set(-Math.PI/2,0,0);armL.rotation.x=WEAPONS[arsenal.equipped].category==='rifle'?-1.1:-.2;}
+  if(survivorSystems.hands.secondary==='qsz92-9')armL.rotation.set(-Math.PI/2,0,0);
   if (!grounded) {
     legL.rotation.x = -0.55; legR.rotation.x = 0.35;
     armL.rotation.x = -0.8; armR.rotation.x = -0.6;
     torso.rotation.x = 0.12;
   }
+  applyLocomotionJoints(rig, walkPhase, moving, grounded);
+  if (arsenal.equipped) rig.elbowR.rotation.x = 0;
+  if(survivorSystems.hands.secondary==='qsz92-9')rig.elbowL.rotation.x=0;
 
   if (action !== 'none') {
+    const previousT = actionT;
     actionT += dt;
     const t = Math.min(1, actionT / actionDur);
     if (action === 'swing') {
-      const k = t < 0.4 ? t / 0.4 : 1 - (t - 0.4) / 0.6;
-      armR.rotation.x = -2.2 * k;
-      armR.rotation.z = 0.45 * k;
-      torso.rotation.y = -0.45 * k;
-      torso.rotation.x = 0.18 * k;
-      if (!actionFired && t >= 0.38) { actionFired = true; meleeHit(); }
+      applyMeleePose(rig, meleePose('blunt', t, swingHand), swingHand);
+      const swept = sweptMeleeAngle('blunt', previousT / actionDur, t, swingHand);
+      if (swept) meleeHit(swept.from, swept.to);
     } else if(action==='shoot'){
-      armR.rotation.set(-Math.PI/2-.09*Math.sin(t*Math.PI),0,0);
+      (shootHand==='right'?armR:armL).rotation.set(-Math.PI/2-.09*Math.sin(t*Math.PI),0,0);
       torso.rotation.y=0;torso.rotation.x=0;
     } else if (action === 'throw') {
       const k = t < 0.45 ? t / 0.45 : 1 - (t - 0.45) / 0.55;
       armR.rotation.x = -1.6 * k;
       armR.rotation.z = -0.3 * k;
       torso.rotation.y = 0.35 * k;
+      applyThrowJoints(rig, t);
       if (actionFired) { armR.rotation.x = -0.9; }
       if (!actionFired && t >= 0.45) { actionFired = true; throwBrick(); }
     } else if (action === 'loot') {
@@ -754,6 +800,7 @@ function updateZombies(dt: number) {
         zb.attackCd = zb.faction.cooldown;
         zb.warning = 0;
         hp = Math.max(0, hp - zb.faction.damage);
+        injureBody(survivorSystems.condition,zb.faction.damage);
         if (zb.faction.id === 'raider' && inventory.water > 0) { inventory.water--;zb.retreat=12; updateBag(); flashHint('掠奪者搶走了一瓶水，正向據點撤退！'); }
         if (zb.faction.id === 'police') stamina = Math.max(0, stamina - 25);
         if (zb.faction.id === 'military') makeNoise(zb.x, zb.z, 45);
@@ -950,6 +997,8 @@ function updateHud() {
   const elapsed = mode === 'quick' ? NIGHT_SECONDS - timeLeft : campaignElapsed();
   const distance = Math.hypot(px - block.spawn[0], pz - block.spawn[1]);
   const touchButton = document.querySelector<HTMLElement>('#survivor-touch-action');
+  const secondaryButton=document.querySelector<HTMLButtonElement>('#survivor-touch-secondary');
+  if(secondaryButton){secondaryButton.hidden=!survivorSystems.hands.secondary;secondaryButton.disabled=paused||bagOpen||inShelter||helperOpen;}
   if(touchButton) touchButton.textContent = mode==='sandbox' && shelter && Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])<2.5 ? '家' : lootTarget ? '搜' : distance <= 5 ? (mode==='quick' && elapsed >= 420 ? '撤' : mode==='sandbox'?'談':'換') : '打';
   needs.textContent = `水分 ${Math.round(outbreak.hydration)} · 飽足 ${Math.round(outbreak.satiety)} · 暴露 ${Math.round(outbreak.exposure)}${sneaking ? ' · 潛行' : ''}`;
   mission.textContent = bagOpen ? '背包已開啟（暫停）｜點物品使用，Tab / Esc 返回' : paused ? '已暫停｜Esc 繼續' : `接應點 ${Math.round(distance)}m · 搜刮 ${Math.min(looted, 3)}/3 · ${elapsed >= 480 ? '窗口已關閉' : elapsed >= 420 ? '窗口開啟，回綠圈按 E' : `接應倒數 ${Math.ceil(420 - elapsed)} 秒`} · 暴露須低於85`;
@@ -986,6 +1035,8 @@ function updateHud() {
 let moodleKey = '';
 function updateMoodles() {
   const list: [string, string][] = [];
+  if(survivorSystems.condition.bleeding>0)list.push([`流血 ${Math.ceil(survivorSystems.condition.bleeding)}`,'bad']);
+  if(loadEffects(carriedWeight(inventory,arsenal)).overloaded)list.push(['負重過高','warn']);
   if (hp < 30) list.push(['重傷', 'bad']);
   else if (hp < 65) list.push(['受傷', 'warn']);
   if (stamina < 22) list.push(['疲憊', 'warn']);
@@ -1020,7 +1071,7 @@ function updateBag() {
     row.type = 'button';
     row.setAttribute('aria-label', `${label}，${id === 'pistol' ? '切換裝備' : '點擊使用'}`);
     row.disabled=helperOpen;
-    row.onclick = () => { if(helperOpen)return; if (id === 'pistol') { pistolEquipped = !pistolEquipped; flashHint(pistolEquipped ? '已裝備手槍，左鍵攻擊' : '已裝備鐵管，左鍵攻擊'); } else if (id !== 'kill') useItem(id); };
+    row.onclick = () => { if(helperOpen)return; if (id === 'pistol') selection(arsenal.equipped ? null : arsenal.owned[0] ?? null); else if (id !== 'kill') useItem(id); };
     row.className = `row ${count > 0 ? 'has' : 'empty'}`;
     row.innerHTML =
       `<span class="dot" style="background:${ITEM_COLOR[id as ItemId]}"></span>` +
@@ -1029,7 +1080,7 @@ function updateBag() {
       `<span class="hk">${key}</span>`;
     el.bag.appendChild(row);
   }
-  const selection=(id:WeaponId|null)=>{if(helperOpen)return;if(!equipWeapon(arsenal,id))return;syncArsenal();updateWeaponVisual();updateBag();flashHint(id?`已裝備 ${WEAPONS[id].name}；${ammo}發`:'已裝備鐵管');};
+  const selection=(id:WeaponId|null)=>{if(helperOpen)return;if(!equipHand(survivorSystems,arsenal,'primary',id??'pipe'))return;syncArsenal();updateWeaponVisual();updateBag();flashHint(id?`已裝備 ${WEAPONS[id].name}；${ammo}發`:'已裝備鐵管');};
   for(const id of [null,...arsenal.owned]){
     const button=document.createElement('button');button.type='button';button.className='row has';button.disabled=helperOpen;
     button.setAttribute('aria-pressed',String(arsenal.equipped===id));
@@ -1038,12 +1089,29 @@ function updateBag() {
     button.onclick=()=>selection(id);el.bag.append(button);
   }
   const rounds=document.createElement('p');rounds.textContent=`9毫米手槍彈 ${arsenal.rounds['9mm']} · 5.8毫米步槍彈 ${arsenal.rounds['5.8-rifle']}（不通用）`;el.bag.append(rounds);
+  if(bagOpen)survivorPanel?.render();
   el.kill.textContent = `擊殺 ${kills}`;
   el.loot.textContent = `搜刮 ${looted}`;
   persistCampaign();
 }
 
 // ---------------------------------------------------------------- 流程
+
+survivorPanel=installSurvivorPanel({
+  getState:()=>({
+    supplies:BAG_ROWS.filter(([id])=>id!=='kill').map(([id,label,action])=>({id,label,count:inventory[id as ItemId],action,category:id==='water'||id==='food'?'飲食':id==='medkit'?'醫療':'裝備補給'})),
+    weapons:[{id:'pipe',label:'鐵管',twoHanded:false},...arsenal.owned.map(id=>({id,label:WEAPONS[id].name,twoHanded:WEAPONS[id].category==='rifle'}))],
+    primary:survivorSystems.hands.primary,secondary:survivorSystems.hands.secondary,
+    weight:carriedWeight(inventory,arsenal)??0,capacity:12,hp,stamina,hydration:outbreak.hydration,satiety:outbreak.satiety,
+    bleeding:survivorSystems.condition.bleeding,pain:survivorSystems.condition.pain,
+  }),
+  close:()=>toggleBag(false),
+  use:(id:string)=>{useItem(id as ItemId);survivorPanel?.render();},
+  equip:(hand:'primary'|'secondary',id:string|null)=>{
+    if(!equipHand(survivorSystems,arsenal,hand,id as WeaponId|'pipe'|null)){flashHint('雙手裝備限制：同一物件不能放兩手；步槍需要雙手。');return;}
+    syncArsenal();updateWeaponVisual();updateBag();persistCampaign();survivorPanel?.render();
+  },
+});
 
 function resetWorld() {
   px = block.spawn[0];
@@ -1110,7 +1178,7 @@ function placeContainer(): { x: number; z: number } {
 }
 
 function start(chosen: CharSpec, resume: Snapshot | null = null) {
-  if(mode==='sandbox'&&!resume&&savedGame?.status==='alive'&&!confirm('開始新沙盒會覆寫這個瀏覽器的舊進度。確定開始新遊戲？')) {el.overlay.classList.add('on');return;}
+  if(mode==='sandbox'&&!resume&&savedGame?.status==='alive'&&!confirm('開始新沙盒會覆寫此候選版本進度；舊正式版存檔仍保留。確定開始？')) {el.overlay.classList.add('on');return;}
   if(!resume)savedGame=null;
   elapsed=0; inShelter=false; shelterPanel.classList.remove('room-view');document.body.classList.remove('inspecting-shelter');resize(); helperOpen=false;helperPanel.hidden=true;helperState=createHelperState(); stash=emptyInventory(); restCount=0; saveTimer=0; saveWarning='';
   shelterPanel.hidden=true;
@@ -1119,7 +1187,7 @@ function start(chosen: CharSpec, resume: Snapshot | null = null) {
   hp = 100; stamina = 100; battery = 100;
   outbreak = createOutbreak(); sneaking = false; paused = false; attackHeld=false;touchActionHeld=false;pistolEquipped=false;mouseAimActive=false;toggleBag(false);keys.clear();
   lightOn = true; invuln = 0; timeLeft = NIGHT_SECONDS;
-  kills = 0;arsenal=createLegacyArsenal(false,0)!;syncArsenal();
+  kills = 0;arsenal=createLegacyArsenal(false,0)!;survivorSystems=createSurvivorSystems(arsenal)!;syncArsenal();
   runNoiseTimer = 0; lootNoiseTimer = 0;
   lootTarget = null; lootProgress = 0; shake = 0; camShake = 0;
   action = 'none'; actionT = 0; actionFired = false;
@@ -1244,7 +1312,7 @@ function buildMenu() {
 // Campaign persistence owns one atomic snapshot: loot depletion and inventory never save separately.
 function campaignElapsed() { return elapsed; }
 function snapshotCampaign(): Snapshot {
-  return { version:1,encounterVersion:1,mapId:dataUrl,characterId:spec.id,elapsed,hp:phase==='lose'?0:hp,stamina,battery,outbreak:{...outbreak},inventory:{...inventory},stash:{...stash},helper:{...helperState},arsenal:structuredClone(arsenal),ammo,hasPistol,pistolEquipped,position:[px,pz],shelterId:shelter?.id??'',inShelter,looted,kills,restCount,status:phase==='lose'?'dead':'alive',
+  return { version:1,encounterVersion:1,mapId:dataUrl,characterId:spec.id,elapsed,hp:phase==='lose'?0:hp,stamina,battery,outbreak:{...outbreak},inventory:{...inventory},stash:{...stash},helper:{...helperState},arsenal:structuredClone(arsenal),survivorSystems:structuredClone(survivorSystems),ammo,hasPistol,pistolEquipped,position:[px,pz],shelterId:shelter?.id??'',inShelter,looted,kills,restCount,status:phase==='lose'?'dead':'alive',
     containers:containers.map(c=>({x:c.x,z:c.z,looted:c.looted,...(c.cacheKind?{cacheKind:c.cacheKind,cacheDay:c.cacheDay}:{})})),
     enemies:zombies.map(z=>({x:z.x,z:z.z,hp:Math.max(0,z.hp),state:z.state,faction:z.faction.id,home:[z.hx,z.hz],patrol:[z.patrolX,z.patrolZ],lastKnown:[z.lastX,z.lastZ],returning:z.returning,retreat:z.retreat})) };
 }
@@ -1264,6 +1332,7 @@ function restoreCampaign(s:Snapshot) {
   outbreak={...s.outbreak};Object.assign(inventory,s.inventory);stash={...s.stash};ammo=s.ammo;hasPistol=s.hasPistol;pistolEquipped=s.pistolEquipped;
   arsenal=s.arsenal?structuredClone(s.arsenal):createLegacyArsenal(s.hasPistol,s.ammo)!;
   if(!s.arsenal&&s.pistolEquipped)equipWeapon(arsenal,'qsz92-9');syncArsenal();
+  survivorSystems=migrateSurvivorSystems(s.survivorSystems,arsenal)!;
   [px,pz]=s.position;
   if(shelter&&(px<bounds.minX-8||px>bounds.maxX+8||pz<bounds.minY-8||pz>bounds.maxY+8||collides(px,pz,.36))){[px,pz]=shelter.outside;saveWarning='舊存檔位置在街區外或牆內，已移回安全屋門口；物資與進度保留。';}
   inShelter=s.inShelter;looted=s.looted;kills=s.kills;restCount=s.restCount;
@@ -1376,7 +1445,7 @@ function showShelter() {
   }
   shelterPanel.append(controls);
   const rest=document.createElement('button');rest.textContent='休息：庫存 1水＋1罐頭';rest.disabled=stash.water<1||stash.food<1;
-  rest.onclick=()=>{const state={hp,stamina,outbreak,inventory,stash,elapsed,restCount};if(restAtShelter(state)){hp=state.hp;stamina=state.stamina;elapsed=state.elapsed;restCount=state.restCount;updateDaylight();refreshSupplySites();persistCampaign();showShelter();flashHint('休息完成，補充體力與水分；街區時間已前進。');}};
+  rest.onclick=()=>{const state={hp,stamina,outbreak,inventory,stash,elapsed,restCount};if(restAtShelter(state)){treatBody(survivorSystems.condition,'rest');hp=state.hp;stamina=state.stamina;elapsed=state.elapsed;restCount=state.restCount;updateDaylight();refreshSupplySites();persistCampaign();showShelter();flashHint('休息完成，補充體力與水分；街區時間已前進。');}};
   const exit=document.createElement('button');exit.className='shelter-exit';exit.textContent='返回街區';exit.onclick=leaveShelter;
   shelterPanel.append(rest,exit);
   const status=document.createElement('p');status.textContent=`HP ${Math.round(hp)} · 水分 ${Math.round(outbreak.hydration)} · 飽足 ${Math.round(outbreak.satiety)} · 第${dayPhase(elapsed).day}天 ${saveWarning}`;shelterPanel.append(status);
@@ -1393,8 +1462,8 @@ function installCampaignUI() {
   if(!shelter){mode='quick';quick.className='selected';sand.textContent='此地圖未找到安全門口';}
   modes.append(sand,quick);
   const valid=isCompatibleSave(savedGame);
-  if(valid){const resume=document.createElement('button');resume.textContent=`繼續第${dayPhase(savedGame!.elapsed).day}天存檔`;resume.onclick=()=>{let current:Snapshot|null=null;try{current=loadSnapshot(localStorage,saveKey,dataUrl);}catch{}if(!isCompatibleSave(current)){resume.disabled=true;resume.textContent='存檔已失效';return;}mode='sandbox';modes.hidden=true;start(ROSTER.find(c=>c.id===current!.characterId)??ROSTER[0],current);};modes.append(resume);}
-  const note=document.createElement('p');note.id='campaign-note';note.textContent=savedGame?.status==='dead'?'上一位倖存者已死亡；新沙盒會重設世界與庫存。':valid?'選角後開始新沙盒會覆寫此瀏覽器的舊進度；快速挑戰不影響存檔。':'沙盒：找藍色門標，按E／手機「家」進入。先帶一水一罐頭回家。';
+  if(valid){const resume=document.createElement('button');resume.textContent=`繼續第${dayPhase(savedGame!.elapsed).day}天存檔`;resume.onclick=()=>{let current:Snapshot|null=null;try{current=loadCandidateSave();}catch{}if(!isCompatibleSave(current)){resume.disabled=true;resume.textContent='存檔已失效';return;}mode='sandbox';modes.hidden=true;start(ROSTER.find(c=>c.id===current!.characterId)??ROSTER[0],current);};modes.append(resume);}
+  const note=document.createElement('p');note.id='campaign-note';note.textContent=savedGame?.status==='dead'?'上一位倖存者已死亡；新沙盒會重設世界與庫存。':valid?'候選版獨立存檔；新沙盒只覆寫候選進度，舊正式版與快速挑戰互不影響。':'沙盒：找藍色門標，按E／手機「家」進入。先帶一水一罐頭回家。';
   el.roster.before(modes,note);
   el.overlay.querySelector('.sub')!.textContent='上海病毒爆發。選角色後探索街區、搜刮並返回自己的安全屋；或選擇獨立八分鐘撤離挑戰。';
 }
@@ -1409,9 +1478,10 @@ function frame(dt: number) {
     else { elapsed += dt; timeLeft = NIGHT_SECONDS - elapsed; updateDaylight(); refreshSupplySites(); }
     const nearbyThreat = zombies.some(z => z.faction.id === 'infected' && z.state !== 'dead' && Math.hypot(z.x - px, z.z - pz) < 4 && canSee(z.x, z.z, px, pz));
     stepOutbreak(outbreak, dt, { running: !sneaking && stamina > 1 && action === 'none' && ['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].some(k => keys.has(k)) && (keys.has('ShiftLeft') || keys.has('ShiftRight')), nearbyThreat });
+    hp=Math.max(0,hp-stepBody(survivorSystems.condition,dt));
     if (outbreak.hydration <= 0 || outbreak.satiety <= 0) hp = Math.max(0, hp - dt * 1.5);
-    if (hp <= 0) { lose('在耗盡補給後倒下。'); return; }
-    if (attackHeld || touchActionHeld) { if (touchActionHeld) aimNearest(); if (pistolEquipped && hasPistol) fire(); else if (action === 'none') startSwing(); }
+    if (hp <= 0) { lose(survivorSystems.condition.bleeding>0?'因未處置的傷勢倒下。':'在耗盡補給後倒下。'); return; }
+    if (attackHeld || touchActionHeld) { if (touchActionHeld) aimNearest(); dispatchHandAttack('primary'); }
     if (mouseAimActive) { aimRay.setFromCamera(inputAim,camera); if(aimRay.ray.intersectPlane(groundPlane,aimHit)) facing=Math.atan2(aimHit.x-px,aimHit.z+pz); }
     updatePlayer(dt);
     updateZombies(dt);
@@ -1556,7 +1626,7 @@ fetch(dataUrl)
     px = data.spawn[0];
     pz = data.spawn[1];
     buildZombies();
-    try {savedGame=loadSnapshot(localStorage,saveKey,dataUrl);}catch {saveWarning='瀏覽器封鎖儲存；本局無法持久存檔。';}
+    try {savedGame=loadCandidateSave();}catch {saveWarning='瀏覽器封鎖儲存；本局無法持久存檔。';}
     buildMenu();
 
     if (params.has('debug')) {
@@ -1567,7 +1637,8 @@ fetch(dataUrl)
           zombies: zombies.length, awake: zombies.filter(z => z.state === 'chase').length,
           dead: zombies.filter(z => z.state === 'dead').length,
           factions: Object.fromEntries(['infected','military','police','raider'].map(id => [id,zombies.filter(z => z.faction.id === id).length])),
-          inventory: { ...inventory }, ammo, hasPistol,
+          inventory: { ...inventory }, arsenal:structuredClone(arsenal),survivorSystems:structuredClone(survivorSystems),weight:carriedWeight(inventory,arsenal),ammo, hasPistol, equipped: arsenal.equipped,
+          action, swingHand, shootHand, actionProgress: actionDur ? actionT / actionDur : 0, attackHeld, touchActionHeld, swingCount,
           spawn: [px, pz], facing,
         }),
         start: (id = ROSTER[0].id) => {
@@ -1590,7 +1661,7 @@ fetch(dataUrl)
         },
         outbreakTest: (elapsed: number, searched: number, exposure = 0) => { timeLeft = NIGHT_SECONDS - elapsed; looted = searched; outbreak.exposure = exposure; px = block.spawn[0]; pz = block.spawn[1]; updateHud(); },
         swing: () => startSwing(),
-        hurt: (n = 30) => { hp = Math.max(0, hp - n); if (hp <= 0) lose(); },
+        hurt: (n = 30) => { injureBody(survivorSystems.condition,n);hp = Math.max(0, hp - n); if (hp <= 0) lose(); },
         give: (id: ItemId, n = 1) => { inventory[id] += n; if (id === 'pistol'){grantWeapon(arsenal,'qsz92-9');syncArsenal();} updateBag(); },
       };
     }

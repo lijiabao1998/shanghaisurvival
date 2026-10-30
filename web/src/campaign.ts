@@ -1,4 +1,5 @@
-import { validArsenal, type Arsenal } from './arsenal.ts';
+import { validSurvivorSystems, type SurvivorSystems } from './survivor-systems.ts';
+import { createLegacyArsenal, validArsenal, type Arsenal } from './arsenal.ts';
 import type { HelperState } from './helper';
 /** Versioned, browser-independent campaign rules. No renderer or DOM dependencies. */
 export const ITEM_IDS = ['water', 'food', 'medkit', 'battery', 'ammo', 'pistol'] as const;
@@ -16,7 +17,7 @@ export type Snapshot = {
   shelterId: string; inShelter: boolean; looted: number; kills: number;
   containers: SavedContainer[];
   enemies: SavedEnemy[]; encounterVersion?: 1;
-  status: 'alive' | 'dead'; restCount: number; helper?: HelperState; arsenal?: Arsenal;
+  status: 'alive' | 'dead'; restCount: number; helper?: HelperState; arsenal?: Arsenal; survivorSystems?: SurvivorSystems;
 };
 export type StorageLike = { getItem(key: string): string | null; setItem(key: string, value: string): void };
 export type RestState = Pick<Snapshot, 'hp' | 'stamina' | 'outbreak' | 'inventory' | 'stash' | 'elapsed' | 'restCount'>;
@@ -54,6 +55,11 @@ export function parseSnapshot(raw: string, mapId: string): Snapshot | null {
       || !Array.isArray(s.containers) || s.containers.length > 1000
       || !Array.isArray(s.enemies) || s.enemies.length > 1000) return null;
     if ('arsenal' in s && !validArsenal(s.arsenal)) return null;
+    if ('survivorSystems' in s) {
+      const equipment = s.arsenal as Arsenal | undefined ?? createLegacyArsenal(s.hasPistol as boolean, s.ammo as number);
+      if (equipment && !s.arsenal && s.pistolEquipped) equipment.equipped='qsz92-9';
+      if (!equipment || !validSurvivorSystems(s.survivorSystems, equipment)) return null;
+    }
     if ('encounterVersion' in s && s.encounterVersion !== 1) return null;
     if ('helper' in s) {
       const h = s.helper;
