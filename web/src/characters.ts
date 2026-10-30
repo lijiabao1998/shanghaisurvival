@@ -1,6 +1,6 @@
 /** Shanghai roster: twelve playable survivors, six women and six men.
  *
- * Every character is built from boxes around a joint hierarchy, so the same
+ * Every character is built from low-poly shaped garments around a joint hierarchy, so the same
  * procedural animator drives all of them. Nothing here is a scanned asset and
  * no occupation is tied to a real employer: the trades are the ones you would
  * actually meet in an old lane-quarter like 老西門 — a night guard, a delivery

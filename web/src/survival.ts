@@ -1,3 +1,4 @@
+import { characterPortraits } from './character-portraits';
 import { loadingStage, loadingDone, loadingFailed, paintOpportunity } from './entry-loading';
 import { createSurvivorSystems, migrateSurvivorSystems, equipHand, carriedWeight, loadEffects, injureBody, stepBody, treatBody } from './survivor-systems';
 import { installSurvivorPanel } from './survivor-panel';
@@ -1324,9 +1325,10 @@ function buildMenu() {
     categories.append(button);
   }
   el.roster.innerHTML='';
+  const portraits=characterPortraits(renderer);
   for(const c of ROSTER){
     const card=document.createElement('button');card.type='button';card.className='who';card.dataset.character=c.id;card.setAttribute('aria-pressed','false');
-    const face=document.createElement('div');face.className='face';face.setAttribute('aria-hidden','true');face.style.setProperty('--shirt',`#${c.top.toString(16).padStart(6,'0')}`);
+    const face=document.createElement('img');face.className='face real-portrait';face.alt='';face.src=portraits.get(c.id)!;face.width=144;face.height=144;
     const nm=document.createElement('div');nm.className='nm';nm.textContent=c.name;
     const jb=document.createElement('div');jb.className='jb';jb.textContent=c.job;
     card.append(face,nm,jb);

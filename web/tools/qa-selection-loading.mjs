@@ -10,7 +10,7 @@ for(const [device,width,height] of [['desktop',1440,900],['mobile',390,844]]){
  const context=await browser.createBrowserContext();const page=await context.newPage();await page.setViewport({width,height,isMobile:device==='mobile',hasTouch:device==='mobile'});
  page.on('pageerror',e=>report.errors.push(e.message));
  await page.setRequestInterception(true);let release;
- page.on('request',r=>{if(r.url().includes('/data/'))release=()=>r.continue();else r.continue();});
+ const gate=r=>{if(r.url().includes('/data/'))release=()=>r.continue();else r.continue();};page.on('request',gate);
  const nav=page.goto(url,{waitUntil:'domcontentloaded'});await nav;
  await page.waitForSelector('#entry-loading:not([hidden])');await page.screenshot({path:`${output}/${device}-loading.png`});
  for(let i=0;!release&&i<200;i++)await new Promise(r=>setTimeout(r,50));assert.ok(release,'data request was observed');release();
@@ -26,7 +26,7 @@ for(const [device,width,height] of [['desktop',1440,900],['mobile',390,844]]){
  await page.click('#ov-btn');await page.click('#ov-btn');await page.click('#ov-btn');
  await page.waitForFunction(()=>window.__modu?.state().phase==='play'&&document.querySelector('#entry-loading').hidden,{timeout:90000});
  assert.equal(await page.$eval('#who-name',e=>e.textContent),'小林');
- await page.setRequestInterception(false);await page.reload({waitUntil:'networkidle0'});await page.waitForSelector('#entry-loading[hidden]',{timeout:90000});
+ page.off('request',gate);await page.setRequestInterception(false);await page.reload({waitUntil:'networkidle0'});await page.waitForSelector('#entry-loading[hidden]',{timeout:90000});
  await page.click('#resume-existing button');await page.waitForFunction(()=>window.__modu?.state().phase==='play'&&document.querySelector('#entry-loading').hidden,{timeout:90000});
  assert.equal(await page.$eval('#who-name',e=>e.textContent),'小林');
  report.checks.push(`${device}: real pending-data loader, category 4/12, three stages, back retains selection, no pre-start save, new game and resume`);await context.close();
