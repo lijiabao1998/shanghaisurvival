@@ -16,8 +16,10 @@ for(const [device,width,height] of [['desktop',1440,900],['mobile',390,844]]){
  for(let i=0;!release&&i<200;i++)await new Promise(r=>setTimeout(r,50));assert.ok(release,'data request was observed');release();
  await page.waitForSelector('#entry-loading[hidden]',{timeout:90000});
  assert.equal(await page.$$eval('.who',els=>els.length),12);
+ assert.ok(await page.$eval('#overlay',e=>e.scrollWidth<=e.clientWidth+1),'menu does not overflow horizontally');
+ assert.ok(await page.$eval('#overlay .card',e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;}),'card fits viewport');
  await page.click('[data-category=care]');assert.equal(await page.$$eval('.who:not([hidden])',els=>els.length),4);
- await page.click('[data-character=nurse]');await page.screenshot({path:`${output}/${device}-roles.png`,fullPage:true});
+ await page.click('[data-character=nurse]');assert.ok(await page.$$eval('.who:not([hidden])',els=>els.every(e=>{const r=e.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth;})),'all visible role cards inside viewport');await page.screenshot({path:`${output}/${device}-roles.png`,fullPage:true});
  await page.click('#ov-btn');assert.equal(await page.$eval('#overlay',e=>e.dataset.selectionStep),'1');
  await page.click('#ov-btn');assert.equal(await page.$eval('#overlay',e=>e.dataset.selectionStep),'2');
  await page.screenshot({path:`${output}/${device}-confirm.png`,fullPage:true});
@@ -26,6 +28,7 @@ for(const [device,width,height] of [['desktop',1440,900],['mobile',390,844]]){
  await page.click('#ov-btn');await page.click('#ov-btn');await page.click('#ov-btn');
  await page.waitForFunction(()=>window.__modu?.state().phase==='play'&&document.querySelector('#entry-loading').hidden,{timeout:90000});
  assert.equal(await page.$eval('#who-name',e=>e.textContent),'小林');
+ await page.screenshot({path:`${output}/${device}-new-game.png`});
  page.off('request',gate);await page.setRequestInterception(false);await page.reload({waitUntil:'networkidle0'});await page.waitForSelector('#entry-loading[hidden]',{timeout:90000});
  await page.click('#resume-existing button');await page.waitForFunction(()=>window.__modu?.state().phase==='play'&&document.querySelector('#entry-loading').hidden,{timeout:90000});
  assert.equal(await page.$eval('#who-name',e=>e.textContent),'小林');
