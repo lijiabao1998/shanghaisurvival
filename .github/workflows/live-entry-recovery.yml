@@ -1,0 +1,80 @@
+name: Shanghai live entry recovery check
+on:
+  push:
+    branches: [test/live-entry-recovery-20261030]
+    paths: [.github/workflows/live-entry-recovery.yml]
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install isolated browser
+        run: |
+          npm init -y
+          npm install --save-exact playwright@1.56.1
+          npx playwright install --with-deps chromium
+      - name: Verify production dependencies and natural start and resume
+        run: |
+          mkdir -p evidence
+          cat > check.cjs <<'JS'
+          const { chromium }=require('playwright');
+          const fs=require('fs'),assert=require('node:assert/strict');
+          const url='https://game.lijiabao.uk/shanghaisurvival/';
+          (async()=>{
+            const report={url,scope:'production read-only gameplay in isolated browser profiles; no real user saves accessed',checks:[],errors:[],httpErrors:[]};
+            const deadline=Date.now()+8*60*1000;
+            let html;
+            do {
+              html=await (await fetch(url+'?recovery='+Date.now())).text();
+              if(!html.includes('src="/assets/')&&html.includes('src="./assets/'))break;
+              if(Date.now()>deadline)throw Error('Deployment recovery did not reach relative asset references in observation window');
+              await new Promise(r=>setTimeout(r,15000));
+            } while(true);
+            report.version=await (await fetch(url+'version.json?recovery='+Date.now())).json();
+            const browser=await chromium.launch({args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
+            try {
+              for(const mobile of [false,true]){
+                const name=mobile?'mobile':'desktop';
+                const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1440,height:900},isMobile:mobile,hasTouch:mobile});
+                const page=await context.newPage();
+                page.on('pageerror',e=>report.errors.push({name,error:e.message}));
+                page.on('response',r=>{if(r.status()>=400)report.httpErrors.push({name,url:r.url(),status:r.status()});});
+                await page.goto(url+'?debug',{waitUntil:'networkidle'});
+                await page.locator('.who').first().waitFor({timeout:60000});
+                assert.equal(await page.locator('.who').count(),12);
+                await page.locator('.who').first().click();
+                await page.locator('#ov-btn').click();
+                await page.waitForFunction(()=>window.__modu?.state().phase==='play',{timeout:45000});
+                await page.screenshot({path:'evidence/'+name+'-started.png'});
+                const key='shanghai-survivors:v1:./data/block.json';
+                const before=await page.evaluate(k=>localStorage.getItem(k),key);
+                assert.ok(before);
+                const snapshot=JSON.parse(before);
+                report.checks.push(name+': 12 characters, selection, natural start reached play, isolated save written');
+                await page.reload({waitUntil:'networkidle'});
+                await page.getByRole('button',{name:/繼續第.*天存檔/}).click();
+                await page.waitForFunction(()=>window.__modu?.state().phase==='play',{timeout:45000});
+                const after=JSON.parse(await page.evaluate(k=>localStorage.getItem(k),key));
+                assert.equal(after.characterId,snapshot.characterId);
+                assert.equal(after.mapId,snapshot.mapId);
+                await page.screenshot({path:'evidence/'+name+'-resumed.png'});
+                report.checks.push(name+': reload and natural continue reached play; character and map preserved');
+                await context.close();
+              }
+              assert.deepEqual(report.errors,[]);
+              assert.deepEqual(report.httpErrors,[]);
+            } finally {fs.writeFileSync('evidence/report.json',JSON.stringify(report,null,2));await browser.close();}
+          })().catch(e=>{fs.writeFileSync('evidence/failure.txt',String(e.stack));console.error(e);process.exitCode=1;});
+          JS
+          node check.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shanghai-live-entry-recovery
+          path: evidence/
+          retention-days: 7
