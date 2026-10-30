@@ -16,6 +16,10 @@ export type Snapshot = {
   hasPistol: boolean; pistolEquipped: boolean; position: [number, number];
   shelterId: string; inShelter: boolean; looted: number; kills: number;
   containers: SavedContainer[];
+  /** Independent stable IDs preserve the original ordinary-container save indices. */
+  interiorLoot?: Record<string, boolean>;
+  /** Additive layout is explicit: missing means legacy topology and three rooms. */
+  worldLayout?: 'menghua-infill-v1';
   enemies: SavedEnemy[]; encounterVersion?: 1;
   status: 'alive' | 'dead'; restCount: number; helper?: HelperState; arsenal?: Arsenal; survivorSystems?: SurvivorSystems;
 };
@@ -54,6 +58,11 @@ export function parseSnapshot(raw: string, mapId: string): Snapshot | null {
       || (s.status === 'dead' && s.hp !== 0)
       || !Array.isArray(s.containers) || s.containers.length > 1000
       || !Array.isArray(s.enemies) || s.enemies.length > 1000) return null;
+    if ('worldLayout' in s && s.worldLayout !== 'menghua-infill-v1') return null;
+    if ('interiorLoot' in s && (!isRecord(s.interiorLoot)
+      || Object.keys(s.interiorLoot).length > 64
+      || !Object.entries(s.interiorLoot).every(([id, looted]) =>
+        /^room-v1:[A-Za-z0-9_-]{1,128}:supply$/.test(id) && typeof looted === 'boolean'))) return null;
     if ('arsenal' in s && !validArsenal(s.arsenal)) return null;
     if ('survivorSystems' in s) {
       const equipment = s.arsenal as Arsenal | undefined ?? createLegacyArsenal(s.hasPistol as boolean, s.ammo as number);

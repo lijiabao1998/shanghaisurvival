@@ -1,3 +1,4 @@
+import { rooftopDetails } from './rooftop-details';
 import * as THREE from 'three';
 import { cityWalls, roofGeometry, type Building } from './world';
 import { buildingOccludesPlayer } from './occlusion';
@@ -50,6 +51,7 @@ export function createCityVisibility(buildings:Building[], lowRise = false) {
       }
     }
     if(lowRise){const detail=lilongFacade(rendered);walls.push(...detail.positions);wallColors.push(...detail.colors);}
+    if(lowRise){const top=rooftopDetails(rendered);roofs.push(...top.positions);roofColors.push(...top.colors);}
     wg.dispose();rg.dispose();
     const xs=building.footprint.map(p=>p[0]),zs=building.footprint.map(p=>p[1]);
     ranges.push({building:rendered,wallStart,wallEnd:walls.length/3,roofStart,roofEnd:roofs.length/3,minX:Math.min(...xs),maxX:Math.max(...xs),minZ:Math.min(...zs),maxZ:Math.max(...zs)});

@@ -1,0 +1,80 @@
+name: Shanghai street and day-night candidate QA
+on:
+  push:
+    branches: [feat/shanghai-street-daynight-20261030]
+permissions:
+  contents: read
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Candidate build and all rule, geometry and asset regressions
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          GOMAXPROCS=1 NODE_OPTIONS=--max-old-space-size=128 npm run build
+          for f in tools/test-*.mjs; do GOMAXPROCS=1 node "$f"; done
+      - name: Install official browser for isolated screenshots
+        run: |
+          npm install --prefix /tmp/shanghai-browser --no-save playwright@1.56.1
+          /tmp/shanghai-browser/node_modules/.bin/playwright install --with-deps chromium
+          echo "QA_BROWSER=$(node -e "console.log(require('/tmp/shanghai-browser/node_modules/playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+      - name: Natural desktop/mobile resume and labelled clock fixtures
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory web/dist > /tmp/shanghai-street-server.log 2>&1 &
+          for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:4173/survival.html >/dev/null; then break; fi; sleep 1; done
+          QA_OUTPUT="$GITHUB_WORKSPACE/evidence/street-daynight" node web/tools/qa-street-daynight.mjs
+      - name: Preserve completed streetscape images before room traversal
+        uses: actions/upload-artifact@v4
+        with:
+          name: shanghai-streetscape-early-evidence
+          path: evidence/street-daynight/
+          retention-days: 7
+      - name: World layout new and legacy save boundaries
+        run: |
+          QA_OUTPUT="$GITHUB_WORKSPACE/evidence/world-layout" node web/tools/qa-world-layout.mjs
+      - name: Preserve layout migration and infill traversal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shanghai-world-layout-evidence
+          path: evidence/world-layout/
+          retention-days: 7
+      - name: Desktop nine-room browser acceptance
+        run: |
+          QA_DEVICE=desktop QA_OUTPUT="$GITHUB_WORKSPACE/evidence/interior-desktop" node web/tools/qa-interior-rooms.mjs
+      - name: Preserve desktop room evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shanghai-interior-desktop-evidence
+          path: evidence/interior-desktop/
+          retention-days: 7
+      - name: Mobile nine-room actual joystick acceptance
+        run: |
+          QA_DEVICE=mobile QA_OUTPUT="$GITHUB_WORKSPACE/evidence/interior-mobile" node web/tools/qa-interior-rooms.mjs
+      - name: Preserve mobile room evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shanghai-interior-mobile-evidence
+          path: evidence/interior-mobile/
+          retention-days: 7
+      - name: Preserve server log
+        if: always()
+        run: |
+          mkdir -p evidence/street-daynight
+          if test -f /tmp/shanghai-street-server.log; then cp /tmp/shanghai-street-server.log evidence/street-daynight/server.log; fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: shanghai-street-daynight-browser-evidence
+          path: evidence/
+          retention-days: 7

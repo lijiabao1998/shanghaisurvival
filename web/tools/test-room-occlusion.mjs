@@ -23,7 +23,7 @@ console.log(`PASS ${focus.length} legal indoor rays, added obstruction IDs ${ins
 const runtime=readFileSync(new URL('../src/survival.ts',import.meta.url),'utf8');
 const refresh=runtime.slice(runtime.indexOf('function refreshShelterView()'),runtime.indexOf('function resize()'));
 assert.ok(refresh.indexOf('cityVisibility?.update')<refresh.indexOf('renderer.render'),'indices update before immediate UI render');
-assert.ok(refresh.includes("shelterPanel.classList.contains('room-view')?roomFocus:undefined"),'inspection and restored street updates synchronous');
+assert.ok(refresh.includes("shelterPanel.classList.contains('room-view')?roomFocus:activeInterior()?.focus"),'inspection and restored street updates synchronous');
 const sync=runtime.slice(runtime.indexOf('const syncRoomView='),runtime.indexOf('roomView.onclick='));
 assert.ok(sync.includes('refreshShelterView()'),'toggle no longer waits for simulation visibilityTimer');
 const leave=runtime.slice(runtime.indexOf('function leaveShelter()'),runtime.indexOf('function showShelter()'));
