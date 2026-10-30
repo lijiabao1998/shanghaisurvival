@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 const out=process.env.QA_OUTPUT??'/tmp/shanghai-interior-evidence';await mkdir(out,{recursive:true});
 const url=process.env.QA_URL??'http://127.0.0.1:4173/survival.html?debug';
+assert.ok(['localhost','127.0.0.1','[::1]'].includes(new URL(url).hostname),'isolated fixtures only');
 const browser=await puppeteer.launch({executablePath:process.env.QA_BROWSER??'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const report={scope:'candidate real input; isolated entrance-position/dead-enemy fixtures, NOT full spawn traversal',commit:process.env.GITHUB_SHA??'local',checks:[],errors:[],fixtures:[]};
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
@@ -47,12 +48,12 @@ async function holdLoot(p,mobile,expectedItem=null){
  const cdp=await p.createCDPSession();try{await cdp.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x:box.x+box.width/2,y:box.y+box.height/2}]});await held();}finally{await cdp.send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});await cdp.detach();}
 }
 try{
- for(const mobile of [false,true]){
+ for(const mobile of (process.env.QA_DEVICE==='desktop'?[false]:process.env.QA_DEVICE==='mobile'?[true]:[false,true])){
   const name=mobile?'mobile':'desktop',context=await browser.createBrowserContext(),p=await context.newPage();
   await p.setViewport(mobile?{width:390,height:844,isMobile:true,hasTouch:true}:{width:1440,height:900});p.on('pageerror',e=>report.errors.push(`${name}: ${e.message}`));
   await p.goto(url,{waitUntil:'networkidle0'});await p.waitForFunction(()=>window.__modu);await p.click('.who');await p.click('#ov-btn');await p.waitForFunction(()=>window.__modu.state().phase==='play');
   await p.waitForFunction(()=>Object.keys(localStorage).some(k=>k.startsWith('shanghai-survivors:systems-v1:')));
-  const baseline=await saved(p),rooms=(await state(p)).interiorRooms;assert.equal(rooms.length,3);
+  const baseline=await saved(p),rooms=(await state(p)).interiorRooms;assert.equal(rooms.length,9);assert.equal(baseline.data.worldLayout,'menghua-infill-v1');
   for(let index=0;index<rooms.length;index++){
    const room=rooms[index],loot=room.loot[0],fixture=structuredClone(baseline.data);
    fixture.position=[...room.entrance.outside];fixture.inShelter=false;fixture.interiorLoot={};fixture.enemies=fixture.enemies.map(e=>({...e,hp:0,state:'dead'}));
@@ -75,8 +76,9 @@ try{
    await corridor(p,loot.position,room.entrance.inside);await corridor(p,room.entrance.inside,room.entrance.outside);assert.equal((await state(p)).activeInterior,null,'walked back outside');
    await p.screenshot({path:`${out}/${name}-${index+1}-outside-after.png`});
    report.checks.push({viewport:name,room:room.id,item:loot.item,input:mobile?'actual touch joystick doorway traversal + touch crouch + CDP touch hold on action button':'keyboard doorway traversal + held E',entry:true,lootOnce:true,reloadDepleted:true,exit:true});
+   await writeFile(`${out}/report.json`,JSON.stringify(report,null,2));
   }
-  await context.close();
+  await context.close();await writeFile(`${out}/${name}-report.json`,JSON.stringify(report,null,2));
  }
  assert.deepEqual(report.errors,[]);report.passed=true;
 }catch(error){report.passed=false;report.failure=error.stack;process.exitCode=1;console.error(error);for(const [i,p] of(await browser.pages()).entries())try{await p.screenshot({path:`${out}/failure-${i}.png`});await writeFile(`${out}/failure-${i}.txt`,await p.evaluate(()=>document.body.innerText));}catch{}}

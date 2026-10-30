@@ -24,12 +24,12 @@ ctx.canSee=()=>true;ctx.px=3;ctx.updateLoot(3);assert.equal(room.looted,false,'o
 for(const flag of ['paused','bagOpen','inShelter','helperOpen']){ctx[flag]=true;assert.equal(ctx.contextualInteract(),false);ctx[flag]=false;}
 // Serialization/restore filters are checked against the actual integration, not a duplicate model.
 const compact=source.replace(/\s+/g,'');
-assert.ok(compact.includes('interiorLoot:Object.fromEntries(containers.filter(c=>c.roomId).map(c=>[c.roomId!,c.looted]))'));
+assert.ok(compact.includes('interiorLoot:Object.fromEntries(containers.filter(c=>c.roomId&&c.roomEnabled!==false).map(c=>[c.roomId!,c.looted]))'));
 assert.ok(compact.includes('containers:containers.filter(c=>!c.roomId).map('),'ordinary save order excludes append-only rooms');
 assert.ok(compact.includes('s.containers.length!==containers.filter(c=>!c.roomId).length'),'legacy exact count stays authoritative');
 assert.ok(compact.includes('c.looted=s.interiorLoot?.[c.roomId!]===true'),'restore only true flags, missing legacy field starts unlooted');
 assert.ok(compact.includes('constordered=containers.filter(c=>!c.roomId).sort('),'indoor supply never becomes daily cache');
-assert.ok(compact.includes('baseWallCollision(x,z,r)||interiorRooms.some(room=>roomFurnitureCollision(room,x,z,r))'),'walls retained alongside furniture');
+assert.ok(compact.includes('baseWallCollision(x,z,r)||(densityEnabledForLayout(worldLayout)&&densityCollision(x,z,r))||interiorRooms.some(room=>roomFurnitureCollision(room,x,z,r))'),'walls retained alongside furniture');
 assert.ok(compact.includes('roomId:loot.id'),'save IDs include supply suffix');
 const basicIndex=source.indexOf('containers.push({ x: 0, z: 0, mesh, looted: false })');
 assert.ok(basicIndex>=0&&basicIndex<source.indexOf('roomId:loot.id'),'rooms appended after ordinary indices');

@@ -28,7 +28,7 @@ console.log(`PASS ${decorated} lilong gateways, ${vertices} facade vertices; saf
 const runtime=readFileSync(new URL('../src/survival.ts',import.meta.url),'utf8');
 assert.ok(runtime.includes("roomView.onclick=()=>{shelterPanel.classList.toggle('room-view');syncRoomView();}"),'real room-view control, not screenshot-only hiding');
 assert.ok(runtime.includes("shelterPanel.classList.remove('room-view')"),'exit clears room-view mode');
-assert.ok(runtime.includes("phase, mode, inShelter, shelter:"),'read-only state exposes actual shelter entry for browser verification');
+assert.ok(runtime.includes("inShelter, shelter: shelter ? {...shelter,door:[...shelter.door],inside:[...shelter.inside],outside:[...shelter.outside]}"),'read-only state exposes actual shelter entry for browser verification');
 console.log('PASS static room-view control and read-only shelter QA state contracts (browser flow still pending)');
 
 for(const fixture of [b,{id:'courtyard',footprint:[[0,0],[8,0],[8,8],[0,8]],holes:[[[2,2],[2,6],[6,6],[6,2]]],height_m:8},{id:'concave',footprint:[[0,0],[5,0],[5,1],[1,1],[1,5],[0,5]],holes:[],height_m:8}]){

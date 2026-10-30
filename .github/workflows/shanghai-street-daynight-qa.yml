@@ -7,7 +7,7 @@ permissions:
 jobs:
   candidate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -37,9 +37,36 @@ jobs:
           name: shanghai-streetscape-early-evidence
           path: evidence/street-daynight/
           retention-days: 7
-      - name: Natural enterable-room browser acceptance
+      - name: World layout new and legacy save boundaries
         run: |
-          QA_OUTPUT="$GITHUB_WORKSPACE/evidence/interior-rooms" node web/tools/qa-interior-rooms.mjs
+          QA_OUTPUT="$GITHUB_WORKSPACE/evidence/world-layout" node web/tools/qa-world-layout.mjs
+      - name: Preserve layout migration and infill traversal evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shanghai-world-layout-evidence
+          path: evidence/world-layout/
+          retention-days: 7
+      - name: Desktop nine-room browser acceptance
+        run: |
+          QA_DEVICE=desktop QA_OUTPUT="$GITHUB_WORKSPACE/evidence/interior-desktop" node web/tools/qa-interior-rooms.mjs
+      - name: Preserve desktop room evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shanghai-interior-desktop-evidence
+          path: evidence/interior-desktop/
+          retention-days: 7
+      - name: Mobile nine-room actual joystick acceptance
+        run: |
+          QA_DEVICE=mobile QA_OUTPUT="$GITHUB_WORKSPACE/evidence/interior-mobile" node web/tools/qa-interior-rooms.mjs
+      - name: Preserve mobile room evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shanghai-interior-mobile-evidence
+          path: evidence/interior-mobile/
+          retention-days: 7
       - name: Preserve server log
         if: always()
         run: |

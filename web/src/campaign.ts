@@ -18,6 +18,8 @@ export type Snapshot = {
   containers: SavedContainer[];
   /** Independent stable IDs preserve the original ordinary-container save indices. */
   interiorLoot?: Record<string, boolean>;
+  /** Additive layout is explicit: missing means legacy topology and three rooms. */
+  worldLayout?: 'menghua-infill-v1';
   enemies: SavedEnemy[]; encounterVersion?: 1;
   status: 'alive' | 'dead'; restCount: number; helper?: HelperState; arsenal?: Arsenal; survivorSystems?: SurvivorSystems;
 };
@@ -56,6 +58,7 @@ export function parseSnapshot(raw: string, mapId: string): Snapshot | null {
       || (s.status === 'dead' && s.hp !== 0)
       || !Array.isArray(s.containers) || s.containers.length > 1000
       || !Array.isArray(s.enemies) || s.enemies.length > 1000) return null;
+    if ('worldLayout' in s && s.worldLayout !== 'menghua-infill-v1') return null;
     if ('interiorLoot' in s && (!isRecord(s.interiorLoot)
       || Object.keys(s.interiorLoot).length > 64
       || !Object.entries(s.interiorLoot).every(([id, looted]) =>

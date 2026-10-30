@@ -16,6 +16,13 @@ test('full roundtrip preserves looted containers, killed enemies and all resourc
   const s=fresh(), store=memory(); assert.ok(saveSnapshot(store,'save',s)); const restored=loadSnapshot(store,'save','block.json');
   assert.deepEqual(restored,s); restored.stash.water++; assert.equal(s.stash.water,2);
 });
+test('layout is explicit and legacy snapshots never silently opt into new collisions',()=>{
+ const legacy=fresh();assert.equal(parseSnapshot(encode(legacy),'block.json').worldLayout,undefined);
+ const next={...legacy,worldLayout:'menghua-infill-v1'};assert.deepEqual(parseSnapshot(encode(next),'block.json'),next);
+ const store=memory();assert.ok(saveSnapshot(store,'save',legacy));const before=store.getItem('save');
+ for(const value of [null,2,'future','legacy',{},false])assert.equal(saveSnapshot(store,'save',{...legacy,worldLayout:value}),false);
+ assert.equal(store.getItem('save'),before,'unknown layout never overwrites an intact save');
+});
 test('legacy saves without interior loot remain unchanged',()=>{
  const s=fresh(),loaded=parseSnapshot(encode(s),'block.json');
  assert.deepEqual(loaded,s);assert.equal('interiorLoot' in loaded,false);

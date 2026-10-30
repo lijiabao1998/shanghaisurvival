@@ -9,7 +9,13 @@ export type RoomFurniture = { id:string; kind:string; center:Point; width:number
 export type RoomLoot = { id:string; furnitureId:string; position:Point; item:'water'|'food'|'battery'; count:1 };
 export type InteriorRoom = { id:string; buildingId:string; kind:RoomKind; label:string; entrance:Shelter; furniture:RoomFurniture[]; loot:RoomLoot[]; focus:Point[] };
 const names:Record<RoomKind,string>={home:'里弄住家',grocer:'街坊雜貨間',repair:'弄口修理間'};
-const kinds:RoomKind[]=['home','grocer','repair'];
+/** Append-only real-footprint selection; kinds/IDs never depend on input or proximity order.
+ * If a footprint becomes unsafe/missing, omit it rather than silently assigning its identity elsewhere. */
+export const INTERIOR_ROOM_CATALOG:ReadonlyArray<readonly [string,RoomKind]>=[
+ ['cmab_327821_0','home'],['cmab_327816_0','grocer'],['cmab_327817_0','repair'],
+ ['cmab_327814_0','home'],['cmab_325911_0','grocer'],['cmab_327818_0','repair'],
+ ['cmab_327826_0','home'],['cmab_327825_0','grocer'],['cmab_327823_0','repair'],
+];
 const layouts:Record<RoomKind,Array<[string,number,number,number,number,number,number]>>={
  home:[['bed',-1.55,2.6,1.25,2.1,.45,0x697e80],['cupboard',1.55,3.2,1.1,.65,1.25,0x7e6348],['table',1.5,1.3,1,.7,.7,0x9b8260]],
  grocer:[['shelf',-1.55,2.5,.65,2.2,1.6,0x776c53],['counter',1.55,2.1,1.1,1.8,.8,0x8b7959],['crate',1.45,4.1,.85,.85,.6,0x857448]],
@@ -39,12 +45,15 @@ function fitRoom(b:Building,s:Shelter,kind:RoomKind,wallCollision:(x:number,z:nu
  const loot:RoomLoot={id:`${id}:supply`,furnitureId:target.id,position:point(s,0,d),item:kind==='home'?'water':kind==='grocer'?'food':'battery',count:1};
  return {id,buildingId:b.id,kind,label:names[kind],entrance:s,furniture,loot:[loot],focus:[s.inside,...furniture.map(f=>f.center)]};
 }
-export function planInteriorRooms(block:Block,excludeBuildingIds:readonly string[]=[],limit=3):InteriorRoom[]{
+export function planInteriorRooms(block:Block,excludeBuildingIds:readonly string[]=[],limit=9):InteriorRoom[]{
  const wallCollision=makeCollider(wallGridOf(block,false)),inside=makeInsideTest(block),skip=new Set(excludeBuildingIds);
- const doors=block.buildings.filter(b=>!skip.has(b.id)).map(b=>({b,s:selectShelter([b],block.spawn,wallCollision,inside)})).filter((x):x is {b:Building;s:Shelter}=>!!x.s);
- doors.sort((a,b)=>Math.hypot(a.s.outside[0]-block.spawn[0],a.s.outside[1]-block.spawn[1])-Math.hypot(b.s.outside[0]-block.spawn[0],b.s.outside[1]-block.spawn[1])||a.b.id.localeCompare(b.b.id));
- const rooms:InteriorRoom[]=[];
- for(const {b,s}of doors){if(rooms.length>=Math.max(0,Math.min(3,Math.floor(limit))))break;const r=fitRoom(b,s,kinds[rooms.length],wallCollision);if(r)rooms.push(r);}
+ const rooms:InteriorRoom[]=[],maximum=Number.isNaN(limit)?0:Math.max(0,Math.min(9,Math.floor(limit)));
+ for(const [buildingId,kind]of INTERIOR_ROOM_CATALOG){
+  if(rooms.length>=maximum)break;if(skip.has(buildingId))continue;
+  const b=block.buildings.find(b=>b.id===buildingId);if(!b)continue;
+  const s=selectShelter([b],block.spawn,wallCollision,inside);if(!s)continue;
+  const room=fitRoom(b,s,kind,wallCollision);if(room)rooms.push(room);
+ }
  return rooms;
 }
 /** Furniture collision for an actor already inside this room. Exterior walls stay authoritative. */
@@ -60,6 +69,7 @@ export function createInteriorRoomGeometry(room:InteriorRoom,building:Building):
  const positions:number[]=[],colors:number[]=[];
  function quad(ps:number[][],color:number){const c=new THREE.Color(color);for(const i of [0,1,2,0,2,3]){positions.push(...ps[i]);colors.push(c.r,c.g,c.b);}}
  const detailKinds:string[]=[];
+ const variant=Math.max(0,Math.floor(INTERIOR_ROOM_CATALOG.findIndex(([id])=>id===room.buildingId)/3));
  for(const f of room.furniture){
   const a=axes(room.entrance),w=f.width,d=f.depth,h=f.height;
   // All props remain inside the authoritative furniture footprint, so art never blocks a clear path.
@@ -71,7 +81,7 @@ export function createInteriorRoomGeometry(room:InteriorRoom,building:Building):
   const legged=(top:number,color:number)=>{box(0,0,top-.09,w,d,.09,color);for(const u of [-w*.4,w*.4])for(const v of [-d*.4,d*.4])box(u,v,.05,.08,.08,top-.14,0x514d43);};
   if(f.kind==='bed'){
    box(0,0,.05,w,d,.18,0x5c483b);box(0,0,.23,w*.95,d*.95,.20,0xd2c9af);
-   box(0,-d*.12,.43,w*.94,d*.68,.07,0x688f8c);
+   box(0,-d*.12,.43,w*.94,d*.68,.07,[0x688f8c,0x7b879b,0x9b8070][variant]);
    for(const u of [-.3,0,.3])box(u*w,-d*.12,.502,w*.025,d*.66,.006,0xb4c7b5);
    for(const u of [-w*.24,w*.24])box(u,d*.34,.43,w*.4,d*.19,.10,0xe5dbc3);
    box(0,d*.475,.05,w,.05,.58,0x66503e);detailKinds.push('bed-frame','mattress','striped-quilt','two-pillows');
@@ -90,14 +100,14 @@ export function createInteriorRoomGeometry(room:InteriorRoom,building:Building):
    for(let i=0;i<tiers;i++){
     const y=.12+i*(h-.28)/(tiers-1);box(0,0,y,w,d,.045,f.color);
     // Contrasting tins and cartons occupy each exposed shelf instead of hidden lines inside a solid block.
-    for(let j=0;j<4;j++){const v=-d*.34+j*d*.22;box(0,v,y+.045,w*.56,d*.15,.14+(j%2)*.06,j%2?0xb09a64:0x637e70);box(0,v,y+.19,w*.58,d*.16,.018,0xd8cdb2);}
+    for(let j=0;j<4;j++){const v=-d*.34+j*d*.22;box(0,v,y+.045,w*.56,d*.15,.14+(j%2)*.06,j%2?[0xb09a64,0xa6957b,0x9c8874][variant]:[0x637e70,0x79858b,0x8a796a][variant]);box(0,v,y+.19,w*.58,d*.16,.018,0xd8cdb2);}
    }
    detailKinds.push(f.kind==='shelf'?'open-grocery-shelves':'parts-shelves','labelled-tins','cartons');
   }else if(f.kind==='workbench'){
    legged(h,0x9c8764);box(0,d*.38,.07,w*.8,d*.18,h*.65,0x66746b);
    box(-w*.28,-d*.12,h,.12,.38,.045,0x3e4544);box(-w*.28,-d*.28,h+.045,.24,.09,.08,0xa5aca0);
    box(w*.18,-d*.14,h,.045,.42,.035,0xc1b491);box(w*.18,d*.1,h,.08,.12,.04,0x994f38);
-   box(0,d*.28,h,w*.6,d*.22,.13,0x4b615b);
+   box(0,d*.28,h,w*.6,d*.22,.13,[0x4b615b,0x5b626c,0x716153][variant]);
    for(const u of [-w*.17,0,w*.17])box(u,d*.28,h+.13,.10,.12,.055,0xa8b0a2);
    detailKinds.push('workbench-legs','hammer','screwdriver','parts-tray');
   }else if(f.kind==='table'||f.kind==='counter'){

@@ -1,0 +1,105 @@
+{
+  "passed": true,
+  "radius": 0.36,
+  "gridStep": 0.25,
+  "sweptSample": 0.06,
+  "bounds": {
+    "minX": 127.25,
+    "minZ": 246,
+    "nx": 772,
+    "nz": 740
+  },
+  "results": [
+    {
+      "id": "room-v1:cmab_327821_0",
+      "meters": 20.82,
+      "nodes": 76,
+      "explored": 1898
+    },
+    {
+      "id": "room-v1:cmab_327816_0",
+      "meters": 24.47,
+      "nodes": 79,
+      "explored": 1628
+    },
+    {
+      "id": "room-v1:cmab_327817_0",
+      "meters": 29.26,
+      "nodes": 99,
+      "explored": 3039
+    },
+    {
+      "id": "room-v1:cmab_327814_0",
+      "meters": 32.78,
+      "nodes": 111,
+      "explored": 2803
+    },
+    {
+      "id": "room-v1:cmab_325911_0",
+      "meters": 35.8,
+      "nodes": 121,
+      "explored": 3844
+    },
+    {
+      "id": "room-v1:cmab_327818_0",
+      "meters": 36.96,
+      "nodes": 124,
+      "explored": 3778
+    },
+    {
+      "id": "room-v1:cmab_327826_0",
+      "meters": 53.32,
+      "nodes": 189,
+      "explored": 13728
+    },
+    {
+      "id": "room-v1:cmab_327825_0",
+      "meters": 43.84,
+      "nodes": 142,
+      "explored": 3592
+    },
+    {
+      "id": "room-v1:cmab_327823_0",
+      "meters": 49.32,
+      "nodes": 161,
+      "explored": 7134
+    },
+    {
+      "id": "fictional:menghua-infill:v2:01",
+      "meters": 24.5,
+      "nodes": 82,
+      "explored": 2334
+    },
+    {
+      "id": "fictional:menghua-infill:v2:02",
+      "meters": 24.34,
+      "nodes": 88,
+      "explored": 948
+    },
+    {
+      "id": "fictional:menghua-infill:v2:03",
+      "meters": 23.79,
+      "nodes": 80,
+      "explored": 1705
+    },
+    {
+      "id": "fictional:menghua-infill:v2:04",
+      "meters": 47.45,
+      "nodes": 144,
+      "explored": 4661
+    }
+  ],
+  "legacy": {
+    "samples": 3744,
+    "wallWitness": 1504,
+    "furnitureWitness": 18
+  },
+  "render": {
+    "cityMeshes": 3,
+    "floorMeshes": 1,
+    "totalMeshes": 4,
+    "uniqueVertices": 2148,
+    "budget": 60000
+  },
+  "scope": "geometry only; not browser traversal"
+}
