@@ -28,14 +28,16 @@ jobs:
       - name: Capture district candidate only (not production)
         run: |
           mkdir -p evidence
-          python3 -m http.server 4173 --directory web/dist > /tmp/server.log 2>&1 &
+          mkdir -p /tmp/qa-root/shanghaisurvival
+          cp -a web/dist/. /tmp/qa-root/shanghaisurvival/
+          python3 -m http.server 4173 --directory /tmp/qa-root > /tmp/server.log 2>&1 &
           cat > test.cjs <<'JS'
           const {chromium}=require('playwright');
           const fs=require('fs');
           const assert=require('node:assert/strict');
           (async()=>{
             const browser=await chromium.launch({args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
-            const report={url:'http://127.0.0.1:4173/survival.html',commit:process.env.GITHUB_SHA,scope:'Shanghai identity details candidate, not production',runner:process.env.RUNNER_OS,checks:[],errors:[],requests:[]};
+            const report={url:'http://127.0.0.1:4173/shanghaisurvival/survival.html',commit:process.env.GITHUB_SHA,scope:'Shanghai identity details candidate, not production',runner:process.env.RUNNER_OS,checks:[],errors:[],requests:[]};
             try {
               const context=await browser.newContext({viewport:{width:1440,height:900}});
               const page=await context.newPage();
@@ -51,26 +53,6 @@ jobs:
               await page.waitForFunction(()=>window.__modu.state().phase==='play');
               report.initial=await page.evaluate(()=>window.__modu.state());
               report.checks.push('new isolated sandbox entered');
-              await page.keyboard.down('KeyD');
-              await page.waitForTimeout(1200);
-              await page.keyboard.up('KeyD');
-              await page.keyboard.press('KeyC');
-              assert.equal(await page.evaluate(()=>window.__modu.state().sneaking),true);
-              report.checks.push('movement input and sneak toggle');
-              await page.screenshot({path:'evidence/02-desktop-play.png',fullPage:true});
-              await page.keyboard.press('Tab');
-              assert.equal(await page.evaluate(()=>window.__modu.state().bagOpen),true);
-              await page.screenshot({path:'evidence/03-inventory.png',fullPage:true});
-              await page.keyboard.press('Escape');
-              assert.equal(await page.evaluate(()=>window.__modu.state().bagOpen),false);
-              report.checks.push('inventory opens and Escape closes');
-              await page.keyboard.press('Escape');
-              assert.equal(await page.evaluate(()=>window.__modu.state().paused),true);
-              await page.screenshot({path:'evidence/04-paused.png',fullPage:true});
-              await page.keyboard.press('Escape');
-              assert.equal(await page.evaluate(()=>window.__modu.state().paused),false);
-              report.checks.push('pause resumes');
-              report.final=await page.evaluate(()=>window.__modu.state());
               async function walkHome(p,mobile=false){
                 await p.bringToFront();
                 const cdp=mobile?await p.context().newCDPSession(p):null;
@@ -94,7 +76,6 @@ jobs:
                 if(mobile)await p.locator('#survivor-touch-action').tap();else await p.keyboard.press('KeyE');
                 try{await p.waitForFunction(()=>__modu.state().inShelter);}catch(error){await p.screenshot({path:mobile?'evidence/mobile-entry-failure.png':'evidence/desktop-entry-failure.png'});throw error;}
               }
-              await page.keyboard.press('KeyC');
               assert.equal(await page.evaluate(()=>__modu.state().mode),'sandbox');
               await walkHome(page);
               await page.locator('.room-view-toggle').click();
@@ -118,6 +99,26 @@ jobs:
               await page.waitForFunction(()=>__modu.state().phase==='play');
               assert.equal(await page.evaluate(()=>__modu.state().stash.water),1);
               report.checks.push('natural doorway entry, inspect/restore room panel, deposit/withdraw, exit and reload-resume preserve stash');
+              await page.keyboard.down('KeyD');
+              await page.waitForTimeout(1200);
+              await page.keyboard.up('KeyD');
+              await page.keyboard.press('KeyC');
+              assert.equal(await page.evaluate(()=>window.__modu.state().sneaking),true);
+              report.checks.push('movement input and sneak toggle');
+              await page.screenshot({path:'evidence/02-desktop-play.png',fullPage:true});
+              await page.keyboard.press('Tab');
+              assert.equal(await page.evaluate(()=>window.__modu.state().bagOpen),true);
+              await page.screenshot({path:'evidence/03-inventory.png',fullPage:true});
+              await page.keyboard.press('Escape');
+              assert.equal(await page.evaluate(()=>window.__modu.state().bagOpen),false);
+              report.checks.push('inventory opens and Escape closes');
+              await page.keyboard.press('Escape');
+              assert.equal(await page.evaluate(()=>window.__modu.state().paused),true);
+              await page.screenshot({path:'evidence/04-paused.png',fullPage:true});
+              await page.keyboard.press('Escape');
+              assert.equal(await page.evaluate(()=>window.__modu.state().paused),false);
+              report.checks.push('pause resumes');
+              report.final=await page.evaluate(()=>window.__modu.state());
               const mobile=await browser.newContext({viewport:{width:390,height:844},isMobile:true,hasTouch:true,deviceScaleFactor:1});
               const mp=await mobile.newPage();
               await mp.goto(report.url+'?debug',{waitUntil:'networkidle'});
@@ -125,8 +126,6 @@ jobs:
               await mp.screenshot({path:'evidence/05-mobile-menu.png',fullPage:true});
               await mp.locator('.who').first().click();
               await mp.locator('#ov-btn').click();
-              await mp.waitForTimeout(1500);
-              await mp.screenshot({path:'evidence/06-mobile-play.png',fullPage:true});
               await walkHome(mp,true);
               await mp.locator('.room-view-toggle').click();
               assert.ok(await mp.evaluate(()=>__modu.state().cameraViewHeight<20));
@@ -135,6 +134,7 @@ jobs:
               await mp.locator('.shelter-exit').click();
               assert.equal(await mp.evaluate(()=>__modu.state().inShelter),false);
               assert.equal(await mp.evaluate(()=>document.body.classList.contains('inspecting-shelter')),false);
+              await mp.screenshot({path:'evidence/06-mobile-play.png',fullPage:true});
               report.checks.push('mobile viewport menu, street, interior panel toggle and exit screenshots (not physical-device performance)');
               assert.deepEqual(report.errors,[]);
               assert.deepEqual(report.requests,[]);

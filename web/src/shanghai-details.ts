@@ -84,3 +84,16 @@ export function createShelterFloor(building:Building):THREE.Mesh {
   const mesh=new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:0x766c58,roughness:1,side:THREE.DoubleSide}));
   mesh.name='shelter-original-footprint-floor';return mesh;
 }
+
+/** Bounded legal indoor focus points for inspection occlusion; generated once. */
+export function shelterInspectionPoints(building:Building,shelter:Shelter):ReadonlyArray<readonly [number,number]> {
+  const inside=makeInsideTest({buildings:[building],spawn:shelter.inside});
+  const dx=shelter.inside[0]-shelter.door[0],dy=shelter.inside[1]-shelter.door[1],length=Math.hypot(dx,dy);
+  if(length<.01)return [];
+  const nx=dx/length,ny=dy/length,ux=ny,uy=-nx,points:[number,number][]=[];
+  for(const u of [-1.8,-1.25,-.7,0,.7,1.25,1.8])for(const d of [.6,1.2,1.8,2.4,3]){
+    const x=shelter.door[0]+ux*u+nx*d,z=shelter.door[1]+uy*u+ny*d;
+    if(inside(x,z))points.push([x,z]);
+  }
+  return points;
+}

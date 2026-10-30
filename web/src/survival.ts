@@ -5,7 +5,7 @@ import { decideEncounterBehavior } from './encounter-behavior';
 import { findLocalPath, type LocalWaypoint } from './navigation';
 import { createHelperState, exchangeWithHelper, aidHelper, receiveHelperCare } from './helper';
 import { createCityVisibility } from './city-visibility';
-import { createLilongInterior, createShelterFloor } from './shanghai-details';
+import { createLilongInterior, createShelterFloor, shelterInspectionPoints } from './shanghai-details';
 import { roadGeometries, nearbyRoadName, type StreetRoad } from './road-geometry';
 import { viewHeight, roomViewHeight } from './view';
 import { emptyInventory, replenishCaches, applyCacheLoot, loadSnapshot, saveSnapshot, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
@@ -40,6 +40,7 @@ let mode: 'sandbox' | 'quick' = 'sandbox';
 let elapsed = 0;
 let inShelter = false;
 let shelterLamp: THREE.PointLight | null = null;
+let roomFocus:ReadonlyArray<readonly [number,number]>=[];
 let shelter: Shelter | null = null;
 let cityVisibility:ReturnType<typeof createCityVisibility>|null=null;
 let visibilityTimer=0;
@@ -1443,7 +1444,7 @@ function frame(dt: number) {
     40,
   ));
   camera.lookAt(target);
-  visibilityTimer-=dt;if(visibilityTimer<=0){visibilityTimer=.1;cityVisibility?.update(px,pz);}
+  visibilityTimer-=dt;if(visibilityTimer<=0){visibilityTimer=.1;cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:undefined);}
 }
 
 const clock = new THREE.Clock();
@@ -1504,7 +1505,7 @@ fetch(dataUrl)
       const marker=new THREE.Mesh(new THREE.BoxGeometry(1.2,2.4,.25),new THREE.MeshStandardMaterial({color:0x49c8d8,emissive:0x166c7a,emissiveIntensity:.8}));
       marker.position.set(shelter.outside[0],1.2,-shelter.outside[1]); marker.scale.set(.4,1,.4);scene.add(marker);
       const shelterBuilding=data.buildings.find(b=>b.id===shelter!.id);
-      if(shelterBuilding)scene.add(createLilongInterior(shelterBuilding,shelter),createShelterFloor(shelterBuilding));
+      if(shelterBuilding){scene.add(createLilongInterior(shelterBuilding,shelter),createShelterFloor(shelterBuilding));roomFocus=shelterInspectionPoints(shelterBuilding,shelter);}
       shelterLamp=new THREE.PointLight(0xffd6aa,5,8,2);shelterLamp.position.set(shelter.inside[0],2.8,-shelter.inside[1]);shelterLamp.visible=false;scene.add(shelterLamp);
     }
     const ground = new THREE.Mesh(
