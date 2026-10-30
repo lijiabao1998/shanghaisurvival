@@ -13,13 +13,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      - name: All rule and geometry regressions, then candidate build
+      - name: Candidate build and all rule, geometry and asset regressions
         working-directory: web
         run: |
           set -euo pipefail
           npm ci
-          for f in tools/test-*.mjs; do GOMAXPROCS=1 node "$f"; done
           GOMAXPROCS=1 NODE_OPTIONS=--max-old-space-size=128 npm run build
+          for f in tools/test-*.mjs; do GOMAXPROCS=1 node "$f"; done
       - name: Install official browser for isolated screenshots
         run: |
           npm install --prefix /tmp/shanghai-browser --no-save playwright@1.56.1
