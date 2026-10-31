@@ -77,6 +77,10 @@ export function installTouchControls(): void {
       #survivor-touch-crouch { right:max(30px,env(safe-area-inset-right)); bottom:calc(115px + env(safe-area-inset-bottom)); width:52px; height:52px; }
       #survivor-touch-menu { left:calc(50% - 52px); top:calc(8px + env(safe-area-inset-top)); width:46px; height:46px; }
       #survivor-touch-bag { left:calc(50% + 4px); top:calc(8px + env(safe-area-inset-top)); width:46px; height:46px; font-size:12px!important; }
+      /* Keep the new stance toggle out of the portrait radio/help card. */
+      @media (orientation:portrait) {
+        #survivor-touch-unarmed { top:calc(8px + env(safe-area-inset-top)); bottom:auto; }
+      }
       @media (orientation:landscape) and (max-height:500px) {
         #survivor-joystick { bottom:calc(28px + env(safe-area-inset-bottom)); width:100px; height:100px; }
         #survivor-stick { left:29px; top:29px; }

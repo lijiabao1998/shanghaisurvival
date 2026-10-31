@@ -31,6 +31,16 @@ try{
   await shot('03-departure');await click('#ov-btn');await page.waitForFunction(()=>window.__modu.state().phase==='play');
   const first=await state();assert.equal(first.preferences.volume,.37);assert.equal(first.preferences.language,'en');
   let joystick=null;
+  if(mobile){
+   const layout=await page.evaluate(()=>{
+    const rect=s=>{const e=document.querySelector(s),r=e.getBoundingClientRect();return{x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height};};
+    const stance=rect('#survivor-touch-unarmed'),radio=rect('#radio');
+    const controls=['unarmed','shove','secondary','crouch','menu','bag','action'].map(id=>{const selector='#survivor-touch-'+id,r=rect(selector);return{id,reachable:!!document.elementFromPoint(r.x+r.width/2,r.y+r.height/2)?.closest(selector)};});
+    return {controls,stanceOverRadio:stance.x<radio.right&&stance.right>radio.x&&stance.y<radio.bottom&&stance.bottom>radio.y};
+   });
+   assert.ok(layout.controls.every(c=>c.reachable),'all touch controls reachable at their centers');
+   assert.equal(layout.stanceOverRadio,false,'stance must not obscure radio/help text');
+  }
   if(mobile){joystick=await page.$eval('#survivor-joystick',e=>{const r=e.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height,bottom:innerHeight-r.bottom};});assert.ok(joystick.bottom>20);assert.ok(joystick.y>height*.35);await page.touchscreen.touchStart(joystick.x+joystick.width*.5,joystick.y+joystick.height*.5);await page.touchscreen.touchMove(joystick.x+joystick.width*.8,joystick.y+joystick.height*.5);}else await page.keyboard.down('d');
   await pause(130);await page.keyboard.press('Escape');await page.waitForFunction(()=>window.__modu.state().input.settingsOpen);if(mobile)await page.touchscreen.touchEnd();else await page.keyboard.up('d');
   const frozen=await state();assert.equal(frozen.paused,true);assert.deepEqual(frozen.input.heldKeys,[]);assert.equal(frozen.attackHeld,false);assert.equal(frozen.touchActionHeld,false);await pause(220);assert.deepEqual((await state()).spawn,frozen.spawn);
