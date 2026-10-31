@@ -4,7 +4,7 @@ import { MELEE_PROFILES, meleePose, sweptMeleeAngle, angleInSweep } from '../src
 let passed = 0;
 const test = (name, fn) => { fn(); passed++; console.log(`PASS ${name}`); };
 const near = (a, b, tolerance = 1e-5) => assert.ok(Math.abs(a - b) <= tolerance, `${a} != ${b}`);
-const kinds = ['blade', 'blunt', 'unarmed'];
+const kinds = ['blade', 'blunt', 'wrench', 'unarmed'];
 
 test('profiles have ordered, bounded phases and positive cost', () => {
   for (const p of Object.values(MELEE_PROFILES)) {

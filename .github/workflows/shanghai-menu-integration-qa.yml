@@ -1,0 +1,56 @@
+name: Shanghai V66 isolated menu and melee browser QA
+on:
+  push:
+    branches: [feat/shanghai-v66-integration-20261031]
+    paths: [web/**, .github/workflows/shanghai-menu-integration-qa.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  menu:
+    if: github.ref == 'refs/heads/feat/shanghai-v66-integration-20261031'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build and local regression suite
+        id: build
+        working-directory: web
+        run: |
+          npm ci
+          GOMAXPROCS=1 NODE_OPTIONS=--max-old-space-size=256 npm run build
+          for f in tools/test-*.mjs; do node "$f"; done
+      - name: Install official Chromium
+        run: |
+          npm install --prefix /tmp/shanghai-menu-browser --no-save playwright@1.56.1
+          /tmp/shanghai-menu-browser/node_modules/.bin/playwright install --with-deps chromium
+          node -e 'console.log("QA_BROWSER="+require("/tmp/shanghai-menu-browser/node_modules/playwright").chromium.executablePath())' >> "$GITHUB_ENV"
+      - name: Preview candidate
+        run: |
+          cd web
+          npm run preview -- --port 4173 > "$GITHUB_WORKSPACE/menu-preview.log" 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:4173/survival.html >/dev/null && break; sleep 1; done
+      - name: Natural menu controls, cancel, continue and screenshots
+        env:
+          QA_SOURCE_SHA: ${{ github.sha }}
+          QA_OUTPUT: evidence/menu
+        run: node web/tools/qa-menu-integration.mjs
+      - name: Four-size melee rendered motion and timing
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        env:
+          QA_SOURCE_SHA: ${{ github.sha }}
+          QA_URL: http://127.0.0.1:4173/survival.html?debug=1
+          QA_OUTPUT: evidence/melee
+        run: node web/tools/qa-melee-weight.mjs
+      - name: Preserve evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shanghai-v66-four-sizes-${{ github.sha }}
+          path: |
+            evidence/
+            menu-preview.log
+          retention-days: 7

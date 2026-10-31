@@ -47,6 +47,9 @@ test('range, mute, language and preview events invoke real controller updates',(
 });
 test('global game keyboard skips open menu before preventing Tab/Space defaults',()=>{
  const source=readFileSync(new URL('../src/survival.ts',import.meta.url),'utf8');const start=source.indexOf("addEventListener('keydown', e => {");assert.ok(start>=0);const body=source.slice(start,source.indexOf("addEventListener('keyup'",start));
- assert.match(body,/if\s*\(settingsMenu\.isOpen\(\)\)\s*return;/);assert.ok(body.indexOf('settingsMenu.isOpen()')<body.indexOf('e.preventDefault()'));
+ assert.match(body,/if\s*\(settingsMenu\.isOpen\(\)\|\|phase!=='play'\)\s*return;/);assert.ok(body.indexOf('settingsMenu.isOpen()')<body.indexOf('e.preventDefault()'));
+});
+test('title launcher reuses one settings controller without save-return or gameplay label',()=>{
+ ctl.close();ctl.openTitle();assert.equal(ctl.isOpen(),true);assert.equal(get('settings-title').textContent,'Game settings');assert.equal(get('settings-return').hidden,true);assert.equal(get('settings-resume').textContent,'Back to start');const before=saves;click('settings-return');assert.equal(saves,before);get('settings-resume').focus();const tab=new Event('keydown',{key:'Tab'});get('game-settings-dialog').dispatchEvent(tab);assert.equal(document.activeElement.id,'settings-volume');ctl.close();ctl.open();assert.equal(get('settings-return').hidden,false);assert.equal(get('settings-title').textContent,'Game menu · Paused');ctl.close();
 });
 console.log(`${count} real settings-controller fake-DOM checks passed; no browser launched`);

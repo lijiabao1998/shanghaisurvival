@@ -22,3 +22,6 @@ See menghua-stock-detail-candidate.md: historical named Menghua street photo com
 
 ## Verification boundaries
 Local TypeScript, production build and Node geometry/rule/runtime tests run. Browser-specific `tools/qa-touch-controls.mjs` could not start local Chromium: process_singleton socket() Operation not permitted / crashpad database failure. No current screenshot, actual touch/speaker/device performance validation or visual acceptance claimed. No Shanghai CI is triggered. This candidate requires specific PR approval for merge/release.
+
+## Review correction (local follow-up)
+Review https://github.com/lijiabao1998/shanghaisurvival/pull/9#discussion_r4428324898 correctly identified that start() disposed the staged menu before the native sandbox overwrite confirmation. Disposal now happens only after confirmation succeeds. Cancelling/repeated cancelling leaves the departure step and existing save intact; accepting a later retry disposes once. The confirmation now accurately warns that this browser's Shanghai sandbox save is replaced, rather than promising a separate official save is retained. `test-start-confirm-cancel.mjs` executes the actual guard/disposal boundary including cancel/retry/resume/quick/dead-save paths. This follow-up is local only until authorized remote update; it does not retry the denied merge.

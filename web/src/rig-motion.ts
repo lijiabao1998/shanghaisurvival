@@ -1,5 +1,5 @@
 import type { Rig } from './characters';
-import type { meleePose } from './melee-motion';
+import type { meleePose, shovePose } from './melee-motion';
 
 type MeleePose = ReturnType<typeof meleePose>;
 
@@ -79,4 +79,14 @@ export function applyThrowJoints(rig: Rig, progress: number): void {
   rig.elbowL.rotation.x = -0.25 * Math.sin(Math.PI * t);
   rig.kneeL.rotation.x = 0.25 * Math.sin(Math.PI * t);
   rig.kneeR.rotation.x = 0.15 * Math.sin(Math.PI * t);
+}
+
+/** Both palms drive forward; legs continue supporting the collision-safe retreat. */
+export function applyShovePose(rig:Rig,pose:ReturnType<typeof shovePose>):void {
+  rig.armL.rotation.set(pose.armX,0,-.12*pose.push);
+  rig.armR.rotation.set(pose.armX,0,.12*pose.push);
+  rig.elbowL.rotation.x=pose.elbowX;rig.elbowR.rotation.x=pose.elbowX;
+  rig.torso.rotation.x+=pose.lean;
+  rig.legL.rotation.x-=.25*pose.push;rig.kneeL.rotation.x+=.35*pose.push;
+  rig.body.position.y-=.025*pose.push;
 }

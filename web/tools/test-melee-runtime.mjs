@@ -7,7 +7,7 @@ import vm from 'node:vm';
 import { createLegacyArsenal, equipWeapon, WEAPONS } from '../src/arsenal.ts';
 import { createSurvivorSystems, grantTool, equipHand, carriedWeight, loadEffects } from '../src/survivor-systems.ts';
 import { emptyInventory } from '../src/campaign.ts';
-import { segmentClear } from '../src/combat.ts';
+import { segmentClear,sweepMove } from '../src/combat.ts';
 import { MELEE_PROFILES, meleePose, sweptMeleeAngle, angleInSweep } from '../src/melee-motion.ts';
 import { buildRig, ROSTER } from '../src/characters.ts';
 import { applyMeleePose, resetRigJoints, applyLocomotionJoints, applyThrowJoints } from '../src/rig-motion.ts';
@@ -21,7 +21,7 @@ function extract(name) {
 }
 function runtime(extra={}) {
   const hits=[];
-  const c=vm.createContext({TOOL_COMBAT,isMeleeTool,swingTool:'pipe',MELEE_PROFILES,meleePose,sweptMeleeAngle,angleInSweep,segmentClear,
+  const c=vm.createContext({TOOL_COMBAT,isMeleeTool,swingTool:'pipe',unarmedStance:false,MELEE_PROFILES,meleePose,sweptMeleeAngle,angleInSweep,segmentClear,sweepMove,
     applyMeleePose,resetRigJoints,applyLocomotionJoints,applyThrowJoints,carriedWeight,loadEffects,
     survivorSystems:createSurvivorSystems(createLegacyArsenal(false,0)),inventory:emptyInventory(),
     rig:buildRig(ROSTER[0]), arsenal:createLegacyArsenal(false,0), stamina:100,action:'none',actionT:0,actionDur:0,actionFired:false,
@@ -31,7 +31,7 @@ function runtime(extra={}) {
   for(const name of ['currentSwingProfile','canSee','startSwing','meleeHit','animateRig']) vm.runInContext(extract(name),c);
   return {c,hits};
 }
-const target=(angle,d=1.3)=>({x:Math.sin(angle)*d,z:-Math.cos(angle)*d,state:'sleep',hp:100,attackCd:0});
+const target=(angle,d=1.3)=>({x:Math.sin(angle)*d,z:-Math.cos(angle)*d,state:'sleep',hp:100,attackCd:0,mesh:{rotation:{y:0}}});
 const advance=(c,seconds,step=.02)=>{for(let t=0;t<seconds-1e-9;t+=step)c.animateRig(Math.min(step,seconds-t),0);};
 let count=0;function test(name,fn){fn();count++;console.log(`PASS ${name}`);}
 test('actual start rejects low stamina and commits one action per press',()=>{
@@ -55,9 +55,9 @@ test('equipped firearm blocks that hand pipe swing until unequipped',()=>{
  const {c}=runtime({arsenal,survivorSystems:systems});c.startSwing();assert.equal(c.action,'none');assert.equal(c.stamina,100);
  assert.ok(equipHand(c.survivorSystems,c.arsenal,'primary','pipe'));c.startSwing();assert.equal(c.action,'swing');assert.equal(c.stamina,94);
 });
-test('offhand pipe works beside a pistol while empty or gun offhand cannot swing',()=>{
+test('offhand pipe works beside a pistol, empty offhand punches, gun hand cannot swing',()=>{
  const arsenal=createLegacyArsenal(true,7);equipWeapon(arsenal,'qsz92-9');const systems=createSurvivorSystems(arsenal);const {c}=runtime({arsenal,survivorSystems:systems});
- c.startSwing('left');assert.equal(c.action,'none');assert.equal(c.stamina,100);assert.ok(equipHand(systems,arsenal,'secondary','pipe'));c.startSwing('left');assert.equal(c.action,'swing');assert.equal(c.swingHand,'left');assert.equal(c.stamina,94);c.startSwing('right');assert.equal(c.swingCount,1);
+ c.startSwing('left');assert.equal(c.action,'swing');assert.equal(c.swingTool,'unarmed');assert.equal(c.stamina,94);advance(c,.5);c.stamina=100;c.swingCount=0;assert.ok(equipHand(systems,arsenal,'secondary','pipe'));c.startSwing('left');assert.equal(c.action,'swing');assert.equal(c.swingHand,'left');assert.equal(c.stamina,94);c.startSwing('right');assert.equal(c.swingCount,1);
  advance(c,.75);assert.ok(equipHand(systems,arsenal,'primary','pipe'));assert.equal(systems.hands.secondary,'qsz92-9');c.startSwing('left');assert.equal(c.action,'none');assert.equal(c.stamina,94);c.startSwing('right');assert.equal(c.action,'swing');assert.equal(c.swingHand,'right');
 });
 test('a large animation step still sweeps entire active window',()=>{

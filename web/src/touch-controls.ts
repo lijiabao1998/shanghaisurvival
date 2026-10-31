@@ -8,15 +8,17 @@
  */
 export type TouchControlLabels = {
   controls: string; movement: string; movementHint: string; action: string; actionAria: string;
-  secondary: string; secondaryAria: string; crouch: string; crouchAria: string; menuAria: string; bag: string;
+  unarmed:string; shove:string; secondary: string; secondaryAria: string; crouch: string; crouchAria: string; menuAria: string; bag: string;
 };
 const defaultLabels: TouchControlLabels = {
   controls:'觸控操作', movement:'移動搖桿，推到底奔跑', movementHint:'移動 · 推到底奔跑',
-  action:'互動', actionAria:'情境互動，按住持續', secondary:'副手', secondaryAria:'副手攻擊',
+  action:'互動', actionAria:'情境互動，按住持續', unarmed:'徒手',shove:'推開',secondary:'副手', secondaryAria:'副手攻擊',
   crouch:'蹲', crouchAria:'切換潛行', menuAria:'暫停選單', bag:'背包',
 };
 let labels: TouchControlLabels = { ...defaultLabels };
 let controlsSuspended = false;
+let meleeCapabilities={unarmed:false,shove:false},unarmedEnabled=false;
+export function requestUnarmedToggle(){if(meleeCapabilities.unarmed&&!controlsSuspended)window.dispatchEvent(new CustomEvent('survivor-unarmed',{detail:{enabled:!unarmedEnabled}}));}
 /** Safe text-only localization. May be called before installation or when settings change. */
 export function setTouchControlLabels(next: Partial<TouchControlLabels>): void {
   for (const key of Object.keys(defaultLabels) as (keyof TouchControlLabels)[]) {
@@ -29,7 +31,7 @@ export function setTouchControlLabels(next: Partial<TouchControlLabels>): void {
   joy?.setAttribute('aria-label', labels.movement);
   joy?.setAttribute('data-hint', labels.movementHint);
   for (const [id, text, aria] of [
-    ['action',labels.action,labels.actionAria], ['secondary',labels.secondary,labels.secondaryAria],
+    ['action',labels.action,labels.actionAria], ['secondary',labels.secondary,labels.secondaryAria], ['unarmed',labels.unarmed,labels.unarmed], ['shove',labels.shove,labels.shove],
     ['crouch',labels.crouch,labels.crouchAria], ['menu','☰',labels.menuAria], ['bag',labels.bag,labels.bag],
   ]) {
     const el = document.getElementById(`survivor-touch-${id}`);
@@ -67,7 +69,10 @@ export function installTouchControls(): void {
         width:140px; text-align:center; color:#c4d2c3; font:10px system-ui,sans-serif; }
       #survivor-touch-action { right:max(20px,env(safe-area-inset-right)); bottom:calc(29px + env(safe-area-inset-bottom));
         width:72px; height:72px; border-color:#edc87b!important; color:#ffe4a4!important; }
-      #survivor-touch-secondary[hidden]{display:none}
+      #survivor-touch-secondary[hidden],#survivor-touch-unarmed[hidden],#survivor-touch-shove[hidden]{display:none}
+      #survivor-touch-unarmed {right:max(24px,env(safe-area-inset-right));bottom:calc(181px + env(safe-area-inset-bottom));width:64px;height:48px;border-radius:12px!important;font-size:12px!important}
+      #survivor-touch-unarmed[aria-pressed=true]{background:#486b53!important;border-color:#e6cf91!important}
+      #survivor-touch-shove {right:calc(104px + env(safe-area-inset-right));bottom:calc(115px + env(safe-area-inset-bottom));width:56px;height:52px;font-size:12px!important}
       #survivor-touch-secondary { right:110px; bottom:calc(37px + env(safe-area-inset-bottom)); width:56px;height:56px;font-size:12px!important; }
       #survivor-touch-crouch { right:max(30px,env(safe-area-inset-right)); bottom:calc(115px + env(safe-area-inset-bottom)); width:52px; height:52px; }
       #survivor-touch-menu { left:calc(50% - 52px); top:calc(8px + env(safe-area-inset-top)); width:46px; height:46px; }
@@ -86,6 +91,8 @@ export function installTouchControls(): void {
   root.setAttribute('aria-label', '觸控操作');
   root.innerHTML = `<div id="survivor-joystick" role="group" aria-label="移動搖桿，推到底奔跑"><i id="survivor-stick"></i></div>
     <button id="survivor-touch-action" type="button" aria-label="情境互動，按住持續">互動</button>
+    <button id="survivor-touch-unarmed" type="button" aria-pressed="false" hidden>徒手</button>
+    <button id="survivor-touch-shove" type="button" hidden>推開</button>
     <button id="survivor-touch-secondary" type="button" aria-label="副手攻擊" hidden>副手</button>
     <button id="survivor-touch-crouch" type="button" aria-label="切換潛行">蹲</button>
     <button id="survivor-touch-menu" type="button" aria-label="暫停選單">☰</button>
@@ -170,6 +177,11 @@ export function installTouchControls(): void {
       e.preventDefault(); e.stopPropagation(); releaseAll(); key(code, true); key(code, false);
     });
   }
+  const unarmed=root.querySelector<HTMLButtonElement>('#survivor-touch-unarmed')!,shove=root.querySelector<HTMLButtonElement>('#survivor-touch-shove')!;
+  unarmed.onclick=e=>{e.preventDefault();e.stopPropagation();releaseAll();requestUnarmedToggle();};
+  shove.onclick=e=>{e.preventDefault();e.stopPropagation();releaseAll();if(meleeCapabilities.shove&&!controlsSuspended)window.dispatchEvent(new CustomEvent('survivor-shove'));};
+  window.addEventListener('survivor-melee-capabilities',e=>{const detail=(e as CustomEvent).detail;meleeCapabilities={unarmed:detail?.unarmed===true,shove:detail?.shove===true};unarmed.hidden=!meleeCapabilities.unarmed;shove.hidden=!meleeCapabilities.shove;});
+  window.addEventListener('survivor-unarmed-state',e=>{unarmedEnabled=(e as CustomEvent).detail?.enabled===true;unarmed.setAttribute('aria-pressed',String(unarmedEnabled));});
   root.addEventListener('contextmenu', e => e.preventDefault());
   window.addEventListener('blur', releaseAll);
   document.addEventListener('visibilitychange', () => { if (document.hidden) releaseAll(); });
