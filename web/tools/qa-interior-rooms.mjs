@@ -7,7 +7,7 @@ const out=process.env.QA_OUTPUT??'/tmp/shanghai-interior-evidence';await mkdir(o
 const url=process.env.QA_URL??'http://127.0.0.1:4173/survival.html?debug';
 assert.ok(['localhost','127.0.0.1','[::1]'].includes(new URL(url).hostname),'isolated fixtures only');
 const browser=await puppeteer.launch({executablePath:process.env.QA_BROWSER??'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
-const report={scope:'candidate real input; isolated entrance-position/dead-enemy fixtures, NOT full spawn traversal',commit:process.env.GITHUB_SHA??'local',checks:[],errors:[],fixtures:[]};
+const report={scope:'candidate real input, cardinal world-axis navigation only; isolated entrance-position/dead-enemy fixtures, NOT diagonal coverage or full spawn traversal',commit:process.env.GITHUB_SHA??'local',checks:[],errors:[],fixtures:[]};
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const state=p=>p.evaluate(()=>window.__modu.state());
 async function saved(p){return p.evaluate(()=>{const key=Object.keys(localStorage).find(k=>k.startsWith('shanghai-survivors:systems-v1:'));return key?{key,data:JSON.parse(localStorage.getItem(key))}:null;});}
@@ -15,30 +15,40 @@ async function resume(p,navigate=false){if(navigate)await p.goto(url,{waitUntil:
 const touchSessions=new WeakMap();
 async function touchSession(p){if(!touchSessions.has(p))touchSessions.set(p,await p.createCDPSession());return touchSessions.get(p);}
 async function directionDown(p,keys){
- if(!p.viewport().isMobile){for(const k of keys)await p.keyboard.down(k);return;}
+ if(!p.viewport().isMobile){await Promise.all(keys.map(k=>p.keyboard.down(k)));return;}
  const pad=await p.waitForSelector('#survivor-joystick',{visible:true}),box=await pad.boundingBox();assert.ok(box);
  const x=box.x+box.width/2,y=box.y+box.height/2,offset=box.width*.17,dx=(Number(keys.includes('KeyD'))-Number(keys.includes('KeyA')))*offset,dy=(Number(keys.includes('KeyS'))-Number(keys.includes('KeyW')))*offset;
  const session=await touchSession(p);
  await session.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});
  await session.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x+dx,y:y+dy}]});
 }
-async function directionUp(p,keys){if(p.viewport().isMobile)await(await touchSession(p)).send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});else for(const k of keys)await p.keyboard.up(k);}
-async function moveTo(p,target){
- const started=Date.now(),trail=[];let unchanged=0,last=null;
+async function directionUp(p,keys){if(p.viewport().isMobile)await(await touchSession(p)).send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});else await Promise.all(keys.map(k=>p.keyboard.up(k)));}
+async function moveTo(p,target,allowCrossing){
+ const started=Date.now(),trail=[];let unchanged=0,last=null,lastAxis=null,lastSign=0;
  while(Date.now()-started<25000){
-  const at=(await state(p)).spawn,dx=target[0]-at[0],dz=target[1]-at[1];if(Math.hypot(dx,dz)<.16)return;
+  const at=(await state(p)).spawn,dx=target[0]-at[0],dz=target[1]-at[1];if(Math.hypot(dx,dz)<.20)return;
+  // Only intermediate waypoints may be crossed instead of reached. One previous
+  // pulse must have moved on exactly its commanded world axis and direction;
+  // diagonal interpolation would be unsound because collisions resolve axes separately.
+  if(allowCrossing&&last&&lastAxis!==null){
+   const other=1-lastAxis,advance=at[lastAxis]-last[lastAxis];
+   if(advance*lastSign>0&&Math.abs(at[other]-last[other])<1e-6){
+    const t=(target[lastAxis]-last[lastAxis])/advance;
+    if(t>=0&&t<=1&&Math.abs(target[other]-at[other])<.20)return;
+   }
+  }
   const axis=Math.abs(dx)>Math.abs(dz)?0:1,delta=axis===0?dx:dz;
   let keys=axis===0?(delta>0?['KeyD','KeyS']:['KeyA','KeyW']):(delta>0?['KeyW','KeyD']:['KeyA','KeyS']);
-  // Full eight-direction joystick control avoids axis-only quantization near diagonal waypoints.
-  if(p.viewport().isMobile&&Math.min(Math.abs(dx),Math.abs(dz))/Math.max(Math.abs(dx),Math.abs(dz))>.4142)keys=[dx>0?(dz>0?'KeyD':'KeyS'):(dz>0?'KeyW':'KeyA')];
   trail.push({at,remaining:Math.hypot(dx,dz),keys});if(trail.length>30)trail.shift();
   if(last&&Math.hypot(at[0]-last[0],at[1]-last[1])<.005)unchanged++;else unchanged=0;
-  assert.ok(unchanged<25,`movement stalled at ${at}, target ${target}`);last=at;
-  try{await directionDown(p,keys);await p.waitForFunction(old=>{const s=window.__modu.state();return Math.hypot(s.spawn[0]-old[0],s.spawn[1]-old[1])>.02;},{polling:'raf',timeout:5000},at);}catch(error){throw new Error(`No movement simulation while held at ${at}, target ${target}, state ${JSON.stringify(await state(p))}: ${error.message}`);}finally{await directionUp(p,keys);}
+  assert.ok(unchanged<25,`movement stalled at ${at}, target ${target}`);last=at;lastAxis=axis;lastSign=Math.sign(delta);
+  // Hold real input through one animation frame so slow renderers cannot miss a fixed-time pulse.
+  // Release without polling full game state while held, which can overshoot under SwiftShader.
+  try{await directionDown(p,keys);await p.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>resolve())));}finally{await directionUp(p,keys);}
  }
  throw new Error(`Doorway walk timed out toward ${target}; at ${(await state(p)).spawn}; movement trail ${JSON.stringify(trail)}`);
 }
-async function corridor(p,from,to){if(!(await state(p)).sneaking){if(p.viewport().isMobile){const box=await(await p.waitForSelector('#survivor-touch-crouch',{visible:true})).boundingBox();assert.ok(box);await p.touchscreen.tap(box.x+box.width/2,box.y+box.height/2);}else await p.keyboard.press('KeyC');}const length=Math.hypot(to[0]-from[0],to[1]-from[1]),n=Math.ceil(length/.3);for(let i=1;i<=n;i++)await moveTo(p,[from[0]+(to[0]-from[0])*i/n,from[1]+(to[1]-from[1])*i/n]);}
+async function corridor(p,from,to){if(!(await state(p)).sneaking){if(p.viewport().isMobile){const box=await(await p.waitForSelector('#survivor-touch-crouch',{visible:true})).boundingBox();assert.ok(box);await p.touchscreen.tap(box.x+box.width/2,box.y+box.height/2);}else await p.keyboard.press('KeyC');}const length=Math.hypot(to[0]-from[0],to[1]-from[1]),n=Math.ceil(length/.3);for(let i=1;i<=n;i++)await moveTo(p,[from[0]+(to[0]-from[0])*i/n,from[1]+(to[1]-from[1])*i/n],i<n);}
 async function holdLoot(p,mobile,expectedItem=null){
  await delay(200);
  const before=expectedItem?(await state(p)).inventory[expectedItem]:null;
