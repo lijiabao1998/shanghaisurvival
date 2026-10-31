@@ -1287,8 +1287,8 @@ function placeContainer(): { x: number; z: number } {
 }
 
 function start(chosen: CharSpec, resume: Snapshot | null = null) {
-  stagedMenu?.dispose();stagedMenu=null;
   if(mode==='sandbox'&&!resume&&savedGame?.status==='alive'&&!confirm('開始新沙盒會覆寫此候選版本進度；舊正式版存檔仍保留。確定開始？')) {el.overlay.classList.add('on');return;}
+  stagedMenu?.dispose();stagedMenu=null;
   if(!resume)savedGame=null;
   elapsed=0; inShelter=false; shelterPanel.classList.remove('room-view');document.body.classList.remove('inspecting-shelter');resize(); helperOpen=false;helperPanel.hidden=true;helperState=createHelperState(); stash=emptyInventory(); restCount=0; saveTimer=0; saveWarning='';
   shelterPanel.hidden=true;
