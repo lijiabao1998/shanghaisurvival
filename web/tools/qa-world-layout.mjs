@@ -18,21 +18,22 @@ async function sampleRender(p,device,layout){
  report.renderSamples.push({device,layout,frames:30,medianMs:(sorted[14]+sorted[15])/2,p95Ms:sorted[28],renderBudget:budget,environment:'GitHub headless Chromium SwiftShader viewport emulation, NOT physical mobile GPU/FPS acceptance',guard:'calls<2000, triangles<1500000; only catastrophic draw/geometry growth gate'});
 }
 async function unpause(p){if((await state(p)).paused)await p.keyboard.press('Escape');}
+const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const touchSessions=new WeakMap();
 async function touchSession(p){if(!touchSessions.has(p))touchSessions.set(p,await p.createCDPSession());return touchSessions.get(p);}
 async function directionDown(p,keys){
- if(!p.viewport().isMobile){for(const k of keys)await p.keyboard.down(k);return;}
+ if(!p.viewport().isMobile){await Promise.all(keys.map(k=>p.keyboard.down(k)));return;}
  const pad=await p.waitForSelector('#survivor-joystick',{visible:true}),box=await pad.boundingBox();assert.ok(box);
  const x=box.x+box.width/2,y=box.y+box.height/2,offset=box.width*.17,dx=(Number(keys.includes('KeyD'))-Number(keys.includes('KeyA')))*offset,dy=(Number(keys.includes('KeyS'))-Number(keys.includes('KeyW')))*offset;
  const session=await touchSession(p);
  await session.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});
  await session.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x+dx,y:y+dy}]});
 }
-async function directionUp(p,keys){if(p.viewport().isMobile)await(await touchSession(p)).send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});else for(const k of keys)await p.keyboard.up(k);}
+async function directionUp(p,keys){if(p.viewport().isMobile)await(await touchSession(p)).send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});else await Promise.all(keys.map(k=>p.keyboard.up(k)));}
 async function moveTo(p,target){
  const started=Date.now(),trail=[];let unchanged=0,last=null;
  while(Date.now()-started<25000){
-  const at=(await state(p)).spawn,dx=target[0]-at[0],dz=target[1]-at[1];if(Math.hypot(dx,dz)<.16)return;
+  const current=await state(p);assert.equal(current.phase,'play',`natural/fixture walk ended in ${current.phase}, hp ${current.hp}`);assert.ok(current.hp>0,'walking player must be alive');const at=current.spawn,dx=target[0]-at[0],dz=target[1]-at[1];if(Math.hypot(dx,dz)<.16)return;
   const axis=Math.abs(dx)>Math.abs(dz)?0:1,delta=axis===0?dx:dz;
   let keys=axis===0?(delta>0?['KeyD','KeyS']:['KeyA','KeyW']):(delta>0?['KeyW','KeyD']:['KeyA','KeyS']);
   // Full eight-direction joystick control avoids axis-only quantization near diagonal waypoints.
@@ -40,7 +41,8 @@ async function moveTo(p,target){
   trail.push({at,remaining:Math.hypot(dx,dz),keys});if(trail.length>30)trail.shift();
   if(last&&Math.hypot(at[0]-last[0],at[1]-last[1])<.005)unchanged++;else unchanged=0;
   assert.ok(unchanged<25,`movement stalled at ${at}, target ${target}`);last=at;
-  try{await directionDown(p,keys);await p.waitForFunction(old=>{const s=window.__modu.state();return Math.hypot(s.spawn[0]-old[0],s.spawn[1]-old[1])>.02;},{polling:'raf',timeout:5000},at);}catch(error){throw new Error(`No movement simulation while held at ${at}, target ${target}, state ${JSON.stringify(await state(p))}: ${error.message}`);}finally{await directionUp(p,keys);}
+  // Bounded real input pulses prevent an observation delayed by SwiftShader from holding a key down for metres.
+  try{await directionDown(p,keys);await delay(40);}finally{await directionUp(p,keys);}
  }
  throw new Error(`Doorway walk timed out toward ${target}; at ${(await state(p)).spawn}; movement trail ${JSON.stringify(trail)}`);
 }
@@ -51,12 +53,12 @@ try{for(const mobile of [false,true]){
  p.on('pageerror',e=>report.errors.push({device,message:e.message}));p.on('console',m=>{const source=m.location().url??'';if(m.type()==='error'&&!new URL(source||url,url).pathname.endsWith('/favicon.ico'))report.errors.push({device,message:m.text(),source});});
  p.on('response',r=>{if(r.status()>=400&&!new URL(r.url()).pathname.endsWith('/favicon.ico'))report.errors.push({device,status:r.status(),source:r.url(),message:'HTTP resource error'});});
  await p.goto(url,{waitUntil:'networkidle0'});await ready(p);if(mobile){await p.tap('.who');await p.tap('#ov-btn');}else{await p.click('.who');await p.click('#ov-btn');}await p.waitForFunction(()=>window.__modu.state().phase==='play');
- const initial=await state(p);assertLayout(initial,true);await sampleRender(p,device,'new');await p.waitForFunction(()=>Object.keys(localStorage).some(k=>k.startsWith('shanghai-survivors:systems-v1:')));const seed=await saved(p);assert.equal(seed.data.worldLayout,'menghua-infill-v1');
+ const initial=await state(p);assertLayout(initial,true);await p.keyboard.press('Escape');assert.equal((await state(p)).paused,true,'pause while sampling renderer so sampling cannot consume survival time');await sampleRender(p,device,'new');await unpause(p);await p.waitForFunction(()=>Object.keys(localStorage).some(k=>k.startsWith('shanghai-survivors:systems-v1:')));const seed=await saved(p);assert.equal(seed.data.worldLayout,'menghua-infill-v1');
  // A short real walk starts at the actual natural spawn, not a position fixture.
  const combined={...map,buildings:[...map.buildings,...initial.densityBuildings]},collision=makeCollider(wallGridOf(combined,false)),inside=makeInsideTest(combined);
- const road=map.roads.find(r=>r.id==='osm_40109239_0');let route=null;
- for(let i=1;i<road.centerline.length&&!route;i++){const a=road.centerline[i-1],b=road.centerline[i],dx=b[0]-a[0],dz=b[1]-a[1],l=Math.hypot(dx,dz);for(let t=1;t<l;t+=.5){const target=[a[0]+dx*t/l,a[1]+dz*t/l],d=Math.hypot(target[0]-initial.spawn[0],target[1]-initial.spawn[1]);if(d<2||d>5)continue;let clear=true;for(let k=0;k<=30;k++){const x=initial.spawn[0]+(target[0]-initial.spawn[0])*k/30,z=initial.spawn[1]+(target[1]-initial.spawn[1])*k/30;if(collision(x,z,.4)||inside(x,z)){clear=false;break;}}if(clear){route=target;break;}}}
- assert.ok(route,'actual spawn has a legal 2-5m path to named street');await corridor(p,initial.spawn,route);report.checks.push({device,kind:'natural-spawn-to-street',from:initial.spawn,to:(await state(p)).spawn,input:mobile?'touch joystick':'keyboard',fixture:false});await p.screenshot({path:`${out}/${device}-natural-road-walk.png`});
+ const road=map.roads.find(r=>r.id==='osm_40109239_0');let route=null,routeDistance=Infinity;
+ for(let i=1;i<road.centerline.length;i++){const a=road.centerline[i-1],b=road.centerline[i],dx=b[0]-a[0],dz=b[1]-a[1],l=Math.hypot(dx,dz);for(let t=1;t<l;t+=.5){const target=[a[0]+dx*t/l,a[1]+dz*t/l],d=Math.hypot(target[0]-initial.spawn[0],target[1]-initial.spawn[1]);if(d<2||d>5)continue;let clear=true;for(let k=0;k<=30;k++){const x=initial.spawn[0]+(target[0]-initial.spawn[0])*k/30,z=initial.spawn[1]+(target[1]-initial.spawn[1])*k/30;if(collision(x,z,.4)||inside(x,z)){clear=false;break;}}if(clear&&d<routeDistance){route=target;routeDistance=d;}}}
+ assert.ok(route,'actual spawn has a legal 2-5m path to named street');await corridor(p,initial.spawn,route);const arrived=await state(p);assert.equal(arrived.phase,'play','natural street walk must finish alive');assert.ok(arrived.hp>0,'natural street walk must finish with positive health');report.checks.push({device,kind:'natural-spawn-to-street',from:initial.spawn,to:arrived.spawn,hp:arrived.hp,input:mobile?'touch joystick':'keyboard',fixture:false});await p.keyboard.press('Escape');assert.equal((await state(p)).paused,true,'pause after a live arrival while collecting screenshot');await p.screenshot({path:`${out}/${device}-natural-road-walk.png`});
  await p.reload({waitUntil:'networkidle0'});await ready(p);const freshReload=await resumeAtomic(p);assertLayout(freshReload,true);report.checks.push({device,kind:'new-layout-reload',buildings:4,rooms:9});
  // Isolated legacy fixture differs only by removal of the layout opt-in marker.
  const legacy=structuredClone(seed);delete legacy.data.worldLayout;await stage(p,legacy);const old=await resumeAtomic(p);assertLayout(old,false);assert.deepEqual(old.spawn,legacy.data.position);assert.deepEqual(old.worldPositions.containers,legacy.data.containers.map(({x,z})=>({x,z})));assert.deepEqual(old.worldPositions.enemies,legacy.data.enemies.map(({x,z})=>({x,z})));await sampleRender(p,device,'legacy');report.checks.push({device,kind:'legacy-exact-position-preservation',player:true,containers:old.worldPositions.containers.length,enemies:old.worldPositions.enemies.length});await p.screenshot({path:`${out}/${device}-legacy-layout.png`});

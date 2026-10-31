@@ -15,14 +15,14 @@ async function resume(p,navigate=false){if(navigate)await p.goto(url,{waitUntil:
 const touchSessions=new WeakMap();
 async function touchSession(p){if(!touchSessions.has(p))touchSessions.set(p,await p.createCDPSession());return touchSessions.get(p);}
 async function directionDown(p,keys){
- if(!p.viewport().isMobile){for(const k of keys)await p.keyboard.down(k);return;}
+ if(!p.viewport().isMobile){await Promise.all(keys.map(k=>p.keyboard.down(k)));return;}
  const pad=await p.waitForSelector('#survivor-joystick',{visible:true}),box=await pad.boundingBox();assert.ok(box);
  const x=box.x+box.width/2,y=box.y+box.height/2,offset=box.width*.17,dx=(Number(keys.includes('KeyD'))-Number(keys.includes('KeyA')))*offset,dy=(Number(keys.includes('KeyS'))-Number(keys.includes('KeyW')))*offset;
  const session=await touchSession(p);
  await session.send('Input.dispatchTouchEvent',{type:'touchStart',touchPoints:[{x,y}]});
  await session.send('Input.dispatchTouchEvent',{type:'touchMove',touchPoints:[{x:x+dx,y:y+dy}]});
 }
-async function directionUp(p,keys){if(p.viewport().isMobile)await(await touchSession(p)).send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});else for(const k of keys)await p.keyboard.up(k);}
+async function directionUp(p,keys){if(p.viewport().isMobile)await(await touchSession(p)).send('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});else await Promise.all(keys.map(k=>p.keyboard.up(k)));}
 async function moveTo(p,target){
  const started=Date.now(),trail=[];let unchanged=0,last=null;
  while(Date.now()-started<25000){
@@ -34,7 +34,10 @@ async function moveTo(p,target){
   trail.push({at,remaining:Math.hypot(dx,dz),keys});if(trail.length>30)trail.shift();
   if(last&&Math.hypot(at[0]-last[0],at[1]-last[1])<.005)unchanged++;else unchanged=0;
   assert.ok(unchanged<25,`movement stalled at ${at}, target ${target}`);last=at;
-  try{await directionDown(p,keys);await p.waitForFunction(old=>{const s=window.__modu.state();return Math.hypot(s.spawn[0]-old[0],s.spawn[1]-old[1])>.02;},{polling:'raf',timeout:5000},at);}catch(error){throw new Error(`No movement simulation while held at ${at}, target ${target}, state ${JSON.stringify(await state(p))}: ${error.message}`);}finally{await directionUp(p,keys);}
+  // Use bounded real-input pulses. Waiting for a remote frame observation while a
+  // key stays down can overshoot by metres on a slow SwiftShader runner. A pulse
+  // may miss a frame; retry, but still fail on a genuinely stalled route.
+  try{await directionDown(p,keys);await delay(40);}finally{await directionUp(p,keys);}
  }
  throw new Error(`Doorway walk timed out toward ${target}; at ${(await state(p)).spawn}; movement trail ${JSON.stringify(trail)}`);
 }
