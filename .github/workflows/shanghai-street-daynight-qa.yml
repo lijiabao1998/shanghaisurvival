@@ -2,6 +2,7 @@ name: Shanghai street and day-night candidate QA
 on:
   push:
     branches: [feat/shanghai-street-daynight-20261030]
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:
