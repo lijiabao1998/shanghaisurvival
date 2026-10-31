@@ -16,9 +16,9 @@ Windows 已安裝依賴後也可雙擊 `start.cmd` 啟動，再在瀏覽器開�
 
 `npm run build` 做 TypeScript 型別檢查及正式建置。若上游街區資料更新，先在專案根目錄執行 `.\.venv\Scripts\python.exe tools\build_demo_data.py`（直接寫入 `web/public/data/block.json`，不需手動複製），然後重建。
 
-## 生存循環切片（`survival.html`）
+## 早期生存循環切片記錄（歷史，非現行玩法）
 
-`survival.html` 是獨立的 10 分鐘生存切片，跑在同一份街區資料上，不改動 `index.html` 的行為。三個頁面都是 Vite 的建置入口。
+以下是早期版本的記錄。現行 `survival.html` 的快速撤離與生存沙盒，請以根目錄 README 和 `docs/safehouse-candidate.md` 為準；不要將下列舊數值當作目前設定。三個頁面都是 Vite 的建置入口。
 
 - WASD 移動、Shift 跑（耗體力，噪音半徑 20 m）、F 手電筒、按住 E 搜刮
 - 手電筒是唯一主動光源，也是唯一消耗電池的地方；開燈感應半徑 22 m，關燈 9 m

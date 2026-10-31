@@ -1,0 +1,86 @@
+name: Shanghai main and PR regression
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Typecheck and build
+        run: npm run build
+      - name: Run all checked-in Node regression scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          tests=(tools/test-*.mjs)
+          if (( ${#tests[@]} == 0 )); then
+            echo 'No regression scripts found.' >&2
+            exit 1
+          fi
+          for test in "${tests[@]}"; do
+            echo "::group::$test"
+            node "$test"
+            echo '::endgroup::'
+          done
+      - name: Detect overwrite-cancellation browser regression
+        id: overwrite_qa
+        shell: bash
+        run: |
+          if [[ -f tools/qa-overwrite-cancel.mjs ]]; then
+            echo 'present=true' >> "$GITHUB_OUTPUT"
+            echo 'Browser regression available and will run.'
+          else
+            echo 'present=false' >> "$GITHUB_OUTPUT"
+            echo 'Browser regression not present in this revision; skipped.'
+          fi
+      - name: Install isolated Chromium for browser regression
+        if: steps.overwrite_qa.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/shanghai-browser" --no-save playwright@1.56.1
+          "$RUNNER_TEMP/shanghai-browser/node_modules/.bin/playwright" install --with-deps chromium
+          node -e "console.log('QA_BROWSER='+require(process.env.RUNNER_TEMP+'/shanghai-browser/node_modules/playwright').chromium.executablePath())" >> "$GITHUB_ENV"
+      - name: Verify sandbox overwrite cancellation in Chromium
+        if: steps.overwrite_qa.outputs.present == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory dist > "$RUNNER_TEMP/shanghai-ci-server.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=false
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:4173/survival.html > /dev/null; then
+              ready=true
+              break
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != true ]]; then
+            cat "$RUNNER_TEMP/shanghai-ci-server.log"
+            echo 'Preview server did not become ready.' >&2
+            exit 1
+          fi
+          QA_URL='http://127.0.0.1:4173/survival.html?debug' node tools/qa-overwrite-cancel.mjs

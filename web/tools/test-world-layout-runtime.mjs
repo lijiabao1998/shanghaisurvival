@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import vm from 'node:vm';
 import {transform} from 'esbuild';
-const source=readFileSync(new URL('../src/survival.ts',import.meta.url),'utf8');
+const source=readFileSync(new URL('../src/survival.ts',import.meta.url),'utf8').replace(/\r\n/g,'\n');
 const js=(await transform(source,{loader:'ts',target:'es2022'})).code;
 function fn(name){const start=js.indexOf(`function ${name}(`);assert.ok(start>=0);let p=js.indexOf('{',start),depth=1,end=p+1;for(;depth;end++){if(js[end]==='{')depth++;if(js[end]==='}')depth--;}return js.slice(start,end);}
 const rooms=Array.from({length:9},(_,i)=>({id:`room-${i}`}));

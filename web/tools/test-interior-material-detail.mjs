@@ -3,8 +3,9 @@ import {readFileSync} from 'node:fs';
 import {createHash} from 'node:crypto';
 import {build} from 'esbuild';
 // Freeze the released planning/collision section: this revision may change art only.
-const source=readFileSync(new URL('../src/interior-rooms.ts',import.meta.url),'utf8');
-assert.equal(createHash('sha256').update(source.split('export function createInteriorRoomGeometry')[0]).digest('hex'),'4035bbb5ea466b4254231ab6bb16da97d1e23835bacdf40168e204c4dc8e5eaa','planning/IDs/layout/loot/collision remain byte-identical to released base');
+// Normalize checkout line endings only; all other planning bytes remain protected.
+const source=readFileSync(new URL('../src/interior-rooms.ts',import.meta.url),'utf8').replace(/\r\n/g,'\n');
+assert.equal(createHash('sha256').update(source.split('export function createInteriorRoomGeometry')[0]).digest('hex'),'4035bbb5ea466b4254231ab6bb16da97d1e23835bacdf40168e204c4dc8e5eaa','planning/IDs/layout/loot/collision match released base after line-ending normalization');
 const bundle=await build({stdin:{contents:`export * from './src/interior-rooms';export {makeCollider,makeInsideTest,wallGridOf} from './src/world';export {selectShelter} from './src/shelter';`,resolveDir:process.cwd()},bundle:true,platform:'node',format:'esm',write:false});
 const m=await import(`data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString('base64')}`),block=JSON.parse(readFileSync(new URL('../public/data/block.json',import.meta.url),'utf8'));
 const base=m.makeCollider(m.wallGridOf(block,false)),s=m.selectShelter(block.buildings,block.spawn,base,m.makeInsideTest(block)),rooms=m.planInteriorRooms(block,[s.id],9),planBefore=JSON.stringify(rooms);
