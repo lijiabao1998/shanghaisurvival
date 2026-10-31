@@ -15,7 +15,7 @@ Shared title/pause settings; 12-character staged entry; cancellation-safe sandbo
 
 ## Verification
 54 Node test scripts passed on this integrated source, including actual function execution, old save/arsenal contracts, all 12 rigs, low-FPS melee and mutation checks. These are not real browser screenshots.
-First local production build passed TypeScript and transformation, then was externally killed (137) at gzip calculation. See external evidence logs for retry results.
+First local production build passed TypeScript and transformation, then was externally killed (137) at gzip calculation. Retry with 192 MiB heap succeeded. Ubuntu run 41158141531 also passed build and all tests; four-size melee capture passed, menu navigation hit a 60-second timeout before first control. Menu harness now explicitly selects the same software renderer as the successful melee harness and waits for DOM + actual ready state instead of network-idle. Browser evidence still requires a fresh successful full run.
 
 The branch-only Ubuntu workflow runs production build, all tests, then native Chromium four-size menu and melee evidence. Viewports: 1366x768, 390x844, 360x640, 844x390. Menu entry uses natural controls and isolated save contexts; melee fixture arranges a sparring target only and is clearly labelled, not natural world encounter acceptance. Continuous rendered frames and frame timing are retained; software-rendered CI FPS is not physical-device acceptance. No browser/CI success is claimed until its run actually passes and artifacts are inspected.
 

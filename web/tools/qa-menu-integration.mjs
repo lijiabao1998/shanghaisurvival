@@ -4,18 +4,20 @@ import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 const base=process.env.QA_URL??'http://127.0.0.1:4173/survival.html?debug=1',out=process.env.QA_OUTPUT??'evidence/menu';
 await mkdir(out,{recursive:true});
-const browser=await puppeteer.launch({executablePath:process.env.QA_BROWSER??'/usr/bin/chromium',headless:true,args:['--no-sandbox','--enable-unsafe-swiftshader']});
+const browser=await puppeteer.launch({executablePath:process.env.QA_BROWSER??'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const report={source:process.env.QA_SOURCE_SHA??'local-unrecorded',url:base,devices:[]};
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
+let activePage,activeDevice; 
 try{
  for(const [name,width,height,mobile] of [['desktop',1366,768,false],['phone',390,844,true],['small-phone',360,640,true],['landscape',844,390,true]]){
   const context=await browser.createBrowserContext(),page=await context.newPage(),errors=[],httpErrors=[];
+  activePage=page;activeDevice=name;
   await page.setViewport({width,height,isMobile:mobile,hasTouch:mobile,deviceScaleFactor:1});
   page.on('pageerror',e=>errors.push(String(e)));page.on('response',r=>{if(r.status()>=400&&!r.url().endsWith('favicon.ico'))httpErrors.push([r.status(),r.url()]);});
   const state=()=>page.evaluate(()=>window.__modu.state());
   const click=async selector=>{const e=await page.waitForSelector(selector,{visible:true,timeout:45000});if(mobile)await e.tap();else await e.click();};
   const shot=async label=>page.screenshot({path:`${out}/${name}-${label}.png`});
-  await page.goto(base,{waitUntil:'networkidle0',timeout:60000});await page.waitForFunction(()=>window.__modu&&document.querySelector('#overlay').dataset.selectionStep==='0');
+  await page.goto(base,{waitUntil:'domcontentloaded',timeout:120000});await page.waitForFunction(()=>window.__modu&&document.querySelector('#overlay').dataset.selectionStep==='0',{timeout:120000});
   assert.equal(await page.$$eval('#roster .who',els=>els.filter(e=>!e.hidden).length),4);
   await shot('01-characters');
   await click('#title-settings-button');await page.waitForFunction(()=>!document.querySelector('#game-settings-dialog').hidden);
@@ -47,5 +49,5 @@ try{
   report.devices.push({name,width,height,joystick,firstBudget:first.renderBudget,resumedBudget:resumed.renderBudget,errors,httpErrors,passed:true});
   await writeFile(`${out}/report.json`,JSON.stringify(report,null,2));await context.close();
  }
-}finally{await browser.close();await writeFile(`${out}/report.json`,JSON.stringify(report,null,2));}
+}catch(error){report.error=String(error.stack||error);report.failedDevice=activeDevice;await activePage?.screenshot({path:`${out}/${activeDevice}-failure.png`}).catch(()=>{});throw error;}finally{await browser.close();await writeFile(`${out}/report.json`,JSON.stringify(report,null,2));}
 console.log(JSON.stringify(report,null,2));
