@@ -30,6 +30,15 @@ try{
   await click('#roster .who:not([hidden])');await click('#ov-btn');assert.equal(await page.$eval('#overlay',e=>e.dataset.selectionStep),'1');await click('#ov-btn');assert.equal(await page.$eval('#overlay',e=>e.dataset.selectionStep),'2');
   await shot('03-departure');await click('#ov-btn');await page.waitForFunction(()=>window.__modu.state().phase==='play');
   const first=await state();assert.equal(first.preferences.volume,.37);assert.equal(first.preferences.language,'en');
+  const hudLayout=await page.evaluate(()=>{
+   const rect=s=>{const e=document.querySelector(s),r=e.getBoundingClientRect();return{x:r.x,y:r.y,right:r.right,bottom:r.bottom,width:r.width,height:r.height,visible:getComputedStyle(e).display!=='none'&&!e.hidden};};
+   const overlaps=(a,b)=>a.visible&&b.visible&&a.x<b.right&&a.right>b.x&&a.y<b.bottom&&a.bottom>b.y;
+   const place=rect('#place'),side=rect('#side'),menu=rect('#game-settings-button');
+   const placeConflicts=['#survivor-touch-menu','#survivor-touch-bag','#survivor-touch-unarmed','#hud'].filter(s=>overlaps(place,rect(s)));
+   return{place,side,menu,placeConflicts,sideOverMenu:overlaps(side,menu)};
+  });
+  assert.deepEqual(hudLayout.placeConflicts,[],'visible location label must not overlap HUD or touch controls');
+  assert.equal(hudLayout.sideOverMenu,false,'desktop menu must not obscure inventory panel');
   let joystick=null;
   if(mobile){
    const layout=await page.evaluate(()=>{
@@ -62,7 +71,7 @@ try{
   const resumed=await state();assert.equal(resumed.worldLayout,first.worldLayout);assert.deepEqual(resumed.inventory,first.inventory);
   await page.keyboard.press('Escape');await shot('07-resumed-settings');
   assert.deepEqual(errors,[]);assert.deepEqual(httpErrors,[]);
-  report.devices.push({name,width,height,joystick,firstBudget:first.renderBudget,resumedBudget:resumed.renderBudget,errors,httpErrors,passed:true});
+  report.devices.push({name,width,height,hudLayout,joystick,firstBudget:first.renderBudget,resumedBudget:resumed.renderBudget,errors,httpErrors,passed:true});
   await writeFile(`${out}/report.json`,JSON.stringify(report,null,2));await context.close();
  }
 }catch(error){report.error=String(error.stack||error);report.failedDevice=activeDevice;await activePage?.screenshot({path:`${out}/${activeDevice}-failure.png`}).catch(()=>{});throw error;}finally{await browser.close();await writeFile(`${out}/report.json`,JSON.stringify(report,null,2));}

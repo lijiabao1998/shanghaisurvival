@@ -34,7 +34,7 @@ async function walk(p,target,label,events=report.natural.events,mobile=false){
    trail.push({at:Date.now()-began,pos:after,hp:s.hp});last=after;assert.ok(stalled<60,`movement stalled on ${label}`);
   }
   throw Error(`Timed out walking natural route ${label}`);
- }finally{if(mobile)await p.touchscreen.touchEnd();for(const k of held)await p.keyboard.up(k);}
+ }catch(error){events.push({label,seconds:(Date.now()-began)/1000,trail,target,error:String(error)});throw error;}finally{if(mobile)await p.touchscreen.touchEnd();for(const k of held)await p.keyboard.up(k);}
 }
 async function perf(p,label){
  const before=await state(p);const frames=await p.evaluate(()=>new Promise(resolve=>{const samples=[];let last=performance.now(),start=last;function tick(t){samples.push(t-last);last=t;if(t-start<10000)requestAnimationFrame(tick);else resolve(samples);}requestAnimationFrame(tick);}));
@@ -65,10 +65,10 @@ try{
  report.natural.beforeSave=await state(p);await p.keyboard.press('Escape');await click(p,'#settings-return');await p.waitForFunction(()=>window.__modu?.state().phase==='menu'&&!!document.querySelector('#campaign-resume'),{timeout:120000});
  const saves=await p.evaluate(()=>Object.fromEntries(Object.keys(localStorage).filter(k=>k.startsWith('shanghai-survivors:')).map(k=>[k,localStorage.getItem(k)])));assert.ok(Object.keys(saves).length);
  await click(p,'#campaign-resume');await p.waitForFunction(()=>window.__modu.state().phase==='play');report.natural.resumed=await state(p);assert.deepEqual(report.natural.resumed.survivorSystems.hands,{primary:'cleaver',secondary:'wrench'});assert.ok(report.natural.resumed.roomTools.every(t=>t.looted));await shot(p,'natural-08-resumed');
- report.natural.wallSeconds=(Date.now()-started)/1000;report.natural.passed=true;assert.deepEqual(report.natural.errors,[]);await ctx.close();await writeFile(`${out}/report.json`,JSON.stringify(report,null,2));
- // New isolated contexts import the naturally earned save, then arrange sparring targets only.
+ report.natural.wallSeconds=(Date.now()-started)/1000;assert.deepEqual(report.natural.errors,[]);report.natural.passed=true;await ctx.close();await writeFile(`${out}/report.json`,JSON.stringify(report,null,2));
+ // New isolated contexts import the naturally earned save, then isolate sparring: suppress unrelated enemies and delay target AI/attacks.
  for(const [name,width,height,mobile] of [['desktop',1366,768,false],['phone',390,844,true],['small-phone',360,640,true],['landscape',844,390,true]]){
-  const {ctx,p}=await init(width,height,mobile),r={name,scope:'imported naturally earned save + explicitly arranged target; not natural-world combat',errors:[],strikes:[],frames:[]};report.sparring.push(r);p.on('pageerror',e=>r.errors.push(String(e)));
+  const {ctx,p}=await init(width,height,mobile),r={name,scope:'imported naturally earned save + isolated fixture: unrelated enemies suppressed, target positioned with delayed AI/attack; not natural-world combat',errors:[],strikes:[],frames:[]};report.sparring.push(r);p.on('pageerror',e=>r.errors.push(String(e)));
   await p.evaluate(values=>{for(const[k,v]of Object.entries(values))localStorage.setItem(k,v);},saves);await p.reload({waitUntil:'domcontentloaded'});await p.waitForSelector('#campaign-resume',{visible:true,timeout:120000});await click(p,'#campaign-resume',mobile);await p.waitForFunction(()=>window.__modu.state().phase==='play');
   // Observe initial render resources before repeated hand changes; ownership remains the earned save.
   r.travel=[];const staging=(await state(p)).interiorRooms.find(room=>room.entrance.id==='cmab_327821_0').entrance.outside;await walk(p,staging,'sparring-approach',r.travel,mobile);
