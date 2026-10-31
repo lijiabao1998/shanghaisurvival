@@ -46,6 +46,9 @@ try{
  const {ctx,p}=await init(1366,768);p.on('pageerror',e=>report.natural.errors.push(String(e)));const started=Date.now();await newGame(p);report.natural.initial=await state(p);await shot(p,'natural-01-entry');report.natural.performance=[await perf(p,'before expedition')];
  await p.keyboard.press('KeyF'); // Ordinary flashlight toggle reduces visibility; no enemy state edits.
  for(const tool of ['cleaver','wrench']){
+  // The read-only local planner intentionally caps routes at 40 m. Return through
+  // the observed starting street between rooms rather than relaxing that bound.
+  if(tool==='wrench')await walk(p,report.natural.initial.spawn,'street-between-tools');
   const s=await state(p),site=s.roomTools.find(t=>t.tool===tool);assert.ok(site,`natural ${tool} site exists`);const room=s.interiorRooms.find(r=>r.entrance.id===site.buildingId);assert.ok(room);
   await walk(p,room.entrance.outside,`${tool}-outside`);await walk(p,room.entrance.inside,`${tool}-door`);await walk(p,[site.x,site.z],`${tool}-pickup`);
   await shot(p,`natural-${tool}-before`);await p.keyboard.down('KeyE');
