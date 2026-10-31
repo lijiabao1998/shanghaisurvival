@@ -18,12 +18,16 @@ async function walk(p,target,label,events=report.natural.events,mobile=false){
  try{
   while(Date.now()-began<120000){
    const s=await state(p);assert.equal(s.phase,'play',`natural expedition ended: ${label}`);assert.ok(s.hp>0);const pos=s.spawn;
-   if(Math.hypot(pos[0]-target[0],pos[1]-target[1])<.42){events.push({label,seconds:(Date.now()-began)/1000,trail,arrived:pos});return;}
+   if(Math.hypot(pos[0]-target[0],pos[1]-target[1])<.18){events.push({label,seconds:(Date.now()-began)/1000,trail,arrived:pos});return;}
    const path=await p.evaluate(([x,z])=>window.__modu.navigationProbe(x,z),target);assert.ok(path.length,`No collision-safe observed route to ${label} from ${pos}`);
-   let next=path.find(v=>Math.hypot(v.x-pos[0],v.z-pos[1])>.42)??path.at(-1);
+   let next=path.find(v=>Math.hypot(v.x-pos[0],v.z-pos[1])>.18)??path.at(-1);
    const dx=next.x-pos[0],dz=next.z-pos[1],length=Math.hypot(dx,dz),right=(dx+dz)/(Math.SQRT2*length),fwd=(dz-dx)/(Math.SQRT2*length);
    const want=new Set();if(right>.34)want.add('KeyD');if(right<-.34)want.add('KeyA');if(fwd>.34)want.add('KeyW');if(fwd<-.34)want.add('KeyS');
-   if(mobile)await p.touchscreen.touchMove(joy.x+joy.width/2+right*joy.width*.3,joy.y+joy.height/2-fwd*joy.height*.3);
+   // Keyboard/joystick are eight-way, not the planner's continuous heading.
+   // Near a narrow door, a short native diagonal correction supplies the missing cross-track component.
+   if(stalled>8&&want.size===2){if(Math.abs(right)>Math.abs(fwd)){want.delete('KeyW');want.delete('KeyS');}else{want.delete('KeyA');want.delete('KeyD');}}
+   const steerRight=Number(want.has('KeyD'))-Number(want.has('KeyA')),steerForward=Number(want.has('KeyW'))-Number(want.has('KeyS')),steerLength=Math.hypot(steerRight,steerForward)||1;
+   if(mobile)await p.touchscreen.touchMove(joy.x+joy.width/2+steerRight/steerLength*joy.width*.3,joy.y+joy.height/2-steerForward/steerLength*joy.height*.3);
    else {for(const k of held)if(!want.has(k)){await p.keyboard.up(k);held.delete(k);}for(const k of want)if(!held.has(k)){await p.keyboard.down(k);held.add(k);}}
    await delay(140);const after=(await state(p)).spawn;
    if(Math.hypot(after[0]-last[0],after[1]-last[1])<.02)stalled++;else stalled=0;
