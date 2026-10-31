@@ -54,3 +54,39 @@ jobs:
             evidence/
             menu-preview.log
           retention-days: 7
+
+  natural-tools:
+    if: github.ref == 'refs/heads/feat/shanghai-v66-integration-20261031'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Build expedition candidate
+        working-directory: web
+        run: |
+          npm ci
+          GOMAXPROCS=1 NODE_OPTIONS=--max-old-space-size=256 npm run build
+      - name: Install official Chromium
+        run: |
+          npm install --prefix /tmp/shanghai-natural-browser --no-save playwright@1.56.1
+          /tmp/shanghai-natural-browser/node_modules/.bin/playwright install --with-deps chromium
+          node -e 'console.log("QA_BROWSER="+require("/tmp/shanghai-natural-browser/node_modules/playwright").chromium.executablePath())' >> "$GITHUB_ENV"
+      - name: Natural tools expedition and labelled four-size sparring
+        env:
+          QA_SOURCE_SHA: ${{ github.sha }}
+          QA_OUTPUT: evidence/natural-tools
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory web/dist > natural-preview.log 2>&1 &
+          node web/tools/qa-natural-tools.mjs
+      - name: Preserve natural success or failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shanghai-natural-tools-${{ github.sha }}
+          path: |
+            evidence/natural-tools/
+            natural-preview.log
+          retention-days: 7

@@ -1853,7 +1853,7 @@ fetch(dataUrl)
     if (params.has('debug')) {
       (window as unknown as { __modu: unknown }).__modu = {
         state: () => ({
-          helper:{...helperState},helperOpen, fadedBuildings:cityVisibility?.fadedIds(), cityMeshes:cityVisibility?.stats(), facadeSigns:facadeSignage?.stats, roomExtras:containers.filter(c=>c.roomExtra&&c.roomEnabled!==false).map(c=>({id:c.roomId,item:c.roomItem,looted:c.looted,x:c.x,z:c.z})),
+          roomTools:containers.filter(c=>c.roomTool&&c.roomEnabled!==false).map(c=>({id:c.roomId,tool:c.roomTool!.tool,buildingId:c.roomTool!.buildingId,x:c.x,z:c.z,looted:c.looted})),helper:{...helperState},helperOpen, fadedBuildings:cityVisibility?.fadedIds(), cityMeshes:cityVisibility?.stats(), facadeSigns:facadeSignage?.stats, roomExtras:containers.filter(c=>c.roomExtra&&c.roomEnabled!==false).map(c=>({id:c.roomId,item:c.roomItem,looted:c.looted,x:c.x,z:c.z})),
           phase, mode, input:{heldKeys:[...keys],settingsOpen:settingsMenu.isOpen()},preferences:{...gameSettings}, renderBudget:{calls:renderer.info.render.calls,triangles:renderer.info.render.triangles,geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures}, worldLayout:worldLayout??'legacy', worldPositions:{containers:containers.filter(c=>!c.roomId).map(c=>({x:c.x,z:c.z})),enemies:zombies.map(z=>({x:z.x,z:z.z}))}, densityBuildings:densityEnabledForLayout(worldLayout)?densityBuildings:[], densityMeshes:densityGroup.visible?{...densityVisibility?.stats(),floorMeshes:1}:null, plannedInteriorRoomCount:plannedInteriorRooms.length, inShelter, shelter: shelter ? {...shelter,door:[...shelter.door],inside:[...shelter.inside],outside:[...shelter.outside]} : null, stash:{...stash}, restCount, dayNight:daylightProfile(dayPhase(elapsed).hour), streetDetails:streetDetails?.stats, streetPlacements:streetDetails?.placements, interiorRooms:interiorRooms.map(r=>({id:r.id,label:r.label,entrance:r.entrance,loot:r.loot,furniture:r.furniture})), activeInterior:activeInterior()?.id??null, roomView:shelterPanel.classList.contains('room-view'), cameraViewHeight:camera.top-camera.bottom, streetZoom:viewZoom, hp, battery, stamina, timeLeft, kills, paused, bagOpen, sneaking, looted, outbreak: { ...outbreak },
           zombies: zombies.length, awake: zombies.filter(z => z.state === 'chase').length,
           dead: zombies.filter(z => z.state === 'dead').length,
@@ -1889,6 +1889,8 @@ fetch(dataUrl)
           for(const other of zombies.slice(1)){other.state='dead';other.hp=0;other.mesh.visible=false;}
           for (let i=0;i<32;i++) { const a=i*Math.PI/16,x=px+Math.sin(a)*distance,z=pz-Math.cos(a)*distance; if(collides(x,z,.34)||!canSee(px,pz,x,z))continue; facing=a; const zb=zombies[0]; zb.x=x;zb.z=z;zb.hp=targetHealth;zb.state='chase';zb.think=60;zb.attackCd=60;zb.lose=0;zb.flashT=0;zb.deathT=0;zb.hitReact=0;zb.hitSide=0;zb.mesh.visible=true;zb.mesh.rotation.set(0,a,0);return true; } return false;
         },
+        // Debug observation only: a bounded route suggestion, never moves a player or edits the world.
+        navigationProbe: (tx:number,tz:number) => findLocalPath(px,pz,tx,tz,(x,z,r)=>collides(x,z,Math.max(.36,r??.36)),500),
         swing: () => startSwing(),
         hurt: (n = 30) => { injureBody(survivorSystems.condition,n);hp = Math.max(0, hp - n); if (hp <= 0) lose(); },
         give: (id: ItemId, n = 1) => { inventory[id] += n; if (id === 'pistol'){grantWeapon(arsenal,'qsz92-9');syncArsenal();} updateBag(); },
