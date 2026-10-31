@@ -18,7 +18,6 @@ async function sampleRender(p,device,layout){
  report.renderSamples.push({device,layout,frames:30,medianMs:(sorted[14]+sorted[15])/2,p95Ms:sorted[28],renderBudget:budget,environment:'GitHub headless Chromium SwiftShader viewport emulation, NOT physical mobile GPU/FPS acceptance',guard:'calls<2000, triangles<1500000; only catastrophic draw/geometry growth gate'});
 }
 async function unpause(p){if((await state(p)).paused)await p.keyboard.press('Escape');}
-const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const touchSessions=new WeakMap();
 async function touchSession(p){if(!touchSessions.has(p))touchSessions.set(p,await p.createCDPSession());return touchSessions.get(p);}
 async function directionDown(p,keys){
@@ -41,8 +40,9 @@ async function moveTo(p,target){
   trail.push({at,remaining:Math.hypot(dx,dz),keys});if(trail.length>30)trail.shift();
   if(last&&Math.hypot(at[0]-last[0],at[1]-last[1])<.005)unchanged++;else unchanged=0;
   assert.ok(unchanged<25,`movement stalled at ${at}, target ${target}`);last=at;
-  // Bounded real input pulses prevent an observation delayed by SwiftShader from holding a key down for metres.
-  try{await directionDown(p,keys);await delay(40);}finally{await directionUp(p,keys);}
+  // Hold real input through one animation frame so slow renderers cannot miss a fixed-time pulse.
+  // Release without polling full game state while held, which can overshoot under SwiftShader.
+  try{await directionDown(p,keys);await p.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>resolve())));}finally{await directionUp(p,keys);}
  }
  throw new Error(`Doorway walk timed out toward ${target}; at ${(await state(p)).spawn}; movement trail ${JSON.stringify(trail)}`);
 }
