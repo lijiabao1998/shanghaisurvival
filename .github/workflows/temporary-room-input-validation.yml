@@ -1,0 +1,46 @@
+name: Temporary room input validation
+on:
+  push:
+    branches: [codex/qa-layout-validation]
+permissions:
+  contents: read
+jobs:
+  room-acceptance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [desktop, mobile]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install and build
+        working-directory: web
+        run: |
+          set -euo pipefail
+          npm ci
+          GOMAXPROCS=1 NODE_OPTIONS=--max-old-space-size=128 npm run build
+      - name: Install Chromium
+        run: |
+          set -euo pipefail
+          npm install --prefix /tmp/shanghai-browser --no-save playwright@1.56.1
+          /tmp/shanghai-browser/node_modules/.bin/playwright install --with-deps chromium
+          echo "QA_BROWSER=$(node -e "console.log(require('/tmp/shanghai-browser/node_modules/playwright').chromium.executablePath())")" >> "$GITHUB_ENV"
+      - name: Run real-input nine-room checks
+        env:
+          QA_DEVICE: ${{ matrix.device }}
+        run: |
+          set -euo pipefail
+          python3 -m http.server 4173 --bind 127.0.0.1 --directory web/dist > /tmp/shanghai-room-server.log 2>&1 &
+          for i in $(seq 1 30); do if curl -fsS http://127.0.0.1:4173/survival.html >/dev/null; then break; fi; sleep 1; done
+          QA_OUTPUT="$GITHUB_WORKSPACE/evidence/interior-${QA_DEVICE}" node web/tools/qa-interior-rooms.mjs
+      - name: Preserve room evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: temporary-room-input-${{ matrix.device }}
+          path: evidence/interior-${{ matrix.device }}/
+          retention-days: 7
