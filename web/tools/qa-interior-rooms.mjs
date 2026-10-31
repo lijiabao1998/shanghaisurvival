@@ -26,7 +26,7 @@ async function directionUp(p,keys){if(p.viewport().isMobile)await(await touchSes
 async function moveTo(p,target){
  const started=Date.now(),trail=[];let unchanged=0,last=null;
  while(Date.now()-started<25000){
-  const at=(await state(p)).spawn,dx=target[0]-at[0],dz=target[1]-at[1];if(Math.hypot(dx,dz)<.16)return;
+  const at=(await state(p)).spawn,dx=target[0]-at[0],dz=target[1]-at[1];if(Math.hypot(dx,dz)<.20)return;
   const axis=Math.abs(dx)>Math.abs(dz)?0:1,delta=axis===0?dx:dz;
   let keys=axis===0?(delta>0?['KeyD','KeyS']:['KeyA','KeyW']):(delta>0?['KeyW','KeyD']:['KeyA','KeyS']);
   // Full eight-direction joystick control avoids axis-only quantization near diagonal waypoints.
