@@ -34,10 +34,9 @@ async function moveTo(p,target){
   trail.push({at,remaining:Math.hypot(dx,dz),keys});if(trail.length>30)trail.shift();
   if(last&&Math.hypot(at[0]-last[0],at[1]-last[1])<.005)unchanged++;else unchanged=0;
   assert.ok(unchanged<25,`movement stalled at ${at}, target ${target}`);last=at;
-  // Use bounded real-input pulses. Waiting for a remote frame observation while a
-  // key stays down can overshoot by metres on a slow SwiftShader runner. A pulse
-  // may miss a frame; retry, but still fail on a genuinely stalled route.
-  try{await directionDown(p,keys);await delay(40);}finally{await directionUp(p,keys);}
+  // Hold real input through one animation frame so slow renderers cannot miss a fixed-time pulse.
+  // Release without polling full game state while held, which can overshoot under SwiftShader.
+  try{await directionDown(p,keys);await p.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>resolve())));}finally{await directionUp(p,keys);}
  }
  throw new Error(`Doorway walk timed out toward ${target}; at ${(await state(p)).spawn}; movement trail ${JSON.stringify(trail)}`);
 }
