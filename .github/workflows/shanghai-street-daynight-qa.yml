@@ -49,6 +49,7 @@ jobs:
           path: evidence/world-layout/
           retention-days: 7
       - name: Desktop nine-room browser acceptance
+        if: ${{ !cancelled() }}
         run: |
           QA_DEVICE=desktop QA_OUTPUT="$GITHUB_WORKSPACE/evidence/interior-desktop" node web/tools/qa-interior-rooms.mjs
       - name: Preserve desktop room evidence
@@ -59,6 +60,7 @@ jobs:
           path: evidence/interior-desktop/
           retention-days: 7
       - name: Mobile nine-room actual joystick acceptance
+        if: ${{ !cancelled() }}
         run: |
           QA_DEVICE=mobile QA_OUTPUT="$GITHUB_WORKSPACE/evidence/interior-mobile" node web/tools/qa-interior-rooms.mjs
       - name: Preserve mobile room evidence
