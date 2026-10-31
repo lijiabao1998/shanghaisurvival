@@ -46,6 +46,12 @@ try{
   const frozen=await state();assert.equal(frozen.paused,true);assert.deepEqual(frozen.input.heldKeys,[]);assert.equal(frozen.attackHeld,false);assert.equal(frozen.touchActionHeld,false);await pause(220);assert.deepEqual((await state()).spawn,frozen.spawn);
   await shot('04-paused');await click('#settings-resume');await page.waitForFunction(()=>!window.__modu.state().paused);await shot('05-game');
   if(mobile)await click('#survivor-touch-menu');else await click('#game-settings-button');await page.waitForFunction(()=>window.__modu.state().input.settingsOpen);
+  if(!mobile){
+   const beforeFailure=await page.evaluate(()=>Object.fromEntries(Object.keys(localStorage).filter(k=>k.startsWith('shanghai-survivors:')).map(k=>[k,localStorage.getItem(k)])));
+   await page.evaluate(()=>{window.__qaStorageSet=Storage.prototype.setItem;Storage.prototype.setItem=function(){throw new DOMException('QA quota fault','QuotaExceededError');};});
+   try {await click('#settings-return');await page.waitForFunction(()=>document.querySelector('#settings-feedback').textContent.includes('Save failed'));assert.equal((await state()).paused,true);assert.deepEqual(await page.evaluate(()=>Object.fromEntries(Object.keys(localStorage).filter(k=>k.startsWith('shanghai-survivors:')).map(k=>[k,localStorage.getItem(k)]))),beforeFailure);await shot('08-quota-failure-preserved');}
+   finally{await page.evaluate(()=>{Storage.prototype.setItem=window.__qaStorageSet;delete window.__qaStorageSet;});}
+  }
   await click('#settings-return');await page.waitForFunction(()=>window.__modu?.state().phase==='menu'&&!!document.querySelector('#campaign-resume'),{timeout:45000});
   const savedBefore=await page.evaluate(()=>Object.fromEntries(Object.keys(localStorage).filter(k=>k.startsWith('shanghai-survivors:')).map(k=>[k,localStorage.getItem(k)])));
   await click('#roster .who:not([hidden])');await click('#ov-btn');await click('#ov-btn');await click('.selection-overwrite input');

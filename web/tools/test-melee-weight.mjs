@@ -118,4 +118,14 @@ test('real enemy hit reaction blocks AI during recoil and clears pose afterwards
  const z=target();Object.assign(z,{state:'sleep',think:100,hitReact:.24,hitSide:1,pathTimer:0,retreat:0,faction:{color:0x777777},walk:0,phase:0});c.zombies=[z];const before=[z.x,z.z];c.updateZombies(.12);assert.deepEqual([z.x,z.z],before);assert.ok(z.chest.rotation.x<0);assert.ok(z.mesh.rotation.z>0);assert.equal(z.think,100);
  c.updateZombies(.13);assert.equal(z.hitReact,0);assert.equal(z.mesh.rotation.z,0);assert.ok(z.chest.rotation.x>=0,'expired recoil must not leave sleeping enemy permanently bent');
 });
+test('lethal contact is immediate once; pooled enemy falls then hides with no saved timer',()=>{
+ const {c}=runtime({kills:0,navigationBudget:0,syncEyes(){},wake(){}});
+ vm.runInContext(extract('damageZombie'),c);vm.runInContext(extract('updateZombies'),c);
+ const z=target();z.hitSide=1;c.zombies=[z];c.damageZombie(z,100,0,-1,.4);
+ assert.equal(z.state,'dead');assert.equal(c.kills,1);assert.equal(z.mesh.visible,true);assert.equal(z.deathT,.48);
+ c.damageZombie(z,100,0,-1,.4);assert.equal(c.kills,1);assert.equal(z.hp,0);
+ const geometry=z.mesh.geometry,material=z.mesh.material;c.updateZombies(.24);assert.ok(z.mesh.rotation.x<-.5);assert.equal(z.mesh.visible,true);
+ c.updateZombies(1);assert.equal(z.deathT,0);assert.equal(z.mesh.visible,false);assert.equal(z.mesh.geometry,geometry);assert.equal(z.mesh.material,material);
+ assert.ok(!extract('snapshotCampaign').includes('deathT'),'transient visual not in save');
+});
 console.log(`${count} melee weight runtime checks passed; no browser launched`);

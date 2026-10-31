@@ -289,7 +289,7 @@ type Zombie = {
   state: ZState;
   think: number; attackCd: number; lose: number; phase: number; walk: number;
   wx: number; wz: number; hp: number; flashT: number;
-  hitReact?:number;hitSide?:number;
+  hitReact?:number;hitSide?:number;deathT?:number;
   path: LocalWaypoint[]; pathTimer: number; retreat: number; patrolX:number; patrolZ:number; lastX:number; lastZ:number; returning:boolean;
 };
 
@@ -672,11 +672,13 @@ function fire(id: WeaponId | null = arsenal.equipped, hand: MeleeHand = 'right')
 }
 
 function damageZombie(zb: Zombie, amount: number, nx: number, nz: number, knock: number) {
+  if(zb.state==='dead')return; // A lethal contact is committed once, including low-FPS multi-hit paths.
   zb.hp -= amount;
   zb.flashT = 0.12;
   if (zb.hp <= 0) {
     zb.state = 'dead';
-    zb.mesh.visible = false;
+    // Transient visual only: gameplay/save death is immediate; no corpse mesh or timer is saved.
+    zb.deathT=.48;zb.hitReact=0;
     kills += 1;
     return;
   }
@@ -877,7 +879,17 @@ function steerEnemy(zb:Zombie, tx:number, tz:number, speed:number, dt:number) {
 function updateZombies(dt: number) {
   navigationBudget=2;
   for (const zb of zombies) {
-    if (zb.state === 'dead') continue;
+    if (zb.state === 'dead') {
+      if((zb.deathT??0)>0){
+        zb.deathT=Math.max(0,zb.deathT!-dt);
+        const t=1-zb.deathT/.48,ease=t*t*(3-2*t);
+        zb.mesh.rotation.x=-Math.PI*.48*ease;
+        zb.mesh.rotation.z=(zb.hitSide??0)*.16*ease;
+        zb.mesh.position.set(zb.x,-.16*ease,-zb.z);
+        if(zb.deathT===0)zb.mesh.visible=false;
+      }
+      continue;
+    }
     zb.pathTimer=Math.max(0,zb.pathTimer-dt);
     zb.retreat=Math.max(0,zb.retreat-dt);
     zb.flashT = Math.max(0, zb.flashT - dt);
@@ -1269,7 +1281,7 @@ function resetWorld() {
     zb.x=zb.hx=spot.x;zb.z=zb.hz=spot.z;
     zb.patrolX=spot.patrol?.x??spot.x;zb.patrolZ=spot.patrol?.z??spot.z;
     zb.state=zb.faction.id==='military'||zb.faction.id==='police'?'wander':'sleep';
-    zb.hitReact=0;zb.hitSide=0;zb.mesh.rotation.x=0;zb.mesh.rotation.z=0;
+    zb.deathT=0;zb.hitReact=0;zb.hitSide=0;zb.mesh.rotation.x=0;zb.mesh.rotation.z=0;
     zb.think=Math.random()*.35;zb.attackCd=0;zb.warning=0;zb.lose=0;
     zb.path=[];zb.pathTimer=0;zb.retreat=0;zb.returning=false;zb.lastX=zb.x;zb.lastZ=zb.z;
     zb.wx=zb.patrolX;zb.wz=zb.patrolZ;zb.hp=100;
@@ -1499,7 +1511,7 @@ function restoreCampaign(s:Snapshot) {
   s.enemies.forEach((z,i)=>{
     const enemy=zombies[i],home=z.home??[z.x,z.z],patrol=z.patrol??home;
     enemy.mesh.rotation.x=0;enemy.mesh.rotation.z=0;
-    Object.assign(enemy,z,{hitReact:0,hitSide:0,faction:profileFor(i),hx:home[0],hz:home[1],patrolX:patrol[0],patrolZ:patrol[1],
+    Object.assign(enemy,z,{deathT:0,hitReact:0,hitSide:0,faction:profileFor(i),hx:home[0],hz:home[1],patrolX:patrol[0],patrolZ:patrol[1],
       wx:patrol[0],wz:patrol[1],lastX:z.lastKnown?.[0]??z.x,lastZ:z.lastKnown?.[1]??z.z,path:[],pathTimer:0,returning:z.returning??false,retreat:z.retreat??0});
     if(z.state==='chase'&&!z.lastKnown){enemy.state='wander';enemy.returning=true;}
     if(enemy.returning){enemy.wx=enemy.hx;enemy.wz=enemy.hz;}
@@ -1848,7 +1860,7 @@ fetch(dataUrl)
           factions: Object.fromEntries(['infected','military','police','raider'].map(id => [id,zombies.filter(z => z.faction.id === id).length])),
           inventory: { ...inventory }, arsenal:structuredClone(arsenal),survivorSystems:structuredClone(survivorSystems),weight:carriedWeight(inventory,arsenal,survivorSystems),ammo, hasPistol, equipped: arsenal.equipped,
           action, swingHand, shootHand, swingStroke, bufferedHand, impactPause, swingTool,unarmedStance,
-          combatTargets: zombies.slice(0, 8).map(z=>({x:z.x,z:z.z,hp:z.hp,state:z.state})), actionProgress: actionDur ? actionT / actionDur : 0, attackHeld, touchActionHeld, swingCount,
+          combatTargets: zombies.slice(0, 8).map(z=>({x:z.x,z:z.z,hp:z.hp,state:z.state,hitReact:z.hitReact??0,deathT:z.deathT??0,visible:z.mesh.visible})), actionProgress: actionDur ? actionT / actionDur : 0, attackHeld, touchActionHeld, swingCount,
           spawn: [px, pz], facing,
         }),
         start: (id = ROSTER[0].id) => {
@@ -1870,12 +1882,12 @@ fetch(dataUrl)
           }
         },
         outbreakTest: (elapsed: number, searched: number, exposure = 0) => { timeLeft = NIGHT_SECONDS - elapsed; looted = searched; outbreak.exposure = exposure; px = block.spawn[0]; pz = block.spawn[1]; updateHud(); },
-        combatFixture: (distance=1.1) => {
-          if(!Number.isFinite(distance)||distance<.6||distance>1.5)return false;
+        combatFixture: (distance=1.1,targetHealth=100) => {
+          if(!Number.isFinite(distance)||distance<.6||distance>1.5||!Number.isFinite(targetHealth)||targetHealth<1||targetHealth>100)return false;
           releaseGameplayInput(); mouseAimActive = false;
           // Isolated debug sparring: remove unrelated threats, never mutate normal sessions.
           for(const other of zombies.slice(1)){other.state='dead';other.hp=0;other.mesh.visible=false;}
-          for (let i=0;i<32;i++) { const a=i*Math.PI/16,x=px+Math.sin(a)*distance,z=pz-Math.cos(a)*distance; if(collides(x,z,.34)||!canSee(px,pz,x,z))continue; facing=a; const zb=zombies[0]; zb.x=x;zb.z=z;zb.hp=100;zb.state='chase';zb.think=60;zb.attackCd=60;zb.lose=0;zb.flashT=0;zb.hitReact=0;zb.hitSide=0;zb.mesh.visible=true;zb.mesh.rotation.set(0,a,0);return true; } return false;
+          for (let i=0;i<32;i++) { const a=i*Math.PI/16,x=px+Math.sin(a)*distance,z=pz-Math.cos(a)*distance; if(collides(x,z,.34)||!canSee(px,pz,x,z))continue; facing=a; const zb=zombies[0]; zb.x=x;zb.z=z;zb.hp=targetHealth;zb.state='chase';zb.think=60;zb.attackCd=60;zb.lose=0;zb.flashT=0;zb.deathT=0;zb.hitReact=0;zb.hitSide=0;zb.mesh.visible=true;zb.mesh.rotation.set(0,a,0);return true; } return false;
         },
         swing: () => startSwing(),
         hurt: (n = 30) => { injureBody(survivorSystems.condition,n);hp = Math.max(0, hp - n); if (hp <= 0) lose(); },
