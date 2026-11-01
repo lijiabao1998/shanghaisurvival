@@ -19,7 +19,7 @@ assert.ok(s.includes('delete containers[i].cacheKind;delete containers[i].cacheD
 assert.ok(s.includes('installSupplySites();'),'sandbox adds supply sites');
 assert.ok(s.includes('cacheDay:c.cacheDay'),'snapshot persists supply day');
 
-assert.ok(s.includes('nx>=bounds.minX-8&&nx<=bounds.maxX+8'),'movement remains within supported playable margin');
+assert.ok(s.includes('x<bounds.minX-8||x>bounds.maxX+8'),'movement remains within supported playable margin');
 assert.ok(s.includes('物資與進度保留'),'old out-of-bounds position repaired, progress not discarded');
 assert.ok(s.includes('helper:{...helperState}'),'NPC memory saved with inventory');
 assert.ok(s.includes('helperState=s.helper?{...s.helper}:createHelperState()'),'old save gets default only when absent');

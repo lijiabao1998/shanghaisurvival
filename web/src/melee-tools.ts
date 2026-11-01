@@ -9,7 +9,7 @@ export const TOOL_COMBAT: Readonly<Record<MeleeToolId, Readonly<{
   kind: MeleeKind; damage: number; reach: number; knockback: number; name: string;
 }>>> = Object.freeze({
   cleaver: Object.freeze({ kind: 'blade', damage: 39, reach: 1.35, knockback: .8, name: '菜刀' }),
-  wrench: Object.freeze({ kind: 'blunt', damage: 34, reach: 1.45, knockback: 1.2, name: '扳手' }),
+  wrench: Object.freeze({ kind: 'wrench', damage: 34, reach: 1.45, knockback: 1.2, name: '扳手' }),
 });
 export function isMeleeTool(value: unknown): value is MeleeToolId {
   return value === 'cleaver' || value === 'wrench';

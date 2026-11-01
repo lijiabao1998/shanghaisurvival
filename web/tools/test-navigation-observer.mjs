@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import {stripTypeScriptTypes} from 'node:module';
+const source=fs.readFileSync(new URL('../src/survival.ts',import.meta.url),'utf8');
+const expression=source.split('navigationProbe: ')[1].split(',\n        swing:')[0];assert.ok(expression);
+const collisions=[],calls=[],context=vm.createContext({px:12,pz:34,Math,collides:(...args)=>{collisions.push(args);return false;},findLocalPath:(...args)=>{calls.push(args.slice(0,4));assert.equal(args[5],500);args[4](1,2,.34);args[4](1,2);return[{x:args[2],z:args[3]}];}});
+vm.runInContext(stripTypeScriptTypes('globalThis.observe = '+expression),context);const before=[context.px,context.pz];const path=context.observe(20,40);
+assert.deepEqual([context.px,context.pz],before);assert.deepEqual(calls,[[12,34,20,40]]);assert.deepEqual(collisions,[[1,2,.36],[1,2,.36]]);assert.equal(path[0].x,20);assert.equal(path[0].z,40);
+assert.ok(source.indexOf('navigationProbe:')>source.indexOf("if (params.has('debug'))"));
+console.log('PASS actual debug navigation observer: read-only position, bounded planner, player-radius collision margin');

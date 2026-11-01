@@ -1,7 +1,7 @@
 /** Deterministic, normalized melee motion. Angles are radians relative to the
  * survivor's forward direction (right is positive); a swing is committed for
  * its whole duration. Left-hand motion mirrors the right-hand trajectory. */
-export type MeleeKind = 'blade' | 'blunt' | 'unarmed';
+export type MeleeKind = 'blade' | 'blunt' | 'wrench' | 'unarmed';
 export type MeleeHand = 'right' | 'left';
 export type MeleePhase = 'windup' | 'active' | 'recovery';
 export type MeleeProfile = {
@@ -17,6 +17,7 @@ export const MELEE_PROFILES: Record<MeleeKind, MeleeProfile> = {
   // A diagonal cut, a wider weighted horizontal swing, and a short punch.
   blade: { duration: 0.55, stamina: 6, activeStart: 0.27, activeEnd: 0.56, startAngle: 0.9, endAngle: -0.75 },
   blunt: { duration: 0.68, stamina: 6, activeStart: 0.32, activeEnd: 0.62, startAngle: 1.05, endAngle: -0.9 },
+  wrench: { duration: 0.58, stamina: 6, activeStart: 0.29, activeEnd: 0.57, startAngle: 0.85, endAngle: -0.7 },
   unarmed: { duration: 0.43, stamina: 6, activeStart: 0.24, activeEnd: 0.51, startAngle: 0.24, endAngle: -0.12 },
 };
 
@@ -42,8 +43,8 @@ export function meleePose(kind: MeleeKind, progress: number, hand: MeleeHand = '
   const isBlade = kind === 'blade', isFist = kind === 'unarmed';
   // The arm comes up during the load, crosses the body in the active window,
   // then settles back; a blade descends more steeply than a horizontal pipe.
-  const loadedX = isBlade ? -2.35 : isFist ? -1.05 : -1.65;
-  const followX = isBlade ? -0.75 : isFist ? -1.45 : -1.28;
+  const loadedX = isBlade ? -2.35 : isFist ? -1.05 : kind === 'wrench' ? -1.85 : -1.65;
+  const followX = isBlade ? -0.75 : isFist ? -1.45 : kind === 'wrench' ? -.95 : -1.28;
   return {
     phase, sweepAngle, torsoYaw, weight,
     elbowBend: mix(-.82, -.14, cut) * weight,
@@ -77,4 +78,11 @@ export function angleInSweep(angle: number, from: number, to: number, tolerance 
   const delta = wrap(to - from);
   const midpoint = from + delta / 2;
   return Math.abs(wrap(angle - midpoint)) <= Math.abs(delta) / 2 + tolerance + 1e-9;
+}
+
+/** A two-palm push followed by a weight shift backward; no gameplay mutation. */
+export function shovePose(progress:number) {
+  const t=clamp01(progress), push=t<.3?ease(t/.3):1-ease((t-.3)/.7);
+  const retreat=ease((t-.35)/.65);
+  return {push,retreat,armX:-.12-1.4*push,elbowX:-.75*(1-push)*Math.sin(Math.PI*t),lean:.22*push-.12*Math.sin(Math.PI*retreat)};
 }

@@ -1,3 +1,6 @@
+import { installStagedCharacterMenu } from './staged-character-menu';
+import { gameSettings, t as tr, installGameSettings } from './game-settings';
+import { createGameAudio } from './game-audio';
 import { planRoomTools, claimRoomTool, type RoomTool } from './room-tools';
 import { buildMeleeTool, isMeleeTool, TOOL_COMBAT } from './melee-tools';
 import { planRoomExtras, claimRoomExtra, type RoomExtra } from './room-extras';
@@ -21,10 +24,10 @@ import { createStreetDetails, applyPavementGrain } from './street-details';
 let streetDetails: ReturnType<typeof createStreetDetails>|null=null;
 import { emptyInventory, replenishCaches, applyCacheLoot, loadSnapshot, saveSnapshot, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
 import { selectShelter, type Shelter } from './shelter';
-import { installTouchControls } from './touch-controls';
+import { installTouchControls, setTouchControlLabels, setTouchControlsSuspended, requestUnarmedToggle } from './touch-controls';
 import { sweepMove, segmentClear } from './combat';
-import { MELEE_PROFILES, meleePose, sweptMeleeAngle, angleInSweep, type MeleeHand } from './melee-motion';
-import { applyMeleePose, resetRigJoints, applyLocomotionJoints, applyThrowJoints } from './rig-motion';
+import { MELEE_PROFILES, meleePose, shovePose, sweptMeleeAngle, angleInSweep, type MeleeHand } from './melee-motion';
+import { applyMeleePose, applyShovePose, resetRigJoints, applyLocomotionJoints, applyThrowJoints } from './rig-motion';
 import { profileFor, type FactionProfile } from './factions';
 import { createOutbreak, stepOutbreak, applySupply, canEvacuate } from './outbreak';
 /**
@@ -71,6 +74,7 @@ let helperActor:THREE.Mesh|null=null;
 let sneaking = false;
 let paused = false;
 let bagOpen = false;
+let stagedMenu:ReturnType<typeof installStagedCharacterMenu>|null=null;
 let survivorPanel: ReturnType<typeof installSurvivorPanel> | null = null;
 let attackHeld = false;
 let touchActionHeld = false;
@@ -285,6 +289,7 @@ type Zombie = {
   state: ZState;
   think: number; attackCd: number; lose: number; phase: number; walk: number;
   wx: number; wz: number; hp: number; flashT: number;
+  hitReact?:number;hitSide?:number;deathT?:number;
   path: LocalWaypoint[]; pathTimer: number; retreat: number; patrolX:number; patrolZ:number; lastX:number; lastZ:number; returning:boolean;
 };
 
@@ -386,7 +391,9 @@ let hasPistol = false, ammo = 0;
 let arsenal:Arsenal=createLegacyArsenal(false,0)!;
 let survivorSystems=createSurvivorSystems(arsenal)!;
 function syncArsenal(){hasPistol=arsenal.owned.length>0;pistolEquipped=arsenal.equipped!==null;ammo=arsenal.equipped?arsenal.rounds[WEAPONS[arsenal.equipped].calibre]:arsenal.rounds['9mm'];}
-function updateWeaponVisual(){
+function updateWeaponVisual(preserveStance=false){
+  if(!preserveStance)unarmedStance=false;
+  window.dispatchEvent(new CustomEvent('survivor-unarmed-state',{detail:{enabled:unarmedStance}}));
   if(!rig)return;
   for(const old of [weapon,offhandWeapon])if(old){old.removeFromParent();old.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>m.dispose());}});}
   const attach=(id:WeaponId|'pipe'|'cleaver'|'wrench',hand:MeleeHand)=>{
@@ -395,6 +402,7 @@ function updateWeaponVisual(){
     model.position.set(0,-spec.height*.27+spec.height*.29*.52,.03);
     (hand==='right'?rig!.elbowR:rig!.elbowL).add(model);return model;
   };
+  if(unarmedStance){weapon=null;offhandWeapon=null;return;}
   weapon=attach(survivorSystems.hands.primary,'right');
   offhandWeapon=survivorSystems.hands.secondary?attach(survivorSystems.hands.secondary,'left'):null;
 }
@@ -403,12 +411,24 @@ let runNoiseTimer = 0, lootNoiseTimer = 0;
 let lootTarget: Container | null = null;
 let lootProgress = 0;
 let walkPhase = 0;
-let action: 'none' | 'swing' | 'throw' | 'shoot' | 'loot' = 'none';
+let action: 'none' | 'swing' | 'shove' | 'throw' | 'shoot' | 'loot' = 'none';
 let actionT = 0, actionDur = 0, actionFired = false;
 let swingCount = 0;
 let swingHand: MeleeHand = 'right';
-let swingTool:'pipe'|'cleaver'|'wrench'='pipe';
-function currentSwingProfile(){return swingTool==='pipe'?{kind:'blunt' as const,damage:45,reach:1.8,knockback:1.6}:TOOL_COMBAT[swingTool];}
+let swingTool:'pipe'|'cleaver'|'wrench'|'unarmed'='pipe';
+// Session-only posture: never changes hand ownership, ammunition or saved equipment.
+let unarmedStance=false;
+let shoveFacing=0;
+function setUnarmedStance(enabled:boolean){
+  if(phase!=='play'||paused||bagOpen||inShelter||helperOpen||action!=='none')return;
+  unarmedStance=enabled; bufferedHand=null; comboWindow=0; updateWeaponVisual(true);
+  flashHint(enabled?'徒手：左鍵/J 右拳，R 左拳，Q 推開撤步':'已恢復原有持械');
+}
+window.addEventListener('survivor-unarmed',e=>setUnarmedStance((e as CustomEvent).detail?.enabled??!unarmedStance));
+const announceMelee=()=>window.dispatchEvent(new CustomEvent('survivor-melee-capabilities',{detail:{unarmed:true,shove:true}}));
+window.addEventListener('survivor-melee-query',announceMelee);queueMicrotask(announceMelee);
+window.addEventListener('survivor-shove',()=>{if(phase==='play'&&!paused&&!bagOpen&&!inShelter&&!helperOpen)shove();});
+function currentSwingProfile(){return swingTool==='unarmed'?{kind:'unarmed' as const,damage:16,reach:1.05,knockback:.45}:swingTool==='pipe'?{kind:'blunt' as const,damage:45,reach:1.8,knockback:1.6}:TOOL_COMBAT[swingTool];}
 let swingStroke = 0, comboWindow = 0, impactPause = 0;
 let bufferedHand: MeleeHand | null = null;
 // A single committed swing may overlap several frames and several enemies.
@@ -442,16 +462,18 @@ function canSee(ax: number, az: number, bx: number, bz: number): boolean {
 const keys = new Set<string>();
 const ATTACK_KEYS = ['KeyJ', 'KeyK', 'KeyG'];
 addEventListener('keydown', e => {
+  if(settingsMenu.isOpen()||phase!=='play')return;
   if (['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space', 'Tab'].includes(e.code)) e.preventDefault();
   if (e.repeat) return;
   if (phase !== 'play') return;
   if(helperOpen){if(e.code==='Escape')closeHelper();return;}
   if(inShelter) { if(e.code==='Escape')leaveShelter(); return; }
-  if (e.code === 'Escape') { if (bagOpen) toggleBag(false); else { paused = !paused; releaseGameplayInput(); } return; }
+  if (e.code === 'Escape') { if (bagOpen) toggleBag(false); else settingsMenu.open(); return; }
   if (e.code === 'Tab' || e.code === 'KeyI') { toggleBag(!bagOpen); return; }
   if (paused || bagOpen || inShelter) return;
   keys.add(e.code);
   if (e.code === 'KeyE') contextualInteract();
+  if (e.code === 'KeyX') requestUnarmedToggle();
   if (e.code === 'KeyC') sneaking = !sneaking;
   if (e.code === 'KeyF') {
     lightOn = !lightOn && battery > 0;
@@ -495,13 +517,16 @@ function contextualInteract(): boolean {
 }
 function shove() {
   if (stamina < 10 || action !== 'none') return;
-  stamina -= 10;
+  stamina -= 10;action='shove';actionT=0;actionDur=.46;actionFired=false;
+  shoveFacing=facing;bufferedHand=null;comboWindow=0;
+}
+function applyShoveImpact() {
   for (const z of zombies) {
-    const dx = z.x-px, dz = z.z-pz, d=Math.hypot(dx,dz);
-    if (z.state === 'dead' || d > 2 || d < .01 || !canSee(px,pz,z.x,z.z)) continue;
-    const nx=z.x+dx/d*.7, nz=z.z+dz/d*.7;
-    if (!collides(nx,nz,.34)) {z.x=nx; z.z=nz;}
-    z.attackCd=Math.max(z.attackCd,1.5);
+    const dx=z.x-px,dz=z.z-pz,d=Math.hypot(dx,dz);
+    if(z.state==='dead'||d>2||d<.01||!angleInSweep(Math.atan2(dx,-dz)-shoveFacing,-.8,.8,.1)||!canSee(px,pz,z.x,z.z))continue;
+    const moved=sweepMove(z.x,z.z,dx/d*.7,dz/d*.7,.34,collides);
+    z.x=moved.x;z.z=moved.z;z.attackCd=Math.max(z.attackCd,1.5);z.warning=0;
+    z.hitReact=.24;z.hitSide=Math.sin(Math.atan2(dx,-dz)-z.mesh.rotation.y);
   }
   makeNoise(px,pz,8);
 }
@@ -511,7 +536,7 @@ function aimNearest() {
   if (nearest) facing=Math.atan2(nearest.x-px,-(nearest.z-pz));
 }
 canvas.addEventListener('pointermove',e=>{
-  if (e.pointerType !== 'mouse' || phase !== 'play' || paused || bagOpen || helperOpen) return;
+  if (e.pointerType !== 'mouse' || phase !== 'play' || paused || bagOpen || helperOpen || action !== 'none') return;
   mouseAimActive = true;
   inputAim.set(e.clientX/innerWidth*2-1,-e.clientY/innerHeight*2+1);
   aimRay.setFromCamera(inputAim,camera);
@@ -528,27 +553,49 @@ addEventListener('survivor-action',e=>{
   else {touchActionHeld=true;aimNearest();dispatchHandAttack('primary');}
 });
 installTouchControls();
+const gameAudio=createGameAudio();
+const settingsMenu=installGameSettings({
+  canOpen:()=>(phase==='play'&&!helperOpen&&!inShelter)||phase==='menu',
+  open:()=>{setTouchControlsSuspended(true);toggleBag(false);paused=true;clearControlState();releaseGameplayInput();gameAudio.setActive(false);},
+  resume:()=>{clearControlState();releaseGameplayInput();setTouchControlsSuspended(false);paused=false;},
+  saveReturn:()=>{persistCampaign();if(mode==='sandbox'&&saveWarning)return false;clearControlState();location.reload();return true;},
+  audioPreview:()=>gameAudio.play('preview'),
+});
+let audioLastSwing=0,audioLastLoot=0,audioStepTimer=0;
+function refreshInterfaceLanguage(){
+  document.documentElement.lang=gameSettings.language;
+  setTouchControlLabels({unarmed:tr('徒手','徒手','Fists'),shove:tr('推開','推开','Shove'),controls:tr('觸控操作','触控操作','Touch controls'),movement:tr('移動搖桿，推到底奔跑','移动摇杆，推到底奔跑','Move joystick; push fully to run'),movementHint:tr('移動 · 推到底奔跑','移动 · 推到底奔跑','Move · push fully to run'),action:tr('互動','互动','Use'),actionAria:tr('情境互動，按住持續','情境互动，按住持续','Context action; hold to continue'),secondary:tr('副手','副手','Offhand'),secondaryAria:tr('副手攻擊','副手攻击','Offhand attack'),crouch:tr('蹲','蹲','Sneak'),crouchAria:tr('切換潛行','切换潜行','Toggle sneaking'),menuAria:tr('暫停選單','暂停菜单','Pause menu'),bag:tr('背包','背包','Bag')});
+  const sta=document.querySelector('#bar-sta .k'),bat=document.querySelector('#bar-bat .k');
+  if(sta)sta.textContent=tr('體力','体力','STA');if(bat)bat.textContent=tr('電量','电量','PWR');
+  el.hint.textContent=tr('WASD 移動 · Shift 跑 · C 潛行 · 左鍵攻擊 · E 互動 · Tab 背包 · Esc 選單','WASD 移动 · Shift 跑 · C 潜行 · 左键攻击 · E 互动 · Tab 背包 · Esc 菜单','WASD move · Shift run · C sneak · Click attack · E interact · Tab bag · Esc menu');
+  settingsMenu.refresh();
+}
+refreshInterfaceLanguage();window.addEventListener('shanghai-language-change',refreshInterfaceLanguage);
+
+
 
 // ---------------------------------------------------------------- 動作
 
 function dispatchHandAttack(slot:'primary'|'secondary') {
   if(phase!=='play'||paused||bagOpen||inShelter||helperOpen)return;
-  const item=survivorSystems.hands[slot],hand=slot==='primary'?'right':'left';
-  if(action!=='none' && !(action==='swing' && (item==='pipe'||isMeleeTool(item)) && actionT/actionDur>=.62))return;
-  if(item==='pipe'||isMeleeTool(item))startSwing(hand);else if(item)fire(item,hand);
+  const item=unarmedStance?null:survivorSystems.hands[slot],hand=slot==='primary'?'right':'left';
+  if(action!=='none' && !(action==='swing' && (item===null||item==='pipe'||isMeleeTool(item)) && actionT/actionDur>=.62))return;
+  if(item===null||item==='pipe'||isMeleeTool(item))startSwing(hand);else if(item)fire(item,hand);
 }
 
 function startSwing(hand: MeleeHand = 'right') {
-  const heldItem=survivorSystems.hands[hand==='left'?'secondary':'primary'];
-  if(heldItem!=='pipe'&&!isMeleeTool(heldItem))return;
-  const profile = MELEE_PROFILES[heldItem==='pipe'?'blunt':TOOL_COMBAT[heldItem].kind];
+  const heldItem=unarmedStance?null:survivorSystems.hands[hand==='left'?'secondary':'primary'];
+  if(heldItem!==null&&heldItem!=='pipe'&&!isMeleeTool(heldItem))return;
+  // A rifle occupies both hands; an empty support slot is not a free attacking hand.
+  if(!unarmedStance&&hand==='left'&&arsenal.equipped&&WEAPONS[arsenal.equipped].category==='rifle')return;
+  const profile = MELEE_PROFILES[heldItem===null?'unarmed':heldItem==='pipe'?'blunt':TOOL_COMBAT[heldItem].kind];
   // One explicit late press is buffered; never accumulate an unbounded queue.
-  if (action === 'swing' && actionT / actionDur >= 0.62 && (heldItem==='pipe'||isMeleeTool(heldItem))) { bufferedHand = hand; return; }
+  if (action === 'swing' && actionT / actionDur >= 0.62 && (heldItem===null||heldItem==='pipe'||isMeleeTool(heldItem))) { bufferedHand = hand; return; }
   if (action !== 'none' || stamina < profile.stamina) return;
   action = 'swing'; actionT = 0; actionDur = profile.duration; actionFired = false;
   swingStroke = comboWindow > 0 && swingHand === hand ? 1 - swingStroke : 0;
   comboWindow = 0; bufferedHand = null;
-  swingHand = hand; swingTool=heldItem;
+  swingHand = hand; swingTool=heldItem??'unarmed';
   swingCount++;
   swingHits.clear();
   stamina = Math.max(0, stamina - profile.stamina);
@@ -580,6 +627,7 @@ function meleeHit(from: number, to: number) {
     camShake = Math.max(camShake, 0.22);
     impactPause = Math.max(impactPause, 0.035);
     zb.warning = 0;
+    zb.hitReact=.24;zb.hitSide=Math.sin(Math.atan2(dx,-dz)-zb.mesh.rotation.y);
   }
 }
 
@@ -624,11 +672,13 @@ function fire(id: WeaponId | null = arsenal.equipped, hand: MeleeHand = 'right')
 }
 
 function damageZombie(zb: Zombie, amount: number, nx: number, nz: number, knock: number) {
+  if(zb.state==='dead')return; // A lethal contact is committed once, including low-FPS multi-hit paths.
   zb.hp -= amount;
   zb.flashT = 0.12;
   if (zb.hp <= 0) {
     zb.state = 'dead';
-    zb.mesh.visible = false;
+    // Transient visual only: gameplay/save death is immediate; no corpse mesh or timer is saved.
+    zb.deathT=.48;zb.hitReact=0;
     kills += 1;
     return;
   }
@@ -656,7 +706,7 @@ function flashHint(text: string) {
   el.hint.textContent = text;
   hintTimer = 2.4;
 }
-const HINT_DEFAULT = 'WASD 移動 · Shift 跑 · C 潛行 · 左鍵攻擊 · Q 推開 · E 互動 · R 副手 · Tab 背包 · F 燈 · Esc 暫停';
+const HINT_DEFAULT = 'WASD 移動 · Shift 跑 · C 潛行 · 左鍵攻擊 · Q 推開撤步 · X 徒手/持械 · E 互動 · R 副手 · Tab 背包 · F 燈 · Esc 暫停';
 
 // ---------------------------------------------------------------- 更新
 
@@ -676,10 +726,10 @@ function updatePlayer(dt: number) {
     const dx = (right - fwd) / len;
     const dz = (right + fwd) / len;
     const oldX = px, oldZ = pz;
-    const nx = px + dx * stepSpeed * dt;
-    const nz = pz + dz * stepSpeed * dt;
-    if (nx>=bounds.minX-8&&nx<=bounds.maxX+8&&!collides(nx, pz, 0.36)) px = nx;
-    if (nz>=bounds.minY-8&&nz<=bounds.maxY+8&&!collides(px, nz, 0.36)) pz = nz;
+    const moveCollider=(x:number,z:number,r:number)=>x<bounds.minX-8||x>bounds.maxX+8||z<bounds.minY-8||z>bounds.maxY+8||collides(x,z,r);
+    // Keep axis sliding but sweep every segment, including a low-FPS combat step.
+    px=sweepMove(px,pz,dx*stepSpeed*dt,0,.36,moveCollider).x;
+    pz=sweepMove(px,pz,0,dz*stepSpeed*dt,.36,moveCollider).z;
     // Model faces +Z, and world z is -data y.
     if (action === 'none' && !mouseAimActive && !touchActionHeld) facing = Math.atan2(dx, -dz);
     movedSpeed = dt > 0 ? Math.hypot(px - oldX, pz - oldZ) / dt : 0;
@@ -688,7 +738,7 @@ function updatePlayer(dt: number) {
 
   stamina = wantRun
     ? Math.max(0, stamina - 22 * dt * loadEffects(carriedWeight(inventory,arsenal,survivorSystems)).staminaMultiplier)
-    : action === 'swing' ? stamina : Math.min(100, stamina + 14 * dt);
+    : (action === 'swing'||action==='shove') ? stamina : Math.min(100, stamina + 14 * dt);
 
   if (wantRun) {
     runNoiseTimer -= dt;
@@ -720,6 +770,7 @@ function updatePlayer(dt: number) {
   if (halo) halo.visible = lightOn;
 
   animateRig(dt, movedSpeed);
+  if(playerRoot)playerRoot.position.set(px,py,-pz);
 }
 
 let visualMove = 0, breathPhase = 0;
@@ -747,8 +798,8 @@ function animateRig(dt: number, speed: number) {
   rig.body.position.y = Math.cos(walkPhase * 2) * .018 * gaitWeight;
   rig.body.position.x = Math.sin(walkPhase) * .012 * gaitWeight;
 
-  if(arsenal.equipped){armR.rotation.set(-Math.PI/2,0,0);armL.rotation.x=WEAPONS[arsenal.equipped].category==='rifle'?-1.1:-.2;}
-  if(survivorSystems.hands.secondary==='qsz92-9')armL.rotation.set(-Math.PI/2,0,0);
+  if(!unarmedStance&&arsenal.equipped){armR.rotation.set(-Math.PI/2,0,0);armL.rotation.x=WEAPONS[arsenal.equipped].category==='rifle'?-1.1:-.2;}
+  if(!unarmedStance&&survivorSystems.hands.secondary==='qsz92-9')armL.rotation.set(-Math.PI/2,0,0);
   if (!grounded) {
     legL.rotation.x = -0.55; legR.rotation.x = 0.35;
     armL.rotation.x = -0.8; armR.rotation.x = -0.6;
@@ -759,8 +810,8 @@ function animateRig(dt: number, speed: number) {
     rig.kneeL.rotation.x *= gaitWeight; rig.kneeR.rotation.x *= gaitWeight;
     rig.elbowL.rotation.x *= gaitWeight; rig.elbowR.rotation.x *= gaitWeight;
   }
-  if (arsenal.equipped) rig.elbowR.rotation.x = 0;
-  if(survivorSystems.hands.secondary==='qsz92-9')rig.elbowL.rotation.x=0;
+  if (!unarmedStance&&arsenal.equipped) rig.elbowR.rotation.x = 0;
+  if(!unarmedStance&&survivorSystems.hands.secondary==='qsz92-9')rig.elbowL.rotation.x=0;
 
   if (action !== 'none') {
     const previousT = actionT;
@@ -772,6 +823,12 @@ function animateRig(dt: number, speed: number) {
       applyMeleePose(rig, meleePose(currentSwingProfile().kind, t, swingHand, swingStroke), swingHand);
       const swept = sweptMeleeAngle(currentSwingProfile().kind, previousT / actionDur, t, swingHand, swingStroke);
       if (swept) meleeHit(swept.from, swept.to);
+    } else if(action==='shove'){
+      applyShovePose(rig,shovePose(t));
+      if(!actionFired&&t>=.22){actionFired=true;applyShoveImpact();}
+      const retreat=(q:number)=>Math.max(0,Math.min(1,(q-.35)/.65));
+      const distance=.45*(retreat(t)-retreat(previousT/actionDur));
+      if(distance>0){const moved=sweepMove(px,pz,-Math.sin(shoveFacing)*distance,Math.cos(shoveFacing)*distance,.36,(x,z,r)=>x<bounds.minX-8||x>bounds.maxX+8||z<bounds.minY-8||z>bounds.maxY+8||collides(x,z,r));px=moved.x;pz=moved.z;}
     } else if(action==='shoot'){
       (shootHand==='right'?armR:armL).rotation.set(-Math.PI/2-.09*Math.sin(t*Math.PI),0,0);
       torso.rotation.y=0;torso.rotation.x=0;
@@ -822,14 +879,29 @@ function steerEnemy(zb:Zombie, tx:number, tz:number, speed:number, dt:number) {
 function updateZombies(dt: number) {
   navigationBudget=2;
   for (const zb of zombies) {
-    if (zb.state === 'dead') continue;
+    if (zb.state === 'dead') {
+      if((zb.deathT??0)>0){
+        zb.deathT=Math.max(0,zb.deathT!-dt);
+        const t=1-zb.deathT/.48,ease=t*t*(3-2*t);
+        zb.mesh.rotation.x=-Math.PI*.48*ease;
+        zb.mesh.rotation.z=(zb.hitSide??0)*.16*ease;
+        zb.mesh.position.set(zb.x,-.16*ease,-zb.z);
+        if(zb.deathT===0)zb.mesh.visible=false;
+      }
+      continue;
+    }
     zb.pathTimer=Math.max(0,zb.pathTimer-dt);
     zb.retreat=Math.max(0,zb.retreat-dt);
     zb.flashT = Math.max(0, zb.flashT - dt);
-    // Local recoil, independent of navigation and the collision footprint.
-    zb.mesh.rotation.x = -Math.sin(Math.PI * zb.flashT / 0.12) * 0.22;
+    // Contact-only transient recoil. No RNG or save fields; the footprint remains collidable.
+    zb.hitReact=Math.max(0,(zb.hitReact??0)-dt);
+    const recoil=Math.sin(Math.PI*zb.hitReact/.24);
+    zb.mesh.rotation.x=-Math.sin(Math.PI*zb.flashT/.12)*.22-recoil*.2;
+    zb.mesh.rotation.z=recoil*(zb.hitSide??0)*.16;
     (zb.mesh.material as THREE.MeshStandardMaterial).color.setHex(zb.flashT > 0 ? 0xa33a2a : zb.faction.color);
 
+    zb.chest.rotation.x=.1;
+    if(zb.hitReact>0){zb.mesh.position.set(zb.x,0,-zb.z);zb.chest.rotation.x=-recoil*.28;continue;}
     const dx = px - zb.x, dz = pz - zb.z;
     const dist = Math.hypot(dx, dz);
 
@@ -1080,13 +1152,13 @@ function updateHud() {
   const distance = Math.hypot(px - block.spawn[0], pz - block.spawn[1]);
   const touchButton = document.querySelector<HTMLElement>('#survivor-touch-action');
   const secondaryButton=document.querySelector<HTMLButtonElement>('#survivor-touch-secondary');
-  if(secondaryButton){secondaryButton.hidden=!survivorSystems.hands.secondary;secondaryButton.disabled=paused||bagOpen||inShelter||helperOpen;}
-  if(touchButton) touchButton.textContent = mode==='sandbox' && shelter && Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])<2.5 ? '家' : lootTarget ? '搜' : distance <= 5 ? (mode==='quick' && elapsed >= 420 ? '撤' : mode==='sandbox'?'談':'換') : '打';
-  needs.textContent = `水分 ${Math.round(outbreak.hydration)} · 飽足 ${Math.round(outbreak.satiety)} · 暴露 ${Math.round(outbreak.exposure)}${sneaking ? ' · 潛行' : ''}`;
-  mission.textContent = bagOpen ? '背包已開啟（暫停）｜點物品使用，Tab / Esc 返回' : paused ? '已暫停｜Esc 繼續' : `接應點 ${Math.round(distance)}m · 搜刮 ${Math.min(looted, 3)}/3 · ${elapsed >= 480 ? '窗口已關閉' : elapsed >= 420 ? '窗口開啟，回綠圈按 E' : `接應倒數 ${Math.ceil(420 - elapsed)} 秒`} · 暴露須低於85`;
+  if(secondaryButton){secondaryButton.hidden=!unarmedStance&&!survivorSystems.hands.secondary&&!!arsenal.equipped&&WEAPONS[arsenal.equipped].category==='rifle';secondaryButton.disabled=paused||bagOpen||inShelter||helperOpen;}
+  if(touchButton) touchButton.textContent = mode==='sandbox' && shelter && Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])<2.5 ? tr('家','家','Home') : lootTarget ? tr('搜','搜','Loot') : distance <= 5 ? (mode==='quick' && elapsed >= 420 ? tr('撤','撤','Evac') : mode==='sandbox'?tr('談','谈','Talk'):tr('換','换','Trade')) : tr('打','打','Hit');
+  needs.textContent = `${tr('水分','水分','Water')} ${Math.round(outbreak.hydration)} · ${tr('飽足','饱足','Food')} ${Math.round(outbreak.satiety)} · ${tr('暴露','暴露','Exposure')} ${Math.round(outbreak.exposure)}${sneaking ? tr(' · 潛行',' · 潜行',' · Sneaking') : ''}`;
+  mission.textContent = bagOpen ? '背包已開啟（暫停）｜點物品使用，Tab / Esc 返回' : paused ? tr('已暫停｜Esc 選單','已暂停｜Esc 菜单','Paused | Esc menu') : `接應點 ${Math.round(distance)}m · 搜刮 ${Math.min(looted, 3)}/3 · ${elapsed >= 480 ? '窗口已關閉' : elapsed >= 420 ? '窗口開啟，回綠圈按 E' : `接應倒數 ${Math.ceil(420 - elapsed)} 秒`} · 暴露須低於85`;
   if(mode==='sandbox') {
     const day=dayPhase(elapsed);
-    mission.textContent = helperOpen ? '阿梅・互助站｜對話暫停，Esc 或按鈕離開' : inShelter ? '安全屋｜存放物資、休息或返回街區' : bagOpen ? '背包（暫停）｜點擊使用／裝備' : paused ? '已暫停｜Esc 繼續' : `第 ${day.day} 天 · 安全屋 ${shelter ? Math.round(Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])) : '?'}m · 已搜 ${looted}次 · ${nearestSupplyHint()}`;
+    mission.textContent = helperOpen ? '阿梅・互助站｜對話暫停，Esc 或按鈕離開' : inShelter ? '安全屋｜存放物資、休息或返回街區' : bagOpen ? '背包（暫停）｜點擊使用／裝備' : paused ? tr('已暫停｜Esc 選單','已暂停｜Esc 菜单','Paused | Esc menu') : `第 ${day.day} 天 · 安全屋 ${shelter ? Math.round(Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])) : '?'}m · 已搜 ${looted}次 · ${nearestSupplyHint()}`;
     radio.textContent = saveWarning || (inShelter ? '休息花費庫存1水＋1罐頭，時間推進2分鐘。物資有限，不會重生。' : day.daylight<.25 ? '夜間感染者更敏銳。慢行、關燈；帶回一水一食便能在家休息。' : '互助台：藍門回家；水／食／封鎖物資箱每日交接一次，普通搜刮點不重生。紅箱聲響最遠。');
   } else radio.textContent = [...BROADCASTS].reverse().find(([at]) => elapsed >= at)?.[1] ?? '';
   radio.classList.toggle('critical', Boolean(saveWarning));
@@ -1197,6 +1269,7 @@ survivorPanel=installSurvivorPanel({
 });
 
 function resetWorld() {
+  unarmedStance=false;
   px = block.spawn[0];
   pz = block.spawn[1];
   py = 0; vy = 0; grounded = true;
@@ -1208,6 +1281,7 @@ function resetWorld() {
     zb.x=zb.hx=spot.x;zb.z=zb.hz=spot.z;
     zb.patrolX=spot.patrol?.x??spot.x;zb.patrolZ=spot.patrol?.z??spot.z;
     zb.state=zb.faction.id==='military'||zb.faction.id==='police'?'wander':'sleep';
+    zb.deathT=0;zb.hitReact=0;zb.hitSide=0;zb.mesh.rotation.x=0;zb.mesh.rotation.z=0;
     zb.think=Math.random()*.35;zb.attackCd=0;zb.warning=0;zb.lose=0;
     zb.path=[];zb.pathTimer=0;zb.retreat=0;zb.returning=false;zb.lastX=zb.x;zb.lastZ=zb.z;
     zb.wx=zb.patrolX;zb.wz=zb.patrolZ;zb.hp=100;
@@ -1262,7 +1336,9 @@ function placeContainer(): { x: number; z: number } {
 }
 
 function start(chosen: CharSpec, resume: Snapshot | null = null) {
-  if(mode==='sandbox'&&!resume&&savedGame?.status==='alive'&&!confirm('開始新沙盒會覆寫此候選版本進度；舊正式版存檔仍保留。確定開始？')) {el.overlay.classList.add('on');return;}
+  if(mode==='sandbox'&&!resume&&savedGame?.status==='alive'&&!confirm(tr('開始新沙盒會覆寫目前瀏覽器的上海沙盒存檔。確定開始？','开始新沙盒会覆盖当前浏览器的上海沙盒存档。确定开始？','A new sandbox will replace this browser’s Shanghai sandbox save. Start now?'))) {el.overlay.classList.add('on');return;}
+  stagedMenu?.dispose();stagedMenu=null;
+  document.querySelector('#title-settings-button')?.remove();
   if(!resume)savedGame=null;
   elapsed=0; inShelter=false; shelterPanel.classList.remove('room-view');document.body.classList.remove('inspecting-shelter');resize(); helperOpen=false;helperPanel.hidden=true;helperState=createHelperState(); stash=emptyInventory(); restCount=0; saveTimer=0; saveWarning='';
   shelterPanel.hidden=true;
@@ -1295,7 +1371,7 @@ function start(chosen: CharSpec, resume: Snapshot | null = null) {
   updateHelperAppearance();
   updateHud();
   updateBag();
-  el.hint.textContent = HINT_DEFAULT;
+  refreshInterfaceLanguage();
   el.overlay.classList.remove('on');
   setRing(0);
   el.prompt.classList.remove('on');
@@ -1392,6 +1468,13 @@ function buildMenu() {
   }
   el.ovBtn.disabled = true;
   el.ovBtn.onclick = () => { el.overlay.classList.remove('on'); start(spec); };
+  const titleSettings=document.createElement('button');titleSettings.id='title-settings-button';titleSettings.type='button';
+  titleSettings.style.cssText='min-height:44px;padding:8px 14px;margin:8px 0;border:1px solid #678777;border-radius:7px;background:#233630;color:#eceddb;font:inherit;cursor:pointer';
+  const labelTitleSettings=()=>titleSettings.textContent=tr('⚙ 設定 · 音量／語言','⚙ 设置 · 音量／语言','⚙ Settings · audio / language');labelTitleSettings();
+  titleSettings.onclick=()=>settingsMenu.openTitle();
+  window.addEventListener('shanghai-language-change',labelTitleSettings);
+  el.overlay.querySelector('.menu-edition')!.after(titleSettings);
+  stagedMenu=installStagedCharacterMenu({roster:el.roster,pick:el.pick,next:el.ovBtn,modes:document.querySelector<HTMLElement>('#campaign-mode')!,note:document.querySelector<HTMLElement>('#campaign-note')!,resume:document.querySelector<HTMLButtonElement>('#campaign-resume')??undefined,characterIds:ROSTER.map(c=>c.id),hasSave:()=>{try{return localStorage.getItem(saveKey)!==null;}catch{return true;}},isSandbox:()=>mode==='sandbox',translate:tr});
 }
 
 // Campaign persistence owns one atomic snapshot: loot depletion and inventory never save separately.
@@ -1413,6 +1496,7 @@ function isCompatibleSave(s:Snapshot|null):s is Snapshot {
   return s.containers.every(c=>onMap(c.x,c.z)&&!baseWallCollision(c.x,c.z,.25))&&s.enemies.every((e,i)=>onMap(e.x,e.z)&&e.faction===profileFor(i).id);
 }
 function restoreCampaign(s:Snapshot) {
+  unarmedStance=false;
   elapsed=s.elapsed;timeLeft=NIGHT_SECONDS-elapsed;hp=s.hp;stamina=s.stamina;battery=s.battery;
   helperState=s.helper?{...s.helper}:createHelperState();
   outbreak={...s.outbreak};Object.assign(inventory,s.inventory);stash={...s.stash};ammo=s.ammo;hasPistol=s.hasPistol;pistolEquipped=s.pistolEquipped;
@@ -1426,7 +1510,8 @@ function restoreCampaign(s:Snapshot) {
   containers.filter(c=>c.roomId).forEach(c=>{c.looted=s.interiorLoot?.[c.roomId!]===true;paintContainer(c);});
   s.enemies.forEach((z,i)=>{
     const enemy=zombies[i],home=z.home??[z.x,z.z],patrol=z.patrol??home;
-    Object.assign(enemy,z,{faction:profileFor(i),hx:home[0],hz:home[1],patrolX:patrol[0],patrolZ:patrol[1],
+    enemy.mesh.rotation.x=0;enemy.mesh.rotation.z=0;
+    Object.assign(enemy,z,{deathT:0,hitReact:0,hitSide:0,faction:profileFor(i),hx:home[0],hz:home[1],patrolX:patrol[0],patrolZ:patrol[1],
       wx:patrol[0],wz:patrol[1],lastX:z.lastKnown?.[0]??z.x,lastZ:z.lastKnown?.[1]??z.z,path:[],pathTimer:0,returning:z.returning??false,retreat:z.retreat??0});
     if(z.state==='chase'&&!z.lastKnown){enemy.state='wander';enemy.returning=true;}
     if(enemy.returning){enemy.wx=enemy.hx;enemy.wz=enemy.hz;}
@@ -1556,10 +1641,12 @@ function installCampaignUI() {
   sand.onclick=()=>{mode='sandbox';sand.className='selected';quick.className='';sand.setAttribute('aria-pressed','true');quick.setAttribute('aria-pressed','false');};quick.onclick=()=>{mode='quick';quick.className='selected';sand.className='';quick.setAttribute('aria-pressed','true');sand.setAttribute('aria-pressed','false');};
   if(!shelter){mode='quick';quick.className='selected';sand.textContent='此地圖未找到安全門口';}
   modes.append(sand,quick);
+  const refreshModes=()=>{sand.textContent=shelter?tr('生存沙盒（持久存檔）','生存沙盒（持久存档）','Sandbox · persistent save'):tr('此地圖未找到安全門口','此地图未找到安全门口','Sandbox unavailable on this map');quick.textContent=tr('8分鐘快速撤離（獨立）','8分钟快速撤离（独立）','8-minute evacuation · separate');const resume=document.querySelector('#campaign-resume');if(resume)resume.textContent=tr('繼續已有存檔','继续已有存档','Continue saved game');const title=el.overlay.querySelector('h1');if(title)title.textContent=tr('上海倖存者','上海幸存者','Shanghai Survivors');};
+  window.addEventListener('shanghai-language-change',refreshModes);refreshModes();
   const valid=isCompatibleSave(savedGame);
-  if(valid){const resume=document.createElement('button');resume.textContent=`繼續第${dayPhase(savedGame!.elapsed).day}天存檔`;resume.onclick=()=>{let current:Snapshot|null=null;try{current=loadCandidateSave();}catch{}if(!isCompatibleSave(current)){resume.disabled=true;resume.textContent='存檔已失效';return;}mode='sandbox';modes.hidden=true;start(ROSTER.find(c=>c.id===current!.characterId)??ROSTER[0],current);};modes.append(resume);}
+  if(valid){const resume=document.createElement('button');resume.id='campaign-resume';resume.textContent=tr(`繼續第${dayPhase(savedGame!.elapsed).day}天存檔`,`继续第${dayPhase(savedGame!.elapsed).day}天存档`,`Continue · Day ${dayPhase(savedGame!.elapsed).day}`);resume.onclick=()=>{let current:Snapshot|null=null;try{current=loadCandidateSave();}catch{}if(!isCompatibleSave(current)){resume.disabled=true;resume.textContent='存檔已失效';return;}mode='sandbox';modes.hidden=true;start(ROSTER.find(c=>c.id===current!.characterId)??ROSTER[0],current);};modes.append(resume);}
   const note=document.createElement('p');note.id='campaign-note';note.textContent=savedGame?.status==='dead'?'上一位倖存者已死亡；新沙盒會重設世界與庫存。':valid?'候選版獨立存檔；新沙盒只覆寫候選進度，舊正式版與快速挑戰互不影響。':'沙盒：找藍色門標，按E／手機「家」進入。先帶一水一罐頭回家。';
-  note.textContent+=' 舊檔保留原布局；新局採用配樓與九間內裝候選。';
+  note.textContent=tr('沙盒自動保存；快速挑戰不影響沙盒存檔。舊檔保留原布局。','沙盒自动保存；快速挑战不影响沙盒存档。旧档保留原布局。','Sandbox autosaves. Quick challenges keep your sandbox save. Older saves retain their original layout.');
   el.roster.before(modes,note);
   el.overlay.querySelector('.sub')!.textContent='上海病毒爆發。選角色後探索街區、搜刮並返回自己的安全屋；或選擇獨立八分鐘撤離挑戰。';
 }
@@ -1569,6 +1656,17 @@ document.addEventListener('visibilitychange',()=>{if(document.hidden&&phase==='p
 // ---------------------------------------------------------------- 主循環
 
 function frame(dt: number) {
+  settingsMenu.setPlaying(phase==='play');
+  const audioActive=phase==='play'&&!paused&&!bagOpen&&!inShelter&&!helperOpen;
+  gameAudio.setActive(audioActive);
+  if(audioActive){
+    if(swingCount>audioLastSwing)gameAudio.play('swing');
+    else if(looted>audioLastLoot)gameAudio.play('loot');
+    audioStepTimer+=dt;
+    if(audioStepTimer>.42&&(keys.has('KeyW')||keys.has('KeyA')||keys.has('KeyS')||keys.has('KeyD'))){gameAudio.play('step');audioStepTimer=0;}
+  }
+  audioLastSwing=swingCount;audioLastLoot=looted;
+
   if (phase === 'play' && !paused && !bagOpen && !inShelter && !helperOpen) {
     if(mode==='quick')timeLeft -= dt;
     else { elapsed += dt; timeLeft = NIGHT_SECONDS - elapsed; updateDaylight(); refreshSupplySites(); }
@@ -1588,7 +1686,7 @@ function frame(dt: number) {
     updatePlaceLabel();
     if (hintTimer > 0) {
       hintTimer -= dt;
-      if (hintTimer <= 0) el.hint.textContent = HINT_DEFAULT;
+      if (hintTimer <= 0) el.hint.textContent = tr(HINT_DEFAULT,'WASD 移动 · Shift 跑 · C 潜行 · 点击攻击 · E 互动 · R 副手 · Tab 背包 · Esc 菜单','WASD move · Shift run · C sneak · Click attack · E use · R offhand · Tab bag · Esc menu');
     }
     if (muzzleT > 0) {
       muzzleT -= dt;
@@ -1755,14 +1853,14 @@ fetch(dataUrl)
     if (params.has('debug')) {
       (window as unknown as { __modu: unknown }).__modu = {
         state: () => ({
-          helper:{...helperState},helperOpen, fadedBuildings:cityVisibility?.fadedIds(), cityMeshes:cityVisibility?.stats(), facadeSigns:facadeSignage?.stats, roomExtras:containers.filter(c=>c.roomExtra&&c.roomEnabled!==false).map(c=>({id:c.roomId,item:c.roomItem,looted:c.looted,x:c.x,z:c.z})),
-          phase, mode, renderBudget:{calls:renderer.info.render.calls,triangles:renderer.info.render.triangles,geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures}, worldLayout:worldLayout??'legacy', worldPositions:{containers:containers.filter(c=>!c.roomId).map(c=>({x:c.x,z:c.z})),enemies:zombies.map(z=>({x:z.x,z:z.z}))}, densityBuildings:densityEnabledForLayout(worldLayout)?densityBuildings:[], densityMeshes:densityGroup.visible?{...densityVisibility?.stats(),floorMeshes:1}:null, plannedInteriorRoomCount:plannedInteriorRooms.length, inShelter, shelter: shelter ? {...shelter,door:[...shelter.door],inside:[...shelter.inside],outside:[...shelter.outside]} : null, stash:{...stash}, restCount, dayNight:daylightProfile(dayPhase(elapsed).hour), streetDetails:streetDetails?.stats, streetPlacements:streetDetails?.placements, interiorRooms:interiorRooms.map(r=>({id:r.id,label:r.label,entrance:r.entrance,loot:r.loot,furniture:r.furniture})), activeInterior:activeInterior()?.id??null, roomView:shelterPanel.classList.contains('room-view'), cameraViewHeight:camera.top-camera.bottom, streetZoom:viewZoom, hp, battery, stamina, timeLeft, kills, paused, bagOpen, sneaking, looted, outbreak: { ...outbreak },
+          roomTools:containers.filter(c=>c.roomTool&&c.roomEnabled!==false).map(c=>({id:c.roomId,tool:c.roomTool!.tool,buildingId:c.roomTool!.buildingId,x:c.x,z:c.z,looted:c.looted})),helper:{...helperState},helperOpen, fadedBuildings:cityVisibility?.fadedIds(), cityMeshes:cityVisibility?.stats(), facadeSigns:facadeSignage?.stats, roomExtras:containers.filter(c=>c.roomExtra&&c.roomEnabled!==false).map(c=>({id:c.roomId,item:c.roomItem,looted:c.looted,x:c.x,z:c.z})),
+          phase, mode, input:{heldKeys:[...keys],settingsOpen:settingsMenu.isOpen()},preferences:{...gameSettings}, renderBudget:{calls:renderer.info.render.calls,triangles:renderer.info.render.triangles,geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures}, worldLayout:worldLayout??'legacy', worldPositions:{containers:containers.filter(c=>!c.roomId).map(c=>({x:c.x,z:c.z})),enemies:zombies.map(z=>({x:z.x,z:z.z}))}, densityBuildings:densityEnabledForLayout(worldLayout)?densityBuildings:[], densityMeshes:densityGroup.visible?{...densityVisibility?.stats(),floorMeshes:1}:null, plannedInteriorRoomCount:plannedInteriorRooms.length, inShelter, shelter: shelter ? {...shelter,door:[...shelter.door],inside:[...shelter.inside],outside:[...shelter.outside]} : null, stash:{...stash}, restCount, dayNight:daylightProfile(dayPhase(elapsed).hour), streetDetails:streetDetails?.stats, streetPlacements:streetDetails?.placements, interiorRooms:interiorRooms.map(r=>({id:r.id,label:r.label,entrance:r.entrance,loot:r.loot,furniture:r.furniture})), activeInterior:activeInterior()?.id??null, roomView:shelterPanel.classList.contains('room-view'), cameraViewHeight:camera.top-camera.bottom, streetZoom:viewZoom, hp, battery, stamina, timeLeft, kills, paused, bagOpen, sneaking, looted, outbreak: { ...outbreak },
           zombies: zombies.length, awake: zombies.filter(z => z.state === 'chase').length,
           dead: zombies.filter(z => z.state === 'dead').length,
           factions: Object.fromEntries(['infected','military','police','raider'].map(id => [id,zombies.filter(z => z.faction.id === id).length])),
           inventory: { ...inventory }, arsenal:structuredClone(arsenal),survivorSystems:structuredClone(survivorSystems),weight:carriedWeight(inventory,arsenal,survivorSystems),ammo, hasPistol, equipped: arsenal.equipped,
-          action, swingHand, shootHand, swingStroke, bufferedHand, impactPause,
-          combatTargets: zombies.slice(0, 8).map(z=>({x:z.x,z:z.z,hp:z.hp,state:z.state})), actionProgress: actionDur ? actionT / actionDur : 0, attackHeld, touchActionHeld, swingCount,
+          action, swingHand, shootHand, swingStroke, bufferedHand, impactPause, swingTool,unarmedStance,
+          combatTargets: zombies.slice(0, 8).map(z=>({x:z.x,z:z.z,hp:z.hp,state:z.state,hitReact:z.hitReact??0,deathT:z.deathT??0,visible:z.mesh.visible})), actionProgress: actionDur ? actionT / actionDur : 0, attackHeld, touchActionHeld, swingCount,
           spawn: [px, pz], facing,
         }),
         start: (id = ROSTER[0].id) => {
@@ -1784,12 +1882,15 @@ fetch(dataUrl)
           }
         },
         outbreakTest: (elapsed: number, searched: number, exposure = 0) => { timeLeft = NIGHT_SECONDS - elapsed; looted = searched; outbreak.exposure = exposure; px = block.spawn[0]; pz = block.spawn[1]; updateHud(); },
-        combatFixture: () => {
+        combatFixture: (distance=1.1,targetHealth=100) => {
+          if(!Number.isFinite(distance)||distance<.6||distance>1.5||!Number.isFinite(targetHealth)||targetHealth<1||targetHealth>100)return false;
           releaseGameplayInput(); mouseAimActive = false;
           // Isolated debug sparring: remove unrelated threats, never mutate normal sessions.
           for(const other of zombies.slice(1)){other.state='dead';other.hp=0;other.mesh.visible=false;}
-          for (let i=0;i<32;i++) { const a=i*Math.PI/16,x=px+Math.sin(a)*1.1,z=pz-Math.cos(a)*1.1; if(collides(x,z,.34)||!canSee(px,pz,x,z))continue; facing=a; const zb=zombies[0]; zb.x=x;zb.z=z;zb.hp=100;zb.state='chase';zb.think=60;zb.attackCd=60;zb.lose=0;zb.flashT=0;zb.mesh.visible=true;zb.mesh.rotation.set(0,a,0);return true; } return false;
+          for (let i=0;i<32;i++) { const a=i*Math.PI/16,x=px+Math.sin(a)*distance,z=pz-Math.cos(a)*distance; if(collides(x,z,.34)||!canSee(px,pz,x,z))continue; facing=a; const zb=zombies[0]; zb.x=x;zb.z=z;zb.hp=targetHealth;zb.state='chase';zb.think=60;zb.attackCd=60;zb.lose=0;zb.flashT=0;zb.deathT=0;zb.hitReact=0;zb.hitSide=0;zb.mesh.visible=true;zb.mesh.rotation.set(0,a,0);return true; } return false;
         },
+        // Debug observation only: a bounded route suggestion, never moves a player or edits the world.
+        navigationProbe: (tx:number,tz:number) => findLocalPath(px,pz,tx,tz,(x,z,r)=>collides(x,z,Math.max(.36,r??.36)),500),
         swing: () => startSwing(),
         hurt: (n = 30) => { injureBody(survivorSystems.condition,n);hp = Math.max(0, hp - n); if (hp <= 0) lose(); },
         give: (id: ItemId, n = 1) => { inventory[id] += n; if (id === 'pistol'){grantWeapon(arsenal,'qsz92-9');syncArsenal();} updateBag(); },

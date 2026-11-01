@@ -85,7 +85,7 @@ test('actual restore keeps last-known/return state and migrates old chase safely
     {x:1,z:2,hp:80,state:'chase',faction:'infected'},
     {x:1,z:2,hp:80,state:'wander',faction:'infected',home:[3,4],patrol:[5,6],lastKnown:[7,8],returning:true,retreat:9},
   ]) {
-    const enemy={mesh:{visible:true,position:{set(){}}}};
+    const enemy={mesh:{visible:true,rotation:{x:0,z:0},position:{set(){}}}};
     const c=vm.createContext({elapsed:0,timeLeft:0,NIGHT_SECONDS:480,hp:100,stamina:100,battery:100,
       arsenal:null,survivorSystems:null,migrateSurvivorSystems,structuredClone,createLegacyArsenal,equipWeapon,syncArsenal(){},helperState:{},createHelperState:()=>({}),outbreak:{},inventory:{},stash:{},ammo:0,hasPistol:false,pistolEquipped:false,
       px:999,pz:999,shelter:null,inShelter:false,looted:0,kills:0,restCount:0,containers:[],zombies:[enemy],

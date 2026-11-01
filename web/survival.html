@@ -65,7 +65,7 @@
     .moodle.warn { border-color: #e0b55855; background: #e0b5581a; color: #ecd49b; }
 
     /* ---------- inventory ---------- */
-    #side { position: fixed; top: 14px; right: 14px; width: 208px; padding: 11px 12px 12px; max-height:calc(100vh - 28px); overflow:auto; }
+    #side { position: fixed; top:calc(70px + env(safe-area-inset-top)); right: 14px; width: 208px; padding: 11px 12px 12px; max-height:calc(100vh - 84px - env(safe-area-inset-top)); overflow:auto; }
     .side-title { font-size: 9.5px; letter-spacing: .18em; color: var(--faint); margin-bottom: 8px; }
     #bag { display: grid; gap: 3px; }
     .row { display: grid; grid-template-columns: 10px 1fr auto auto; align-items: center; gap: 8px;
@@ -201,6 +201,12 @@
     #side { pointer-events:auto; } #side .side-title button { float:right; color:inherit; background:none; border:0; cursor:pointer; }
     #side.bag-open { display:block; z-index:40; width:min(330px,calc(100vw - 48px)); right:24px; top:100px; padding:18px; background:#111d19; max-height:60vh; overflow:auto; }
     @media(any-pointer:coarse) { #dispatch { bottom:166px; padding:8px 12px; } #hint { display:none; } #hud { top:65px; } #side:not(.bag-open) { display:none; } }
+    /* Portrait controls occupy the top centre; keep the location readable at left. */
+    @media (any-pointer:coarse) and (orientation:portrait) {
+      #place { left:max(12px,env(safe-area-inset-left)); top:max(12px,env(safe-area-inset-top));
+        transform:none; width:100px; padding:4px 6px; font-size:10px; line-height:1.4;
+        text-align:center; border-radius:10px; overflow-wrap:anywhere; }
+    }
     /* Compact action HUD: keep the centre unobstructed on short touch screens. */
     @media (any-pointer:coarse) and (orientation:landscape) and (max-height:500px) {
       #hud { top:max(6px,env(safe-area-inset-top)); left:max(8px,env(safe-area-inset-left));
