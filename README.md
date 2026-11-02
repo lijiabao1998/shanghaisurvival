@@ -2,6 +2,8 @@
 
 以上海病毒爆發為背景的城市生存遊戲原型。斜俯視第三人稱、單機、低多邊形風格；畫面呈現參考《保衛台北》。
 
+**線上遊玩：** https://game.lijiabao.uk/shanghaisurvival/survival.html （街區瀏覽原型：https://game.lijiabao.uk/shanghaisurvival/ ）。推到 `main` 會由 GitHub Actions 建置並部署到 GitHub Pages（`.github/workflows/pages.yml`）。
+
 > 遊戲以**真實上海街區**為場景；目前已結合 CMAB 建築資料及 OpenStreetMap 道路，製作首個可行走的街區白模。
 > 第三方資料與素材依各自條款記錄來源及使用方式。詳見 [docs/asset-license.md](docs/asset-license.md)。
 
