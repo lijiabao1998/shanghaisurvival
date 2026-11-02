@@ -34,6 +34,8 @@ export type RigOpts = {
   /** Shanghai: final standing height in metres including headgear (scales the whole body) */
   height?: number;
   shadow?: boolean;
+  /** Shanghai: crowd version: one material and mesh per joint, no fine detail (far fewer draw calls) */
+  lite?: boolean;
 };
 type J = THREE.Object3D;
 export type Rig = {
@@ -128,6 +130,7 @@ class Parts {
   /** current fabric for cloth parts, and whether parts are LOD-hidden detail */
   fab: Fabric | 'plain' = 'plain';
   det = false;
+  lite = false;
   dets: THREE.Object3D[] = [];
   add(
     j: J,
@@ -160,7 +163,7 @@ class Parts {
     for (const k of Object.keys(gg.attributes))
       if (!['position', 'normal', 'uv', 'color'].includes(k)) gg.deleteAttribute(k);
     const e = this.m.get(j) || new Map<string, THREE.BufferGeometry[]>();
-    const key = (skin ? 's' : this.fab) + (this.det ? '|d' : '');
+    const key = this.lite ? 'plain' : (skin ? 's' : this.fab) + (this.det ? '|d' : '');
     if (!e.has(key)) e.set(key, []);
     e.get(key)!.push(gg.index ? gg.toNonIndexed() : gg);
     this.m.set(j, e);
@@ -218,8 +221,10 @@ export function makeRig(o: RigOpts): Rig {
     S = o.soldier;
   const k = f ? 0.95 : 1;
   const P = new Parts();
+  P.lite = !!o.lite;
   const fab = (f: Fabric | 'plain') => (P.fab = f);
   const det = (fn: () => void) => {
+    if (o.lite) return; // Shanghai: crowds skip fingers, seams and folds
     P.det = true;
     fn();
     P.det = false;

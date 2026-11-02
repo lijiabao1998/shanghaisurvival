@@ -325,7 +325,7 @@ function makeEnemy(i: number) {
   const key = `${faction.id}:${variant}:${rifle}`;
   let template = enemyTemplates.get(key);
   if (!template) {
-    template = makeRig(looks[variant]);
+    template = makeRig({ ...looks[variant], lite: true });
     if (rifle) { mountHandItem(template, buildFirearm(rifle), 'right', 'gun'); template.weaponKind = 'rifle'; }
     else if (faction.id === 'police') mountHandItem(template, buildBaton(), 'right', 'tool');
     else if (faction.id === 'raider') mountHandItem(template, buildWeapon('pipe'), 'right', 'tool');
