@@ -10,7 +10,7 @@ import { emptyInventory } from '../src/campaign.ts';
 import { segmentClear,sweepMove } from '../src/combat.ts';
 import { MELEE_PROFILES, meleePose, sweptMeleeAngle, angleInSweep } from '../src/melee-motion.ts';
 import { buildRig, ROSTER } from '../src/characters.ts';
-import { applyMeleePose, resetRigJoints, applyLocomotionJoints, applyThrowJoints } from '../src/rig-motion.ts';
+import { animate as animateHuman } from '../src/human.ts';
 
 const source = readFileSync(new URL('../src/survival.ts', import.meta.url), 'utf8');
 function extract(name) {
@@ -22,16 +22,16 @@ function extract(name) {
 function runtime(extra={}) {
   const hits=[];
   const c=vm.createContext({TOOL_COMBAT,isMeleeTool,swingTool:'pipe',unarmedStance:false,MELEE_PROFILES,meleePose,sweptMeleeAngle,angleInSweep,segmentClear,sweepMove,
-    applyMeleePose,resetRigJoints,applyLocomotionJoints,applyThrowJoints,carriedWeight,loadEffects,
+    animateHuman,carriedWeight,loadEffects,sneaking:false,shootHand:'right',velX:0,velZ:0,bodyYaw:0,
     survivorSystems:createSurvivorSystems(createLegacyArsenal(false,0)),inventory:emptyInventory(),
     rig:buildRig(ROSTER[0]), arsenal:createLegacyArsenal(false,0), stamina:100,action:'none',actionT:0,actionDur:0,actionFired:false,
     swingCount:0,swingHand:'right',swingStroke:0,comboWindow:0,impactPause:0,bufferedHand:null,swingHits:new Set(),px:0,pz:0,facing:0,zombies:[],collides:()=>false,
     HEAR_SWING:1,makeNoise(){},damageZombie(z,damage){hits.push(z);z.hp-=damage;},camShake:0,
-    visualMove:0,breathPhase:0,walkPhase:0,RUN_SPEED:5.9,grounded:true,WEAPONS,throwBrick(){},...extra});
-  for(const name of ['currentSwingProfile','canSee','startSwing','meleeHit','animateRig']) vm.runInContext(extract(name),c);
+    RUN_SPEED:5.9,grounded:true,WEAPONS,throwBrick(){},...extra});
+  for(const name of ['currentSwingProfile','canSee','startSwing','meleeHit','enemyFlinch','animateRig','poseSurvivor']) vm.runInContext(extract(name),c);
   return {c,hits};
 }
-const target=(angle,d=1.3)=>({x:Math.sin(angle)*d,z:-Math.cos(angle)*d,state:'sleep',hp:100,attackCd:0,mesh:{rotation:{y:0}}});
+const target=(angle,d=1.3)=>({x:Math.sin(angle)*d,z:-Math.cos(angle)*d,state:'sleep',hp:100,attackCd:0,rig:{root:{rotation:{y:0}},hurtT:0,hurtSide:1,freeze:0}});
 const advance=(c,seconds,step=.02)=>{for(let t=0;t<seconds-1e-9;t+=step)c.animateRig(Math.min(step,seconds-t),0);};
 let count=0;function test(name,fn){fn();count++;console.log(`PASS ${name}`);}
 test('actual start rejects low stamina and commits one action per press',()=>{
@@ -62,6 +62,14 @@ test('offhand pipe works beside a pistol, empty offhand punches, gun hand cannot
 });
 test('a large animation step still sweeps entire active window',()=>{
  const {c,hits}=runtime();const a=target(.7),b=target(-.7);c.zombies=[a,b];c.startSwing();advance(c,.7,.7);assert.deepEqual(hits,[a,b]);
+});
+test('a right-hand forehand reaches the right side (negative bearing) first',()=>{
+ const {c,hits}=runtime();const a=target(.7),b=target(-.7);c.zombies=[a,b];c.startSwing();advance(c,.7,.005);assert.deepEqual(hits,[b,a]);
+});
+test('a landed strike flinches the target and holds both bodies for the hit-stop',()=>{
+ const {c}=runtime();const a=target(0,1.1);c.zombies=[a];c.startSwing();advance(c,.4,.01);
+ assert.ok(a.rig.hurtT>0,'target flinch plays');assert.ok(c.impactPause>0||c.rig.freeze>=0);assert.equal(a.hp,55);
+ assert.ok(c.rig.actQ>=0&&c.rig.actVar===8,'right-hand pipe uses the tuned forehand');
 });
 test('actual input release cancels a committed attack and clears held controls',()=>{
  const {c}=runtime({keys:new Set(['KeyW']),attackHeld:true,touchActionHeld:true,lootProgress:0,setRing(){}});

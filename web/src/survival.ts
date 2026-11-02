@@ -26,8 +26,8 @@ import { emptyInventory, replenishCaches, applyCacheLoot, loadSnapshot, saveSnap
 import { selectShelter, type Shelter } from './shelter';
 import { installTouchControls, setTouchControlLabels, setTouchControlsSuspended, requestUnarmedToggle } from './touch-controls';
 import { sweepMove, segmentClear } from './combat';
-import { MELEE_PROFILES, meleePose, shovePose, sweptMeleeAngle, angleInSweep, type MeleeHand } from './melee-motion';
-import { applyMeleePose, applyShovePose, resetRigJoints, applyLocomotionJoints, applyThrowJoints } from './rig-motion';
+import { MELEE_PROFILES, sweptMeleeAngle, angleInSweep, type MeleeHand, type MeleeKind } from './melee-motion';
+import { animate as animateHuman, cloneRig, makeRig, setLodFocus, startMelee, type AnimState, type RigOpts } from './human';
 import { profileFor, type FactionProfile } from './factions';
 import { createOutbreak, stepOutbreak, applySupply, canEvacuate } from './outbreak';
 /**
@@ -220,6 +220,7 @@ function spawnCharacter(spec: CharSpec) {
   if (playerRoot) scene.remove(playerRoot);
   rig = buildRig(spec);
   playerRoot = rig.root;
+  setLodFocus(playerRoot.position);
 
   torch = new THREE.SpotLight(0xffe3ab, 150, 32, 0.55, 0.6, 1.3);
   torch.position.set(0, 1.45, 0.15);
@@ -236,41 +237,29 @@ function spawnCharacter(spec: CharSpec) {
   ring.position.y = 0.04;
   playerRoot.add(ring);
 
-  weapon = buildWeapon('pipe');
-  weapon.position.set(0, -spec.height * 0.27 + spec.height * 0.29 * 0.52, 0.03);
-  weapon.rotation.x = Math.PI;
-  rig.elbowR.add(weapon);
+  weapon = mountHandItem(rig, buildWeapon('pipe'), 'right', 'tool');
 
   scene.add(playerRoot);
 }
 
-// ---------------------------------------------------------------- 喪屍
+/** Mount a held prop on the mannequin's hand. Tools (+Y shaft) and guns (muzzle -Y) both end up
+ * pointing along the forearm; tools tilt 0.3 rad forward like DefendTaipei's bat and pipe. */
+function mountHandItem(r: Rig, model: THREE.Group, hand: MeleeHand, kind: 'tool' | 'gun') {
+  const mount = hand === 'right' ? r.weapon : r.weaponL;
+  mount.userData.rx0 = kind === 'tool' ? -0.3 : 0;
+  mount.rotation.x = mount.userData.rx0;
+  if (kind === 'tool') model.rotation.x = Math.PI;
+  model.position.set(0, -0.06, kind === 'tool' ? 0 : 0.01);
+  mount.add(model);
+  return model;
+}
 
-const skinGeo = (() => {
-  const g = new THREE.BoxGeometry(0.52, 1.72, 0.34, 1, 6, 1);
-  g.translate(0, 0.86, 0);
-  const pos = g.getAttribute('position');
-  const index = new Uint16Array(pos.count * 4);
-  const weight = new Float32Array(pos.count * 4);
-  for (let i = 0; i < pos.count; i++) {
-    const y = pos.getY(i);
-    let a = 0, b = 1, w = 0;
-    if (y < 0.55) { a = 0; b = 1; w = 0; }
-    else if (y < 0.9) { a = 0; b = 1; w = (y - 0.55) / 0.35; }
-    else if (y < 1.25) { a = 1; b = 2; w = 0; }
-    else if (y < 1.55) { a = 1; b = 2; w = (y - 1.25) / 0.3; }
-    else { a = 2; b = 2; w = 0; }
-    index[i * 4] = a; weight[i * 4] = 1 - w;
-    index[i * 4 + 1] = b; weight[i * 4 + 1] = w;
-  }
-  g.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(index, 4));
-  g.setAttribute('skinWeight', new THREE.Float32BufferAttribute(weight, 4));
-  return g;
-})();
+// ---------------------------------------------------------------- 喪屍與敵對人員
+// Enemies use the same DefendTaipei mannequin as the survivor. One template per faction look is built once
+// and cloned, so every copy shares geometry and materials; only the pose state is per enemy.
 
-const zombieMat = new THREE.MeshStandardMaterial({ color: 0x646b56, roughness: 1 });
 const eyeMesh = new THREE.InstancedMesh(
-  new THREE.SphereGeometry(0.095, 6, 4),
+  new THREE.SphereGeometry(0.045, 6, 4),
   new THREE.MeshBasicMaterial({ color: 0xffffff }),
   MAX_ZOMBIES * 2,
 );
@@ -279,12 +268,17 @@ eyeMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 scene.add(eyeMesh);
 const eyeDummy = new THREE.Object3D();
 const eyeColor = new THREE.Color();
+const eyeOffsets = [new THREE.Vector3(-0.038, 0.1, 0.092), new THREE.Vector3(0.038, 0.1, 0.092)];
+const enemyFlashMat = new THREE.MeshBasicMaterial({ color: 0xc8442e });
 
 type ZState = 'sleep' | 'wander' | 'chase' | 'dead';
 type Zombie = {
   faction: FactionProfile; warning: number;
-  mesh: THREE.SkinnedMesh;
-  hips: THREE.Bone; chest: THREE.Bone; head: THREE.Bone;
+  /** Outer group: world position and alive/hidden state. The rig inside turns and animates. */
+  mesh: THREE.Group;
+  rig: Rig; baseMats: THREE.Material[];
+  /** Gameplay heading; the rig turns toward it at a limited rate. */
+  yaw: number; visSpeed: number; visX: number; visZ: number; near: boolean; flashed: boolean;
   x: number; z: number; hx: number; hz: number;
   state: ZState;
   think: number; attackCd: number; lose: number; phase: number; walk: number;
@@ -296,39 +290,89 @@ type Zombie = {
 const zombies: Zombie[] = [];
 let zombieCount = 80;
 
-function makeZombieMesh() {
-  const mesh = new THREE.SkinnedMesh(skinGeo, zombieMat.clone());
-  const hips = new THREE.Bone();
-  const chest = new THREE.Bone();
-  const head = new THREE.Bone();
-  chest.position.y = 0.86;
-  head.position.y = 0.44;
-  hips.add(chest);
-  chest.add(head);
-  mesh.add(hips);
-  mesh.updateMatrixWorld(true);
-  mesh.bind(new THREE.Skeleton([hips, chest, head]));
+/** Fictional looks, not real uniforms or insignia. Skin tones match the survivors'. */
+const ENEMY_LOOKS: Record<FactionProfile['id'], RigOpts[]> = {
+  infected: [
+    { gender: 'm', skin: 0x9aa58a, hair: 0x2a2a26, hairStyle: 'short', top: 0x646b56, bottom: 0x3a3f36, shoes: 0x2a2826, infected: true, height: 1.72 },
+    { gender: 'f', skin: 0xa3ab93, hair: 0x33302b, hairStyle: 'long', top: 0x7b6a5a, bottom: 0x464a52, shoes: 0x2a2826, infected: true, height: 1.6 },
+    { gender: 'm', skin: 0x939f84, hair: 0x1f1e1c, top: 0xb8b4a6, bottom: 0x2f343c, shoes: 0x3a3632, infected: true, apron: 0x7e7a6c, height: 1.68 },
+  ],
+  military: [{ gender: 'm', skin: 0xc49a72, hair: 0x111111, top: 0x586747, bottom: 0x4c5a3e, shoes: 0x1a1a18, soldier: true, height: 1.78 }],
+  police: [
+    { gender: 'm', skin: 0xd2a983, hair: 0x161616, hairStyle: 'short', top: 0x375d89, bottom: 0x24364f, shoes: 0x141414, jacket: 0x2a4568, cap: 0x24364f, height: 1.76 },
+    { gender: 'f', skin: 0xdcb593, hair: 0x161616, hairStyle: 'long', top: 0x375d89, bottom: 0x24364f, shoes: 0x141414, jacket: 0x2a4568, cap: 0x24364f, height: 1.65 },
+  ],
+  raider: [
+    { gender: 'm', skin: 0xc69a70, hair: 0x1b1b1b, hairStyle: 'short', top: 0x96603d, bottom: 0x3b3a36, shoes: 0x2b2724, jacket: 0x5a4632, pack: 0x4a4a3e, height: 1.74 },
+    { gender: 'f', skin: 0xd0a47c, hair: 0x2b2420, hairStyle: 'long', top: 0x96603d, bottom: 0x34383e, shoes: 0x2b2724, jacket: 0x6b4a30, height: 1.63 },
+  ],
+};
+const enemyTemplates = new Map<string, Rig>();
+
+function buildBaton() {
+  const g = new THREE.Group();
+  const stick = new THREE.Mesh(new THREE.CylinderGeometry(.017, .02, .58, 6), new THREE.MeshStandardMaterial({ color: 0x1b1d20, roughness: .6 }));
+  stick.position.y = .27;
+  g.add(stick);
+  return g;
+}
+
+function makeEnemy(i: number) {
+  const faction = profileFor(i);
+  const looks = ENEMY_LOOKS[faction.id];
+  const variant = (faction.id === 'infected' ? Math.floor(i / 2) : Math.floor(i / 6)) % looks.length;
+  const rifle = faction.id === 'military' ? (i % 12 === 1 ? 'qbz95-1' : 'qbz191') : '';
+  const key = `${faction.id}:${variant}:${rifle}`;
+  let template = enemyTemplates.get(key);
+  if (!template) {
+    template = makeRig({ ...looks[variant], lite: true });
+    if (rifle) { mountHandItem(template, buildFirearm(rifle), 'right', 'gun'); template.weaponKind = 'rifle'; }
+    else if (faction.id === 'police') mountHandItem(template, buildBaton(), 'right', 'tool');
+    else if (faction.id === 'raider') mountHandItem(template, buildWeapon('pipe'), 'right', 'tool');
+    enemyTemplates.set(key, template);
+  }
+  const rig = cloneRig(template);
+  rig.shamble = faction.id === 'infected' ? 1 : 0;
+  const mesh = new THREE.Group();
+  mesh.add(rig.root);
   scene.add(mesh);
-  return { mesh, hips, chest, head };
+  return { faction, mesh, rig, baseMats: rig.meshes.map(m => m.material as THREE.Material) };
 }
 
 function buildZombies() {
   for (let i = 0; i < zombieCount; i++) {
-    const built = makeZombieMesh();
-    const faction = profileFor(i);
-    (built.mesh.material as THREE.MeshStandardMaterial).color.setHex(faction.color);
-    if (faction.id !== 'infected') {
-      const cap = new THREE.Mesh(new THREE.BoxGeometry(.6,.16,.4), new THREE.MeshStandardMaterial({color:faction.color}));
-      cap.position.set(0,1.78,0); built.mesh.add(cap);
-      if (faction.id === 'military') { const rifle=buildFirearm(i%12===1?'qbz95-1':'qbz191');rifle.rotation.x=-Math.PI/2;rifle.position.set(.28,.85,.2);built.mesh.add(rifle); }
-    }
     zombies.push({
-      ...built, faction, warning: 0, x: 0, z: 0, hx: 0, hz: 0, state: 'sleep',
+      ...makeEnemy(i), warning: 0, x: 0, z: 0, hx: 0, hz: 0, state: 'sleep',
+      yaw: 0, visSpeed: 0, visX: 0, visZ: 0, near: true, flashed: false,
       think: Math.random() * 0.35, attackCd: 0, lose: 0, phase: Math.random() * 6.28,
       walk: 0, wx: 0, wz: 0, hp: 100, flashT: 0,
       path: [], pathTimer: 0, retreat: 0, patrolX:0, patrolZ:0,lastX:0,lastZ:0,returning:false,
     });
   }
+}
+
+/** Clear transient visuals when an enemy is restored or rearranged (never saved). */
+function resetEnemyPose(zb: Zombie) {
+  const r = zb.rig;
+  r.sp = {}; r.deadT = 0; r.hurtT = 0; r.meleeT = 0; r.shootT = 0; r.freeze = 0;
+  r.body.rotation.set(0, 0, 0); r.body.position.set(0, 0, 0);
+  r.root.rotation.y = zb.yaw;
+  zb.mesh.position.y = 0; zb.visX = zb.x; zb.visZ = zb.z; zb.visSpeed = 0;
+  if (zb.flashed) { zb.flashed = false; r.meshes.forEach((m, i) => { m.material = zb.baseMats[i]; }); }
+}
+
+/** A struck enemy flinches away from the blow and holds for the shared hit-stop. */
+function enemyFlinch(zb: Zombie) {
+  zb.rig.hurtT = .35;
+  zb.rig.hurtSide = (zb.hitSide ?? 0) < 0 ? -1 : 1;
+  zb.rig.freeze = Math.max(zb.rig.freeze, .06);
+}
+
+/** Attack animation for a landed enemy attack (visual only). */
+function enemyStrike(zb: Zombie) {
+  const id = zb.faction.id;
+  if (id === 'military') zb.rig.shootT = .14;
+  else startMelee(zb.rig, id === 'infected' ? .5 : .45, id === 'infected' ? 7 : 8);
 }
 
 // ---------------------------------------------------------------- 世界
@@ -360,6 +404,7 @@ let insideBuilding: (x: number, z: number) => boolean;
 let landmarks: Landmark[] = [];
 let bounds = { minX: 0, maxX: 250, minY: 0, maxY: 250 };
 let px = 0, pz = 0, py = 0, vy = 0, facing = 0;
+let velX = 0, velZ = 0, bodyYaw = 0;
 let grounded = true;
 
 type Container = { x: number; z: number; mesh: THREE.Mesh; looted: boolean; cacheKind?: 'water'|'food'|'ammo'; cacheDay?: number; roomId?: string; roomItem?: 'water'|'food'|'battery'|'ammo'|'medkit'; roomLabel?: string; roomExtra?:RoomExtra; roomTool?:RoomTool; roomPosition?: [number,number]; expandedRoom?:boolean; roomEnabled?:boolean };
@@ -397,10 +442,8 @@ function updateWeaponVisual(preserveStance=false){
   if(!rig)return;
   for(const old of [weapon,offhandWeapon])if(old){old.removeFromParent();old.traverse(o=>{if(o instanceof THREE.Mesh){o.geometry.dispose();const mats=Array.isArray(o.material)?o.material:[o.material];mats.forEach(m=>m.dispose());}});}
   const attach=(id:WeaponId|'pipe'|'cleaver'|'wrench',hand:MeleeHand)=>{
-    const model=id==='pipe'?buildWeapon('pipe'):isMeleeTool(id)?buildMeleeTool(id):buildFirearm(id);
-    if(id==='pipe'||isMeleeTool(id))model.rotation.x=Math.PI;
-    model.position.set(0,-spec.height*.27+spec.height*.29*.52,.03);
-    (hand==='right'?rig!.elbowR:rig!.elbowL).add(model);return model;
+    const tool=id==='pipe'||isMeleeTool(id);
+    return mountHandItem(rig!,tool?(id==='pipe'?buildWeapon('pipe'):buildMeleeTool(id as 'cleaver'|'wrench')):buildFirearm(id as WeaponId),hand,tool?'tool':'gun');
   };
   if(unarmedStance){weapon=null;offhandWeapon=null;return;}
   weapon=attach(survivorSystems.hands.primary,'right');
@@ -410,7 +453,6 @@ function updateWeaponVisual(preserveStance=false){
 let runNoiseTimer = 0, lootNoiseTimer = 0;
 let lootTarget: Container | null = null;
 let lootProgress = 0;
-let walkPhase = 0;
 let action: 'none' | 'swing' | 'shove' | 'throw' | 'shoot' | 'loot' = 'none';
 let actionT = 0, actionDur = 0, actionFired = false;
 let swingCount = 0;
@@ -526,7 +568,8 @@ function applyShoveImpact() {
     if(z.state==='dead'||d>2||d<.01||!angleInSweep(Math.atan2(dx,-dz)-shoveFacing,-.8,.8,.1)||!canSee(px,pz,z.x,z.z))continue;
     const moved=sweepMove(z.x,z.z,dx/d*.7,dz/d*.7,.34,collides);
     z.x=moved.x;z.z=moved.z;z.attackCd=Math.max(z.attackCd,1.5);z.warning=0;
-    z.hitReact=.24;z.hitSide=Math.sin(Math.atan2(dx,-dz)-z.mesh.rotation.y);
+    z.hitReact=.24;z.hitSide=Math.sin(Math.atan2(dx,-dz)-z.rig.root.rotation.y);
+    enemyFlinch(z);
   }
   makeNoise(px,pz,8);
 }
@@ -625,9 +668,12 @@ function meleeHit(from: number, to: number) {
     damageZombie(zb, currentSwingProfile().damage, dx / d, dz / d, currentSwingProfile().knockback);
     zb.attackCd = Math.max(zb.attackCd, 0.5);
     camShake = Math.max(camShake, 0.22);
-    impactPause = Math.max(impactPause, 0.035);
+    // Hit-stop (DefendTaipei 70 ms): the swing clock pauses and both bodies hold their pose.
+    impactPause = Math.max(impactPause, 0.07);
+    if (rig) rig.freeze = Math.max(rig.freeze, 0.06);
     zb.warning = 0;
-    zb.hitReact=.24;zb.hitSide=Math.sin(Math.atan2(dx,-dz)-zb.mesh.rotation.y);
+    zb.hitReact=.24;zb.hitSide=Math.sin(Math.atan2(dx,-dz)-zb.rig.root.rotation.y);
+    enemyFlinch(zb);
   }
 }
 
@@ -649,6 +695,7 @@ function fire(id: WeaponId | null = arsenal.equipped, hand: MeleeHand = 'right')
   shootHand=hand;
   action = 'shoot'; actionT = 0; actionDur = gun.cooldown; actionFired = true;
   muzzleT = 0.07;
+  if (rig) rig.shootT = 0.14;
   camShake = Math.max(camShake, 0.7);
   makeNoise(px, pz, HEAR_GUN);
   const f = forwardXZ();
@@ -678,7 +725,7 @@ function damageZombie(zb: Zombie, amount: number, nx: number, nz: number, knock:
   if (zb.hp <= 0) {
     zb.state = 'dead';
     // Transient visual only: gameplay/save death is immediate; no corpse mesh or timer is saved.
-    zb.deathT=.48;zb.hitReact=0;
+    zb.deathT=2.4;zb.hitReact=0;
     kills += 1;
     return;
   }
@@ -720,20 +767,28 @@ function updatePlayer(dt: number) {
   let movedSpeed = 0;
   // Committed facing is retained, but a short controlled combat step prevents
   // each swing from turning the whole body into a stationary statue.
-  if (moving && (action === 'none' || action === 'swing')) {
-    const stepSpeed = speed * (action === 'swing' ? .38 : 1);
-    const len = Math.hypot(right + fwd, right - fwd);
-    const dx = (right - fwd) / len;
-    const dz = (right + fwd) / len;
+  const steering = moving && (action === 'none' || action === 'swing');
+  const len = Math.hypot(right + fwd, right - fwd) || 1;
+  const dx = (right - fwd) / len;
+  const dz = (right + fwd) / len;
+  const stepSpeed = steering ? speed * (action === 'swing' ? .38 : 1) : 0;
+  // Momentum (DefendTaipei): ease toward the wanted velocity, faster to speed up than to stop.
+  const wantX = dx * stepSpeed, wantZ = dz * stepSpeed;
+  const accel = Math.min(1, dt * (wantX * wantX + wantZ * wantZ > velX * velX + velZ * velZ ? 9 : 7));
+  velX += (wantX - velX) * accel;
+  velZ += (wantZ - velZ) * accel;
+  if (Math.hypot(velX, velZ) > .02) {
     const oldX = px, oldZ = pz;
     const moveCollider=(x:number,z:number,r:number)=>x<bounds.minX-8||x>bounds.maxX+8||z<bounds.minY-8||z>bounds.maxY+8||collides(x,z,r);
     // Keep axis sliding but sweep every segment, including a low-FPS combat step.
-    px=sweepMove(px,pz,dx*stepSpeed*dt,0,.36,moveCollider).x;
-    pz=sweepMove(px,pz,0,dz*stepSpeed*dt,.36,moveCollider).z;
-    // Model faces +Z, and world z is -data y.
-    if (action === 'none' && !mouseAimActive && !touchActionHeld) facing = Math.atan2(dx, -dz);
+    px=sweepMove(px,pz,velX*dt,0,.36,moveCollider).x;
+    pz=sweepMove(px,pz,0,velZ*dt,.36,moveCollider).z;
     movedSpeed = dt > 0 ? Math.hypot(px - oldX, pz - oldZ) / dt : 0;
-    walkPhase += dt * movedSpeed * 2.5;
+  } else { velX = 0; velZ = 0; }
+  // Turn toward the stick at a limited rate instead of snapping. Model faces +Z, and world z is -data y.
+  if (steering && action === 'none' && !mouseAimActive && !touchActionHeld) {
+    const want = Math.atan2(dx, -dz);
+    facing += Math.atan2(Math.sin(want - facing), Math.cos(want - facing)) * Math.min(1, dt * 10);
   }
 
   stamina = wantRun
@@ -762,9 +817,11 @@ function updatePlayer(dt: number) {
   }
 
   invuln = Math.max(0, invuln - dt);
+  // The body follows the aim smoothly; gameplay facing stays exact for hits and shots.
+  bodyYaw += Math.atan2(Math.sin(facing - bodyYaw), Math.cos(facing - bodyYaw)) * Math.min(1, dt * (action === 'none' ? 14 : 24));
   if (playerRoot) {
     playerRoot.position.set(px, py, -pz);
-    playerRoot.rotation.y = facing;
+    playerRoot.rotation.y = bodyYaw;
   }
   if (torch) torch.visible = lightOn;
   if (halo) halo.visible = lightOn;
@@ -773,87 +830,60 @@ function updatePlayer(dt: number) {
   if(playerRoot)playerRoot.position.set(px,py,-pz);
 }
 
-let visualMove = 0, breathPhase = 0;
+/** Gameplay action clock first (hits, shove, throw), then the mannequin pose. */
 function animateRig(dt: number, speed: number) {
   if (!rig) return;
-  const { legL, legR, armL, armR, torso } = rig;
   comboWindow = Math.max(0, comboWindow - dt);
-  resetRigJoints(rig);
-  const targetMove = Math.min(1, speed / RUN_SPEED);
-  visualMove += (targetMove - visualMove) * (1 - Math.exp(-14 * dt));
-  breathPhase += dt * 1.8;
-  const moving = visualMove > .008;
-  const amp = visualMove;
-  const gaitWeight = Math.min(1, visualMove / .18);
-
-  const swingAmt = moving ? Math.sin(walkPhase) * (0.42 + amp * 0.55) * gaitWeight : 0;
-  legL.rotation.x = swingAmt;
-  legR.rotation.x = -swingAmt;
-  armL.rotation.x = moving ? -swingAmt * 0.75 : -0.12;
-  armR.rotation.x = moving ? swingAmt * 0.55 : -0.12;
-  armL.rotation.z = -0.05;
-  armR.rotation.z = 0.05;
-  torso.rotation.set(.12 * amp + Math.sin(breathPhase) * .012,
-    Math.sin(walkPhase) * .065 * gaitWeight, Math.sin(walkPhase) * .025 * gaitWeight);
-  rig.body.position.y = Math.cos(walkPhase * 2) * .018 * gaitWeight;
-  rig.body.position.x = Math.sin(walkPhase) * .012 * gaitWeight;
-
-  if(!unarmedStance&&arsenal.equipped){armR.rotation.set(-Math.PI/2,0,0);armL.rotation.x=WEAPONS[arsenal.equipped].category==='rifle'?-1.1:-.2;}
-  if(!unarmedStance&&survivorSystems.hands.secondary==='qsz92-9')armL.rotation.set(-Math.PI/2,0,0);
-  if (!grounded) {
-    legL.rotation.x = -0.55; legR.rotation.x = 0.35;
-    armL.rotation.x = -0.8; armR.rotation.x = -0.6;
-    torso.rotation.x = 0.12;
-  }
-  applyLocomotionJoints(rig, walkPhase, moving, grounded);
-  if (grounded) {
-    rig.kneeL.rotation.x *= gaitWeight; rig.kneeR.rotation.x *= gaitWeight;
-    rig.elbowL.rotation.x *= gaitWeight; rig.elbowR.rotation.x *= gaitWeight;
-  }
-  if (!unarmedStance&&arsenal.equipped) rig.elbowR.rotation.x = 0;
-  if(!unarmedStance&&survivorSystems.hands.secondary==='qsz92-9')rig.elbowL.rotation.x=0;
-
+  let progress = -1;
   if (action !== 'none') {
     const previousT = actionT;
     const held = action === 'swing' ? Math.min(dt, impactPause) : 0;
     impactPause = Math.max(0, impactPause - dt);
     actionT += dt - held;
     const t = Math.min(1, actionT / actionDur);
+    progress = t;
     if (action === 'swing') {
-      applyMeleePose(rig, meleePose(currentSwingProfile().kind, t, swingHand, swingStroke), swingHand);
       const swept = sweptMeleeAngle(currentSwingProfile().kind, previousT / actionDur, t, swingHand, swingStroke);
       if (swept) meleeHit(swept.from, swept.to);
     } else if(action==='shove'){
-      applyShovePose(rig,shovePose(t));
       if(!actionFired&&t>=.22){actionFired=true;applyShoveImpact();}
       const retreat=(q:number)=>Math.max(0,Math.min(1,(q-.35)/.65));
       const distance=.45*(retreat(t)-retreat(previousT/actionDur));
       if(distance>0){const moved=sweepMove(px,pz,-Math.sin(shoveFacing)*distance,Math.cos(shoveFacing)*distance,.36,(x,z,r)=>x<bounds.minX-8||x>bounds.maxX+8||z<bounds.minY-8||z>bounds.maxY+8||collides(x,z,r));px=moved.x;pz=moved.z;}
-    } else if(action==='shoot'){
-      (shootHand==='right'?armR:armL).rotation.set(-Math.PI/2-.09*Math.sin(t*Math.PI),0,0);
-      torso.rotation.y=0;torso.rotation.x=0;
     } else if (action === 'throw') {
-      const k = t < 0.45 ? t / 0.45 : 1 - (t - 0.45) / 0.55;
-      armR.rotation.x = -1.6 * k;
-      armR.rotation.z = -0.3 * k;
-      torso.rotation.y = 0.35 * k;
-      applyThrowJoints(rig, t);
-      if (actionFired) { armR.rotation.x = -0.9; }
       if (!actionFired && t >= 0.45) { actionFired = true; throwBrick(); }
-    } else if (action === 'loot') {
-      torso.rotation.x = 0.55;
-      armR.rotation.x = 1.15;
-      armL.rotation.x = 1.0;
-      legL.rotation.x = -0.25; legR.rotation.x = 0.2;
-    }
-    if (actionT >= actionDur) {
-      if (action === 'swing') comboWindow = 0.32;
-      const nextHand = bufferedHand; bufferedHand = null;
-      action = 'none'; actionT = 0; actionFired = false;
-      torso.rotation.y = 0;
-      if (nextHand) startSwing(nextHand);
     }
   }
+  poseSurvivor(dt, speed, progress);
+  if (action !== 'none' && actionT >= actionDur) {
+    if (action === 'swing') comboWindow = 0.32;
+    const nextHand = bufferedHand; bufferedHand = null;
+    action = 'none'; actionT = 0; actionFired = false;
+    if (nextHand) startSwing(nextHand);
+  }
+}
+
+/** Visual only: map the survivor's state onto the shared DefendTaipei animator. Never changes hits or timing. */
+function poseSurvivor(dt: number, speed: number, progress: number) {
+  if (!rig) return;
+  const gunHand: MeleeHand | null = unarmedStance ? null : arsenal.equipped ? 'right' : survivorSystems.hands.secondary === 'qsz92-9' ? 'left' : null;
+  rig.weaponKind = gunHand ? (arsenal.equipped && WEAPONS[arsenal.equipped].category === 'rifle' ? 'rifle' : 'pistol') : '';
+  rig.aimHand = action === 'shoot' ? shootHand : gunHand ?? 'right';
+  let state: AnimState = action === 'loot' ? 'loot' : sneaking ? 'sneak' : speed > 3.5 ? 'run' : speed > .15 ? 'walk' : 'idle';
+  if (gunHand && action !== 'loot' && (speed <= 3.6 || action === 'shoot')) state = 'aim';
+  rig.actQ = -1;
+  if (action === 'swing' && progress >= 0) {
+    const kind: MeleeKind = currentSwingProfile().kind, p = MELEE_PROFILES[kind];
+    rig.actQ = progress;
+    rig.actVar = kind === 'unarmed' ? (swingStroke ? 5 : 4) : swingStroke ? 9 : 8;
+    rig.actMirror = swingHand === 'left';
+    rig.actKeys = [Math.max(.1, p.activeStart - .05), (p.activeStart + p.activeEnd) / 2, p.activeEnd];
+  } else if (action === 'throw' && progress >= 0) {
+    rig.actQ = progress; rig.actVar = 6; rig.actMirror = false; rig.actKeys = [.3, .45, .6];
+  }
+  rig.shoveQ = action === 'shove' ? progress : -1;
+  rig.air = !grounded;
+  animateHuman(rig, state, speed, dt);
 }
 
 // At most two bounded searches per frame; movement always sweeps real collision.
@@ -872,36 +902,35 @@ function steerEnemy(zb:Zombie, tx:number, tz:number, speed:number, dt:number) {
   const step=Math.min(speed*dt,d);
   const moved=sweepMove(zb.x,zb.z,dx/d*step,dz/d*step,.34,collides);
   zb.walk+=Math.hypot(moved.x-zb.x,moved.z-zb.z)*4;
-  if(Math.hypot(moved.x-zb.x,moved.z-zb.z)>.001)zb.mesh.rotation.y=Math.atan2(moved.x-zb.x,-(moved.z-zb.z));
+  if(Math.hypot(moved.x-zb.x,moved.z-zb.z)>.001)zb.yaw=Math.atan2(moved.x-zb.x,-(moved.z-zb.z));
   zb.x=moved.x;zb.z=moved.z;
   if(moved.blocked){zb.path=[];zb.pathTimer=0;}
 }
 function updateZombies(dt: number) {
   navigationBudget=2;
   for (const zb of zombies) {
+    stepEnemy(zb, dt);
+    poseEnemy(zb, dt);
+  }
+  syncEyes();
+}
+
+/** Gameplay only: senses, steering and attacks. */
+function stepEnemy(zb: Zombie, dt: number) {
     if (zb.state === 'dead') {
+      zb.flashT = Math.max(0, zb.flashT - dt);
       if((zb.deathT??0)>0){
         zb.deathT=Math.max(0,zb.deathT!-dt);
-        const t=1-zb.deathT/.48,ease=t*t*(3-2*t);
-        zb.mesh.rotation.x=-Math.PI*.48*ease;
-        zb.mesh.rotation.z=(zb.hitSide??0)*.16*ease;
-        zb.mesh.position.set(zb.x,-.16*ease,-zb.z);
         if(zb.deathT===0)zb.mesh.visible=false;
       }
-      continue;
+      return;
     }
     zb.pathTimer=Math.max(0,zb.pathTimer-dt);
     zb.retreat=Math.max(0,zb.retreat-dt);
     zb.flashT = Math.max(0, zb.flashT - dt);
     // Contact-only transient recoil. No RNG or save fields; the footprint remains collidable.
     zb.hitReact=Math.max(0,(zb.hitReact??0)-dt);
-    const recoil=Math.sin(Math.PI*zb.hitReact/.24);
-    zb.mesh.rotation.x=-Math.sin(Math.PI*zb.flashT/.12)*.22-recoil*.2;
-    zb.mesh.rotation.z=recoil*(zb.hitSide??0)*.16;
-    (zb.mesh.material as THREE.MeshStandardMaterial).color.setHex(zb.flashT > 0 ? 0xa33a2a : zb.faction.color);
-
-    zb.chest.rotation.x=.1;
-    if(zb.hitReact>0){zb.mesh.position.set(zb.x,0,-zb.z);zb.chest.rotation.x=-recoil*.28;continue;}
+    if(zb.hitReact>0)return; // stunned while the flinch plays
     const dx = px - zb.x, dz = pz - zb.z;
     const dist = Math.hypot(dx, dz);
 
@@ -912,13 +941,12 @@ function updateZombies(dt: number) {
         const sense = (lightOn ? SENSE_LIGHT : SENSE_DARK) * (sneaking ? 0.6 : 1) * (mode==='sandbox' && zb.faction.id==='infected' && dayPhase(elapsed).daylight<.25 ? 1.35 : 1);
         if (dist < sense && canSee(zb.x, zb.z, px, pz)) wake(zb);
       }
-      zb.mesh.position.set(zb.x, 0, -zb.z);
-      continue;
+      return;
     }
 
     if (zb.state === 'chase') {
       const visible=dist<=44 && canSee(zb.x,zb.z,px,pz);
-      if(visible){zb.lastX=px;zb.lastZ=pz;zb.mesh.rotation.y=Math.atan2(dx,-dz);}
+      if(visible){zb.lastX=px;zb.lastZ=pz;zb.yaw=Math.atan2(dx,-dz);}
       const decision=decideEncounterBehavior({faction:zb.faction.id,distance:dist,
         homeDistance:Math.hypot(zb.x-zb.hx,zb.z-zb.hz),visible,
         lostSeconds:zb.lose,carryingStolenItem:zb.retreat>0,dt});
@@ -926,7 +954,7 @@ function updateZombies(dt: number) {
       if(decision.action!=='chase'){
         zb.state='wander';zb.returning=true;zb.wx=zb.hx;zb.wz=zb.hz;zb.path=[];zb.pathTimer=0;
         zb.retreat=Math.max(zb.retreat,4);zb.warning=0;
-        continue;
+        return;
       }
 
       if (!visible || dist > zb.faction.range * 0.8) {
@@ -948,6 +976,8 @@ function updateZombies(dt: number) {
         if (zb.faction.id === 'military') makeNoise(zb.x, zb.z, 45);
         invuln = 1.3;
         camShake = 0.6;
+        enemyStrike(zb);
+        if (rig) { rig.hurtT = .35; rig.hurtSide = Math.sin(Math.atan2(zb.x-px,-(zb.z-pz))-bodyYaw) < 0 ? -1 : 1; }
         el.hurt.style.opacity = '0.85';
         setTimeout(() => { if (hp >= 35) el.hurt.style.opacity = ''; }, 190);
         if (hp <= 0) lose();
@@ -967,26 +997,41 @@ function updateZombies(dt: number) {
       }
       if (zb.retreat<=0 && dist < (lightOn?SENSE_LIGHT:SENSE_DARK)*(sneaking?.6:1) && canSee(zb.x, zb.z, px, pz)) wake(zb);
     }
+}
 
-    zb.mesh.position.set(zb.x, 0, -zb.z);
-    const sw = Math.sin(zb.walk + zb.phase);
-    zb.chest.rotation.x = 0.1 + sw * 0.07;
-    zb.hips.rotation.z = sw * 0.06;
-    zb.head.rotation.x = -0.12;
-  }
-  syncEyes();
+let enemyCullRadius = 60;
+/** Visual only: place, turn and animate the enemy mannequin. Far enemies are hidden and skip animation. */
+function poseEnemy(zb: Zombie, dt: number) {
+  const { mesh, rig: r } = zb;
+  if (!mesh.visible) return;
+  const dist = Math.hypot(zb.x - px, zb.z - pz);
+  const near = dist < enemyCullRadius;
+  if (near !== zb.near) { zb.near = near; r.root.visible = near; mesh.matrixWorldAutoUpdate = near; }
+  // Gameplay steps are instantaneous; the legs follow a smoothed speed from the real displacement.
+  const moved = dt > 0 ? Math.hypot(zb.x - zb.visX, zb.z - zb.visZ) / dt : 0;
+  zb.visX = zb.x; zb.visZ = zb.z;
+  zb.visSpeed += (Math.min(moved, 6) - zb.visSpeed) * Math.min(1, dt * 8);
+  mesh.position.set(zb.x, zb.state === 'dead' ? -Math.max(0, .5 - (zb.deathT ?? 0)) * .6 : 0, -zb.z);
+  if (!near) return;
+  const ry = r.root.rotation.y;
+  r.root.rotation.y = ry + Math.atan2(Math.sin(zb.yaw - ry), Math.cos(zb.yaw - ry)) * Math.min(1, dt * 8);
+  const flashing = zb.flashT > 0;
+  if (flashing !== zb.flashed) { zb.flashed = flashing; r.meshes.forEach((m, i) => { m.material = flashing ? enemyFlashMat : zb.baseMats[i]; }); }
+  if (zb.state === 'dead') { animateHuman(r, 'death', 0, dt); return; }
+  r.reach = zb.state === 'chase';
+  const aiming = zb.faction.id === 'military' && zb.state === 'chase' && (zb.warning > 0 || dist < zb.faction.range);
+  const s = zb.visSpeed;
+  animateHuman(r, aiming ? 'aim' : s > 2.9 ? 'run' : s > .2 ? 'walk' : 'idle', s, dt);
 }
 
 function syncEyes() {
   let n = 0;
   for (const zb of zombies) {
-    if (zb.state === 'dead') continue;
-    const c = Math.cos(zb.mesh.rotation.y), s = Math.sin(zb.mesh.rotation.y);
+    if (zb.state === 'dead' || !zb.mesh.visible || !zb.near) continue;
+    zb.rig.head.updateWorldMatrix(true, false);
     const color = zb.state === 'chase' ? 0xff4a2a : zb.state === 'wander' ? 0x7a8f5e : 0x3f5a44;
     for (let e = 0; e < 2; e++) {
-      const lx = e === 0 ? -0.11 : 0.11;
-      const lz = 0.21;
-      eyeDummy.position.set(zb.x + lx * c + lz * s, 1.58, -zb.z - lx * s + lz * c);
+      eyeDummy.position.copy(eyeOffsets[e]).applyMatrix4(zb.rig.head.matrixWorld);
       eyeDummy.updateMatrix();
       eyeMesh.setMatrixAt(n * 2 + e, eyeDummy.matrix);
       eyeMesh.setColorAt(n * 2 + e, eyeColor.setHex(color));
@@ -1273,7 +1318,7 @@ function resetWorld() {
   px = block.spawn[0];
   pz = block.spawn[1];
   py = 0; vy = 0; grounded = true;
-  facing = Math.PI;
+  facing = Math.PI; bodyYaw = facing; velX = 0; velZ = 0;
   const plan=planEncounters({count:zombies.length,spawn:{x:px,z:pz},bounds,roads:block.roads??[],collides,insideBuilding});
   if(plan.placements.some(p=>!p))throw new Error('街區缺少安全敵人布點，無法開始；既有存檔未改動。');
   zombies.forEach((zb,i)=>{
@@ -1281,11 +1326,11 @@ function resetWorld() {
     zb.x=zb.hx=spot.x;zb.z=zb.hz=spot.z;
     zb.patrolX=spot.patrol?.x??spot.x;zb.patrolZ=spot.patrol?.z??spot.z;
     zb.state=zb.faction.id==='military'||zb.faction.id==='police'?'wander':'sleep';
-    zb.deathT=0;zb.hitReact=0;zb.hitSide=0;zb.mesh.rotation.x=0;zb.mesh.rotation.z=0;
+    zb.deathT=0;zb.hitReact=0;zb.hitSide=0;
     zb.think=Math.random()*.35;zb.attackCd=0;zb.warning=0;zb.lose=0;
     zb.path=[];zb.pathTimer=0;zb.retreat=0;zb.returning=false;zb.lastX=zb.x;zb.lastZ=zb.z;
     zb.wx=zb.patrolX;zb.wz=zb.patrolZ;zb.hp=100;
-    zb.mesh.visible=true;zb.mesh.position.set(zb.x,0,-zb.z);
+    zb.mesh.visible=true;zb.mesh.position.set(zb.x,0,-zb.z);resetEnemyPose(zb);
   });
   for (let i = 0; i < MAX_ZOMBIES * 2; i++) eyeMesh.setColorAt(i, eyeColor.setHex(0x3f5a44));
   syncEyes();
@@ -1510,13 +1555,12 @@ function restoreCampaign(s:Snapshot) {
   containers.filter(c=>c.roomId).forEach(c=>{c.looted=s.interiorLoot?.[c.roomId!]===true;paintContainer(c);});
   s.enemies.forEach((z,i)=>{
     const enemy=zombies[i],home=z.home??[z.x,z.z],patrol=z.patrol??home;
-    enemy.mesh.rotation.x=0;enemy.mesh.rotation.z=0;
     Object.assign(enemy,z,{deathT:0,hitReact:0,hitSide:0,faction:profileFor(i),hx:home[0],hz:home[1],patrolX:patrol[0],patrolZ:patrol[1],
       wx:patrol[0],wz:patrol[1],lastX:z.lastKnown?.[0]??z.x,lastZ:z.lastKnown?.[1]??z.z,path:[],pathTimer:0,returning:z.returning??false,retreat:z.retreat??0});
     if(z.state==='chase'&&!z.lastKnown){enemy.state='wander';enemy.returning=true;}
     if(enemy.returning){enemy.wx=enemy.hx;enemy.wz=enemy.hz;}
     // Legacy positions, HP and deaths are preserved; no teleport or respawn on upgrade.
-    enemy.mesh.visible=z.state!=='dead';enemy.mesh.position.set(z.x,0,-z.z);
+    enemy.mesh.visible=z.state!=='dead';enemy.mesh.position.set(z.x,0,-z.z);resetEnemyPose(enemy);
   });
   if(inShelter&&shelter)[px,pz]=shelter.inside;
   if(playerRoot)playerRoot.position.set(px,0,-pz);syncEyes();updateDaylight();
@@ -1589,7 +1633,7 @@ function updateDaylight() {
   if(scene.fog instanceof THREE.Fog){scene.fog.color.setHex(profile.sky);scene.fog.near=profile.fogNear;scene.fog.far=profile.fogFar;}
 }
 
-function clearControlState(){bufferedHand=null;comboWindow=0;impactPause=0;keys.clear();attackHeld=false;touchActionHeld=false;action='none';lootTarget=null;lootProgress=0;setRing(0);el.prompt.classList.remove('on');}
+function clearControlState(){velX=0;velZ=0;bufferedHand=null;comboWindow=0;impactPause=0;keys.clear();attackHeld=false;touchActionHeld=false;action='none';lootTarget=null;lootProgress=0;setRing(0);el.prompt.classList.remove('on');}
 function enterShelter() {
   if(!shelter||mode!=='sandbox')return;
   const chasing=zombies.some(z=>z.state!=='dead'&&Math.hypot(z.x-px,z.z-pz)<6&&canSee(px,pz,z.x,z.z));
@@ -1695,6 +1739,8 @@ function frame(dt: number) {
     saveTimer += dt; if(saveTimer>=3) {saveTimer=0;persistCampaign();}
     if (mode==='quick' && phase === 'play' && timeLeft <= 0) lose('錯過接應窗口，街區通道已封閉。');
   }
+  // The survivor collapses behind the result card instead of freezing mid-stride.
+  if (phase === 'lose' && rig && rig.deadT < 1) animateHuman(rig, 'death', 0, dt);
 
   if (paused || bagOpen || inShelter || helperOpen) updateHud();
   if(shelterLamp)shelterLamp.visible=inShelter;
@@ -1887,7 +1933,7 @@ fetch(dataUrl)
           releaseGameplayInput(); mouseAimActive = false;
           // Isolated debug sparring: remove unrelated threats, never mutate normal sessions.
           for(const other of zombies.slice(1)){other.state='dead';other.hp=0;other.mesh.visible=false;}
-          for (let i=0;i<32;i++) { const a=i*Math.PI/16,x=px+Math.sin(a)*distance,z=pz-Math.cos(a)*distance; if(collides(x,z,.34)||!canSee(px,pz,x,z))continue; facing=a; const zb=zombies[0]; zb.x=x;zb.z=z;zb.hp=targetHealth;zb.state='chase';zb.think=60;zb.attackCd=60;zb.lose=0;zb.flashT=0;zb.deathT=0;zb.hitReact=0;zb.hitSide=0;zb.mesh.visible=true;zb.mesh.rotation.set(0,a,0);return true; } return false;
+          for (let i=0;i<32;i++) { const a=i*Math.PI/16,x=px+Math.sin(a)*distance,z=pz-Math.cos(a)*distance; if(collides(x,z,.34)||!canSee(px,pz,x,z))continue; facing=a; const zb=zombies[0]; zb.x=x;zb.z=z;zb.hp=targetHealth;zb.state='chase';zb.think=60;zb.attackCd=60;zb.lose=0;zb.flashT=0;zb.deathT=0;zb.hitReact=0;zb.hitSide=0;zb.mesh.visible=true;zb.yaw=a+Math.PI;resetEnemyPose(zb);return true; } return false;
         },
         // Debug observation only: a bounded route suggestion, never moves a player or edits the world.
         navigationProbe: (tx:number,tz:number) => findLocalPath(px,pz,tx,tz,(x,z,r)=>collides(x,z,Math.max(.36,r??.36)),500),

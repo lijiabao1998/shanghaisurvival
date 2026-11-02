@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { stripTypeScriptTypes } from 'node:module';
 import * as THREE from 'three';
 import * as motion from '../src/melee-motion.ts';
-import * as rigMotion from '../src/rig-motion.ts';
+import { animate as animateHuman, cloneRig, makeRig } from '../src/human.ts';
 import * as combat from '../src/combat.ts';
 import { TOOL_COMBAT, isMeleeTool } from '../src/melee-tools.ts';
 import { buildRig, ROSTER } from '../src/characters.ts';
@@ -19,12 +19,13 @@ function extract(name, text=source) {
   while(depth&&end<text.length){if(text[end]==='{')depth++;if(text[end]==='}')depth--;end++;}
   assert.equal(depth,0);return stripTypeScriptTypes(text.slice(start,end));
 }
-const helpers=['currentSwingProfile','canSee','forwardXZ','startSwing','meleeHit','shove','applyShoveImpact','animateRig','dispatchHandAttack','setUnarmedStance','releaseGameplayInput'];
+const helpers=['currentSwingProfile','canSee','forwardXZ','startSwing','meleeHit','enemyFlinch','shove','applyShoveImpact','animateRig','poseSurvivor','dispatchHandAttack','setUnarmedStance','releaseGameplayInput'];
 function runtime(extra={}, text=source) {
   const hits=[],shots=[],noise=[];
   const arsenal=createLegacyArsenal(false,0);
   const math=Object.create(Math);math.random=()=>{throw Error('combat must not consume nondeterministic random');};
-  const c=vm.createContext({THREE,Math:math,...motion,...rigMotion,...combat,TOOL_COMBAT,isMeleeTool,WEAPONS,carriedWeight,loadEffects,
+  const c=vm.createContext({THREE,Math:math,...motion,animateHuman,...combat,TOOL_COMBAT,isMeleeTool,WEAPONS,carriedWeight,loadEffects,
+    sneaking:false,shootHand:'right',velX:0,velZ:0,bodyYaw:0,enemyCullRadius:60,enemyFlashMat:new THREE.MeshBasicMaterial(),
     arsenal,survivorSystems:createSurvivorSystems(arsenal),inventory:emptyInventory(),rig:buildRig(ROSTER[0]),
     unarmedStance:false,swingTool:'pipe',swingHand:'right',swingStroke:0,swingCount:0,swingHits:new Set(),
     action:'none',actionT:0,actionDur:0,actionFired:false,comboWindow:0,impactPause:0,bufferedHand:null,
@@ -32,14 +33,18 @@ function runtime(extra={}, text=source) {
     phase:'play',paused:false,bagOpen:false,inShelter:false,helperOpen:false,
     HEAR_SWING:1,makeNoise:(...args)=>noise.push(args),damageZombie(z,damage){hits.push(z);z.hp-=damage;},fire:(...args)=>shots.push(args),
     updateWeaponVisual(){},updateBag(){},flashHint(){},weapon:null,offhandWeapon:null,
-    visualMove:0,breathPhase:0,walkPhase:0,RUN_SPEED:5.9,grounded:true,throwBrick(){},
+    RUN_SPEED:5.9,grounded:true,throwBrick(){},
     keys:new Set(),attackHeld:false,touchActionHeld:false,lootProgress:0,setRing(){},
     ...extra});
   for(const name of helpers)vm.runInContext(extract(name,text),c);
   return {c,hits,shots,noise};
 }
+// Real enemy body: a mannequin cloned from one template, inside the outer position/visibility group.
+const enemyTemplate=makeRig({gender:'m',hair:0x222222,top:0x777777,bottom:0x333333,shoes:0x111111,height:1.72});
+const enemyBody=()=>{const rig=cloneRig(enemyTemplate),mesh=new THREE.Group();mesh.add(rig.root);
+  return {mesh,rig,baseMats:rig.meshes.map(m=>m.material),yaw:0,visSpeed:0,visX:0,visZ:0,near:true,flashed:false};};
 const target=(angle=0,d=.85)=>({x:Math.sin(angle)*d,z:-Math.cos(angle)*d,state:'chase',hp:100,attackCd:0,warning:1,
-  mesh:new THREE.Mesh(new THREE.BoxGeometry(1,1,1),new THREE.MeshStandardMaterial()),chest:new THREE.Bone(),head:new THREE.Bone(),hips:new THREE.Bone(),flashT:0});
+  ...enemyBody(),faction:{id:'infected',color:0x777777,range:1.3},flashT:0});
 const advance=(c,seconds,step=.01)=>{for(let t=0;t<seconds-1e-9;t+=step)c.animateRig(Math.min(step,seconds-t),0);};
 let count=0;function test(name,fn){fn();count++;console.log(`PASS ${name}`);}
 
@@ -54,9 +59,10 @@ test('fine steps and one coarse step have equal punch damage, no repeated hit',(
 test('empty swing and wall-blocked punch have no impact pause or reaction',()=>{
  for(const blocked of [false,true]){const {c,hits}=runtime({unarmedStance:true,collides:blocked?(_x,z,r)=>z<-.4+r:()=>false});const z=target();if(blocked)c.zombies=[z];c.startSwing();c.animateRig(.2,0);assert.equal(hits.length,0);assert.equal(c.impactPause,0);assert.equal(c.camShake,0);assert.equal(z.hp,100);}
 });
-test('actual punch contact retains exactly 35ms hitstop',()=>{
- const {c}=runtime({unarmedStance:true});c.zombies=[target()];c.startSwing();c.animateRig(.16,0);assert.equal(c.impactPause,.035);
- const before=c.actionT;c.animateRig(.02,0);assert.equal(c.actionT,before);c.animateRig(.02,0);assert.ok(Math.abs(c.actionT-before-.005)<1e-9);
+test('actual punch contact retains exactly 70ms hitstop (DefendTaipei) and freezes the target',()=>{
+ const {c}=runtime({unarmedStance:true});const z=target();c.zombies=[z];c.startSwing();c.animateRig(.16,0);assert.equal(c.impactPause,.07);
+ assert.ok(z.rig.freeze>0,'target holds its pose (the attacker hold is consumed within this long step)');assert.ok(z.rig.hurtT>0,'target flinches');
+ const before=c.actionT;c.animateRig(.05,0);assert.equal(c.actionT,before);c.animateRig(.03,0);assert.ok(Math.abs(c.actionT-before-.01)<1e-9);
 });
 test('low stamina and early spam cannot produce free attacks',()=>{
  const {c}=runtime({unarmedStance:true,stamina:5});c.startSwing();assert.equal(c.action,'none');assert.equal(c.stamina,5);
@@ -85,7 +91,7 @@ test('existing pipe/cleaver damage, and wrench independent timing, remain playab
  }
 });
 test('all twelve real rigs produce finite punch poses without changing roster identities',()=>{
- assert.equal(ROSTER.length,12);for(const spec of ROSTER){const {c}=runtime({unarmedStance:true,rig:buildRig(spec)});c.startSwing('left');advance(c,.18);c.rig.group?.updateMatrixWorld(true);for(const joint of ['armL','armR','elbowL','elbowR','kneeL','kneeR','torso','body']){assert.ok(c.rig[joint].position.toArray().every(Number.isFinite));assert.ok(c.rig[joint].rotation.toArray().slice(0,3).every(Number.isFinite));}}
+ assert.equal(ROSTER.length,12);for(const spec of ROSTER){const {c}=runtime({unarmedStance:true,rig:buildRig(spec)});c.startSwing('left');advance(c,.18);c.rig.group?.updateMatrixWorld(true);for(const joint of ['uaL','uaR','laL','laR','thL','thR','shL','shR','hips','spine','chest','body']){assert.ok(c.rig[joint].position.toArray().every(Number.isFinite));assert.ok(c.rig[joint].rotation.toArray().slice(0,3).every(Number.isFinite));}}
 });
 test('shove winds up, pushes only front once, then retreats without damage',()=>{
  const {c,hits,noise}=runtime();const front=target(),back=target(Math.PI),side=target(Math.PI/2);c.zombies=[front,back,side];c.shove();assert.equal(c.action,'shove');assert.equal(c.stamina,90);c.shove();assert.equal(c.stamina,90);
@@ -114,18 +120,22 @@ test('actual player low-FPS combat step cannot tunnel a thin wall and retains sl
   collides:(x,_z,r)=>Math.abs(x+.5)<r+.01});vm.runInContext(extract('updatePlayer'),c);c.startSwing();c.updatePlayer(1);assert.ok(c.px>-.5+.36);assert.ok(c.pz>.3);assert.equal(c.facing,0);
 });
 test('real enemy hit reaction blocks AI during recoil and clears pose afterwards',()=>{
- const {c}=runtime({navigationBudget:0,syncEyes(){},mode:'quick',lightOn:false,sneaking:false,SENSE_DARK:10,SENSE_LIGHT:20});vm.runInContext(extract('updateZombies'),c);
- const z=target();Object.assign(z,{state:'sleep',think:100,hitReact:.24,hitSide:1,pathTimer:0,retreat:0,faction:{color:0x777777},walk:0,phase:0});c.zombies=[z];const before=[z.x,z.z];c.updateZombies(.12);assert.deepEqual([z.x,z.z],before);assert.ok(z.chest.rotation.x<0);assert.ok(z.mesh.rotation.z>0);assert.equal(z.think,100);
- c.updateZombies(.13);assert.equal(z.hitReact,0);assert.equal(z.mesh.rotation.z,0);assert.ok(z.chest.rotation.x>=0,'expired recoil must not leave sleeping enemy permanently bent');
+ const {c}=runtime({navigationBudget:0,syncEyes(){},mode:'quick',lightOn:false,sneaking:false,SENSE_DARK:10,SENSE_LIGHT:20});for(const name of ['updateZombies','stepEnemy','poseEnemy'])vm.runInContext(extract(name),c);
+ const z=target();Object.assign(z,{state:'sleep',think:100,hitReact:.24,hitSide:1,pathTimer:0,retreat:0,faction:{color:0x777777},walk:0,phase:0});c.zombies=[z];const before=[z.x,z.z];
+ c.enemyFlinch(z);for(let i=0;i<6;i++)c.updateZombies(.02);
+ assert.deepEqual([z.x,z.z],before);assert.ok(z.rig.hurtT>0);assert.ok(z.rig.spine.rotation.x<0,'flinch leans the torso back');assert.equal(z.think,100);
+ for(let i=0;i<40;i++)c.updateZombies(.02);assert.equal(z.hitReact,0);assert.equal(z.rig.hurtT,0);
+ assert.ok(z.rig.spine.rotation.x>-.02,'expired recoil must not leave sleeping enemy permanently bent');
 });
 test('lethal contact is immediate once; pooled enemy falls then hides with no saved timer',()=>{
  const {c}=runtime({kills:0,navigationBudget:0,syncEyes(){},wake(){}});
- vm.runInContext(extract('damageZombie'),c);vm.runInContext(extract('updateZombies'),c);
+ for(const name of ['damageZombie','updateZombies','stepEnemy','poseEnemy'])vm.runInContext(extract(name),c);
  const z=target();z.hitSide=1;c.zombies=[z];c.damageZombie(z,100,0,-1,.4);
- assert.equal(z.state,'dead');assert.equal(c.kills,1);assert.equal(z.mesh.visible,true);assert.equal(z.deathT,.48);
+ assert.equal(z.state,'dead');assert.equal(c.kills,1);assert.equal(z.mesh.visible,true);assert.equal(z.deathT,2.4);
  c.damageZombie(z,100,0,-1,.4);assert.equal(c.kills,1);assert.equal(z.hp,0);
- const geometry=z.mesh.geometry,material=z.mesh.material;c.updateZombies(.24);assert.ok(z.mesh.rotation.x<-.5);assert.equal(z.mesh.visible,true);
- c.updateZombies(1);assert.equal(z.deathT,0);assert.equal(z.mesh.visible,false);assert.equal(z.mesh.geometry,geometry);assert.equal(z.mesh.material,material);
+ const geometry=z.rig.meshes[0].geometry,material=z.baseMats[0];c.updateZombies(.24);assert.ok(z.rig.deadT>0);assert.equal(z.mesh.visible,true);
+ c.updateZombies(.6);const fall=Math.abs(z.rig.body.rotation.x)+Math.abs(z.rig.body.rotation.z);assert.ok(fall>1,'body has fallen: '+fall);assert.equal(z.mesh.visible,true);
+ c.updateZombies(3);assert.equal(z.deathT,0);assert.equal(z.mesh.visible,false);assert.equal(z.rig.meshes[0].geometry,geometry);assert.equal(z.rig.meshes[0].material,material,'hit flash ends; shared material restored');
  assert.ok(!extract('snapshotCampaign').includes('deathT'),'transient visual not in save');
 });
 console.log(`${count} melee weight runtime checks passed; no browser launched`);
