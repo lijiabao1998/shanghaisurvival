@@ -34,3 +34,11 @@
 - 手機上的幀率：新人物的網格和材質比舊的方塊多，近距離有十幾個敵人時，請在手機上試玩。
 - 各武器實際握持的角度。
 - 左手持槍和雙持的站姿。
+
+## 改前與改後
+
+同一段腳本、同一角色（老周）逐幀錄製（軟體算圖，畫面時間固定每幀 1/25 秒）。
+
+![鐵管第一擊](screenshots/motion-attack-before-after.png)
+![走路、轉身、跑步](screenshots/motion-walk-before-after.png)
+![敵人包圍](screenshots/motion-enemies-before-after.png)
