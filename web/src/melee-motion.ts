@@ -1,6 +1,8 @@
 /** Deterministic, normalized melee motion. Angles are radians relative to the
- * survivor's forward direction (right is positive); a swing is committed for
- * its whole duration. Left-hand motion mirrors the right-hand trajectory. */
+ * survivor's forward direction, positive toward the rig's local +X, which is the
+ * survivor's anatomical left on the DefendTaipei mannequin (human.ts). A right-hand
+ * stroke therefore opens on the right (negative) and sweeps left: a forehand.
+ * A swing is committed for its whole duration. Left-hand motion mirrors it. */
 export type MeleeKind = 'blade' | 'blunt' | 'wrench' | 'unarmed';
 export type MeleeHand = 'right' | 'left';
 export type MeleePhase = 'windup' | 'active' | 'recovery';
@@ -15,10 +17,10 @@ export type MeleeProfile = {
 
 export const MELEE_PROFILES: Record<MeleeKind, MeleeProfile> = {
   // A diagonal cut, a wider weighted horizontal swing, and a short punch.
-  blade: { duration: 0.55, stamina: 6, activeStart: 0.27, activeEnd: 0.56, startAngle: 0.9, endAngle: -0.75 },
-  blunt: { duration: 0.68, stamina: 6, activeStart: 0.32, activeEnd: 0.62, startAngle: 1.05, endAngle: -0.9 },
-  wrench: { duration: 0.58, stamina: 6, activeStart: 0.29, activeEnd: 0.57, startAngle: 0.85, endAngle: -0.7 },
-  unarmed: { duration: 0.43, stamina: 6, activeStart: 0.24, activeEnd: 0.51, startAngle: 0.24, endAngle: -0.12 },
+  blade: { duration: 0.55, stamina: 6, activeStart: 0.27, activeEnd: 0.56, startAngle: -0.9, endAngle: 0.75 },
+  blunt: { duration: 0.68, stamina: 6, activeStart: 0.32, activeEnd: 0.62, startAngle: -1.05, endAngle: 0.9 },
+  wrench: { duration: 0.58, stamina: 6, activeStart: 0.29, activeEnd: 0.57, startAngle: -0.85, endAngle: 0.7 },
+  unarmed: { duration: 0.43, stamina: 6, activeStart: 0.24, activeEnd: 0.51, startAngle: -0.24, endAngle: 0.12 },
 };
 
 const clamp01 = (x: number) => Math.max(0, Math.min(1, x));

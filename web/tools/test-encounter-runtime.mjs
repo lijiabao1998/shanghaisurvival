@@ -19,7 +19,7 @@ function extract(name) {
   return stripTypeScriptTypes(source.slice(start,end));
 }
 function enemy(overrides={}) {
-  return {x:0,z:0,path:[],pathTimer:0,phase:0,walk:0,state:'sleep',retreat:0,returning:false,mesh:{rotation:{y:0}},...overrides};
+  return {x:0,z:0,path:[],pathTimer:0,phase:0,walk:0,state:'sleep',retreat:0,returning:false,yaw:0,...overrides};
 }
 function runtime(findLocalPath, collides=()=>false) {
   const context=vm.createContext({findLocalPath,collides,sweepMove,navigationBudget:2,px:999,pz:999});
@@ -65,13 +65,12 @@ test('chase updates live target only under visible contact',()=>{
 test('actual hidden chase uses remembered position and does not face hidden player',()=>{
   const z=enemy({state:'chase',hx:0,hz:0,lastX:7,lastZ:8,lose:0,attackCd:0,warning:0,flashT:0,
     faction:{id:'infected',color:0,range:1.3,speed:1.6},
-    mesh:{material:{color:{setHex(){}}},position:{set(){}},rotation:{y:1.25}},
-    chest:{rotation:{}},hips:{rotation:{}},head:{rotation:{}}});
+    yaw:1.25});
   let steered;
   const c=vm.createContext({zombies:[z],px:99,pz:77,navigationBudget:0,canSee:()=>false,
-    decideEncounterBehavior,steerEnemy:(_z,x,z)=>{steered=[x,z];},syncEyes(){}});
-  vm.runInContext(extract('updateZombies'),c);c.updateZombies(.1);
-  assert.deepEqual(steered,[7,8]);assert.equal(z.lastX,7);assert.equal(z.lastZ,8);assert.equal(z.mesh.rotation.y,1.25);
+    decideEncounterBehavior,steerEnemy:(_z,x,z)=>{steered=[x,z];},syncEyes(){},poseEnemy(){}});
+  vm.runInContext(extract('updateZombies')+'\n'+extract('stepEnemy'),c);c.updateZombies(.1);
+  assert.deepEqual(steered,[7,8]);assert.equal(z.lastX,7);assert.equal(z.lastZ,8);assert.equal(z.yaw,1.25);
 });
 test('actual damage cannot break return lock or reveal hidden player position',()=>{
   const c=runtime(()=>[]);c.kills=0;vm.runInContext(extract('damageZombie'),c);
@@ -85,11 +84,11 @@ test('actual restore keeps last-known/return state and migrates old chase safely
     {x:1,z:2,hp:80,state:'chase',faction:'infected'},
     {x:1,z:2,hp:80,state:'wander',faction:'infected',home:[3,4],patrol:[5,6],lastKnown:[7,8],returning:true,retreat:9},
   ]) {
-    const enemy={mesh:{visible:true,rotation:{x:0,z:0},position:{set(){}}}};
+    const enemy={mesh:{visible:true,position:{set(){}}}};
     const c=vm.createContext({elapsed:0,timeLeft:0,NIGHT_SECONDS:480,hp:100,stamina:100,battery:100,
       arsenal:null,survivorSystems:null,migrateSurvivorSystems,structuredClone,createLegacyArsenal,equipWeapon,syncArsenal(){},helperState:{},createHelperState:()=>({}),outbreak:{},inventory:{},stash:{},ammo:0,hasPistol:false,pistolEquipped:false,
       px:999,pz:999,shelter:null,inShelter:false,looted:0,kills:0,restCount:0,containers:[],zombies:[enemy],
-      profileFor:()=>({id:'infected'}),playerRoot:null,syncEyes(){},updateDaylight(){},collides:()=>false});
+      profileFor:()=>({id:'infected'}),playerRoot:null,syncEyes(){},resetEnemyPose(){},updateDaylight(){},collides:()=>false});
     vm.runInContext(extract('restoreCampaign'),c);
     c.restoreCampaign({hasPistol:false,ammo:0,pistolEquipped:false,elapsed:0,hp:100,stamina:100,battery:100,outbreak:{},inventory:{},stash:{},position:[999,999],
       inShelter:false,containers:[],enemies:[saved],looted:0,kills:0,restCount:0});

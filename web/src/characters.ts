@@ -1,12 +1,13 @@
 /** Shanghai roster: twelve playable survivors, six women and six men.
  *
- * Every character is built from boxes around a joint hierarchy, so the same
+ * Every character uses the DefendTaipei mannequin rig (human.ts), so the same
  * procedural animator drives all of them. Nothing here is a scanned asset and
  * no occupation is tied to a real employer: the trades are the ones you would
  * actually meet in an old lane-quarter like 老西門 — a night guard, a delivery
  * rider, a hardware-shop owner, a community nurse, a breakfast-stall keeper.
  */
 import * as THREE from 'three';
+import { makeRig, type Rig, type RigOpts } from './human.ts';
 
 export type CharSpec = {
   id: string;
@@ -64,123 +65,33 @@ export const ROSTER: CharSpec[] = [
     top: 0xe4e2da, bottom: 0x2e3238, accent: 0x1f2124, gear: 'coat' },
 ];
 
-export type Rig = {
-  root: THREE.Group;
-  body: THREE.Group;
-  torso: THREE.Group;
-  head: THREE.Group;
-  armL: THREE.Group;
-  armR: THREE.Group;
-  elbowL: THREE.Group;
-  elbowR: THREE.Group;
-  kneeL: THREE.Group;
-  kneeR: THREE.Group;
-  legL: THREE.Group;
-  legR: THREE.Group;
-};
+export type { Rig } from './human.ts';
 
-const box = (w: number, h: number, d: number, color: number) =>
-  new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color, roughness: 0.92 }));
-
-/** Slide a mesh down from its joint so the group's origin acts as the pivot. */
-const hang = (mesh: THREE.Mesh, y: number, x = 0, z = 0) => {
-  mesh.position.set(x, y, z);
-  return mesh;
-};
+/** Shanghai survivor -> DefendTaipei mannequin rig options. Same colours and occupation cues as before;
+ * the body, joints and animation now come from the shared human.ts animator. */
+export function rigOptions(spec: CharSpec): RigOpts {
+  const sneakers = spec.id === 'student' || spec.id === 'rider';
+  const o: RigOpts = {
+    gender: spec.sex,
+    skin: spec.skin,
+    hair: spec.hair,
+    hairStyle: spec.sex === 'f' ? 'long' : 'short',
+    top: spec.top,
+    bottom: spec.bottom,
+    shoes: spec.gear === 'coat' && spec.sex === 'f' ? 0xf0f0ec : sneakers ? 0xe4e4e0 : 0x2b2724,
+    height: spec.height,
+  };
+  if (spec.gear === 'apron') o.apron = spec.accent;
+  if (spec.gear === 'vest') o.vest = spec.accent;
+  if (spec.gear === 'helmet') o.helmet = spec.top;
+  if (spec.gear === 'bag') o.pack = spec.accent;
+  if (spec.gear === 'cap') o.cap = spec.accent;
+  if (spec.gear === 'coat') o.jacket = o.coat = 0xf1efe8;
+  return o;
+}
 
 export function buildRig(spec: CharSpec): Rig {
-  const h = spec.height;
-  const legLen = h * 0.50;
-  // Hair top is 1.23 head units above the neck. Match declared standing height.
-  const torsoLen = h * (1 - 0.50 - 0.115 * 1.23);
-  const headSize = h * 0.115;
-  const shoulder = h * 0.23 * spec.build;
-  const depth = h * 0.12;
-  const armLen = h * 0.29;
-
-  const root = new THREE.Group();
-  const body = new THREE.Group();
-  root.add(body);
-
-  // Separate lower limbs give the hips and knees independent pivots while
-  // retaining the original standing height and occupation colours.
-  const makeLeg = (side: number) => {
-    const leg = new THREE.Group();
-    leg.position.set(side * shoulder * 0.32, legLen, 0);
-    const upper = legLen * 0.51;
-    const lower = legLen - upper;
-    leg.add(hang(box(shoulder * 0.34, upper, depth * 0.86, spec.bottom), -upper / 2));
-    const knee = new THREE.Group();
-    knee.position.y = -upper;
-    knee.add(hang(box(shoulder * 0.34, lower, depth * 0.86, spec.bottom), -lower / 2));
-    knee.add(hang(box(shoulder * 0.34, h * 0.03, depth * 0.9, 0x23262a), -lower + h * 0.015));
-    leg.add(knee);
-    body.add(leg);
-    return { leg, knee };
-  };
-  const { leg: legL, knee: kneeL } = makeLeg(-1);
-  const { leg: legR, knee: kneeR } = makeLeg(1);
-
-  const torso = new THREE.Group();
-  torso.position.set(0, legLen, 0);
-  torso.add(hang(box(shoulder, torsoLen, depth, spec.top), torsoLen / 2));
-  body.add(torso);
-
-  // Occupation silhouette: a second layer over the torso, never a logo.
-  if (spec.gear === 'apron' || spec.gear === 'coat') {
-    const front = box(shoulder * 0.78, torsoLen * 0.92, depth * 0.16, spec.gear === 'coat' ? 0xf1efe8 : spec.accent);
-    torso.add(hang(front, torsoLen * 0.46, 0, depth * 0.55));
-  } else if (spec.gear === 'vest') {
-    const vest = box(shoulder * 1.04, torsoLen * 0.66, depth * 1.06, spec.accent);
-    vest.material = new THREE.MeshStandardMaterial({ color: spec.accent, roughness: 0.7 });
-    torso.add(hang(vest, torsoLen * 0.42));
-  }
-  if (spec.gear === 'bag') {
-    const bag = box(shoulder * 0.52, torsoLen * 0.6, depth * 0.5, spec.accent);
-    torso.add(hang(bag, torsoLen * 0.5, shoulder * 0.42, -depth * 0.7));
-  }
-
-  const head = new THREE.Group();
-  head.position.set(0, torsoLen, 0);
-  const skull = box(headSize, headSize * 1.05, headSize * 0.92, spec.skin);
-  head.add(hang(skull, headSize * 0.55));
-  // Hair reads from above, which is the angle the game is mostly played at.
-  const hair = box(headSize * 1.06, headSize * 0.42, headSize * 1.0, spec.hair);
-  head.add(hang(hair, headSize * 1.02));
-  for (const side of [-1, 1]) {
-    const eye = box(headSize * 0.16, headSize * 0.12, headSize * 0.06, 0x1a1a1c);
-    eye.position.set(side * headSize * 0.24, headSize * 0.58, headSize * 0.47);
-    head.add(eye);
-  }
-  if (spec.gear === 'helmet') {
-    const helmet = box(headSize * 1.18, headSize * 0.5, headSize * 1.1, 0xe8e4d8);
-    head.add(hang(helmet, headSize * 1.12));
-  }
-  if (spec.gear === 'cap') {
-    const cap = box(headSize * 1.06, headSize * 0.26, headSize * 1.0, spec.accent);
-    head.add(hang(cap, headSize * 1.18));
-    head.add(hang(box(headSize * 0.9, headSize * 0.08, headSize * 0.42, spec.accent), headSize * 1.08, 0, headSize * 0.6));
-  }
-  torso.add(head);
-
-  const makeArm = (side: number) => {
-    const arm = new THREE.Group();
-    arm.position.set(side * shoulder * 0.56, torsoLen * 0.94, 0);
-    const upper = armLen * 0.52;
-    const lower = armLen - upper;
-    arm.add(hang(box(shoulder * 0.26, upper, depth * 0.72, spec.top), -upper / 2));
-    const elbow = new THREE.Group();
-    elbow.position.y = -upper;
-    elbow.add(hang(box(shoulder * 0.26, lower, depth * 0.72, spec.top), -lower / 2));
-    elbow.add(hang(box(shoulder * 0.22, h * 0.055, depth * 0.74, spec.skin), -lower + h * 0.03));
-    arm.add(elbow);
-    return { arm, elbow };
-  };
-  const { arm: armL, elbow: elbowL } = makeArm(-1);
-  const { arm: armR, elbow: elbowR } = makeArm(1);
-  torso.add(armL, armR);
-
-  return { root, body, torso, head, armL, armR, elbowL, elbowR, legL, legR, kneeL, kneeR };
+  return makeRig(rigOptions(spec));
 }
 
 /** A held tool, pivoting from the right hand. */

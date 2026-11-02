@@ -2,7 +2,7 @@
 
 # 上海倖存者上海街區：Three.js 原型
 
-和《保衛台北》一樣採用 Vite、TypeScript 和 Three.js。這是獨立製作的上海原型，並未直接複製台北項目程式碼。
+和《保衛台北》一樣採用 Vite、TypeScript 和 Three.js。人物骨架與動畫（`src/human.ts`、`src/fabric.ts`）直接移植自《保衛台北》，說明見 [docs/taipei-animation-port.md](../docs/taipei-animation-port.md)；其餘為上海原型自製。
 
 ```powershell
 cd web
