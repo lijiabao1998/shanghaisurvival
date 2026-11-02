@@ -2,7 +2,7 @@
 import puppeteer from 'puppeteer-core';
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
-const out=process.env.QA_OUTPUT??'../melee-evidence/browser',url=process.env.QA_URL??'http://127.0.0.1:4194/survival.html?debug=1';
+const out=process.env.QA_OUTPUT??'../melee-evidence/browser',url=process.env.QA_URL??'http://127.0.0.1:4194/?debug=1';
 await mkdir(out,{recursive:true});
 const report={source:process.env.QA_SOURCE_SHA??'local-unrecorded',scope:'real game staged entry, disposable storage, debug-arranged target/health, native keyboard/touch; no production save',devices:[]};
 let browser;

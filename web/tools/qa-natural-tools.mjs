@@ -2,7 +2,7 @@
 import puppeteer from 'puppeteer-core';
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
-const out=process.env.QA_OUTPUT??'evidence/natural-tools',url=process.env.QA_URL??'http://127.0.0.1:4173/survival.html?debug=1';
+const out=process.env.QA_OUTPUT??'evidence/natural-tools',url=process.env.QA_URL??'http://127.0.0.1:4173/?debug=1';
 await mkdir(out,{recursive:true});
 const report={source:process.env.QA_SOURCE_SHA??'unrecorded',natural:{scope:'native desktop controls, read-only route observations; no teleport/grants/AI suppression/time edits',events:[],errors:[]},sparring:[]};
 const delay=ms=>new Promise(r=>setTimeout(r,ms));

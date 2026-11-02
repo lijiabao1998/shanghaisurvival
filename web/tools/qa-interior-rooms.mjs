@@ -4,7 +4,7 @@ import puppeteer from 'puppeteer-core';
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 const out=process.env.QA_OUTPUT??'/tmp/shanghai-interior-evidence';await mkdir(out,{recursive:true});
-const url=process.env.QA_URL??'http://127.0.0.1:4173/survival.html?debug';
+const url=process.env.QA_URL??'http://127.0.0.1:4173/?debug';
 assert.ok(['localhost','127.0.0.1','[::1]'].includes(new URL(url).hostname),'isolated fixtures only');
 const browser=await puppeteer.launch({executablePath:process.env.QA_BROWSER??'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const report={scope:'candidate real input, cardinal world-axis navigation only; isolated entrance-position/dead-enemy fixtures, NOT diagonal coverage or full spawn traversal',commit:process.env.GITHUB_SHA??'local',checks:[],errors:[],fixtures:[]};

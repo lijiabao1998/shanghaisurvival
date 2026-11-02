@@ -28,7 +28,7 @@ jobs:
       - name: Real attack controls and chronological frame evidence
         run: |
           python3 -m http.server 4173 --bind 127.0.0.1 --directory web/dist >/tmp/melee-qa-server.log 2>&1 &
-          QA_URL='http://127.0.0.1:4173/survival.html?debug' QA_OUTPUT="$GITHUB_WORKSPACE/evidence/melee-flow" node web/tools/qa-melee-flow.mjs
+          QA_URL='http://127.0.0.1:4173/?debug' QA_OUTPUT="$GITHUB_WORKSPACE/evidence/melee-flow" node web/tools/qa-melee-flow.mjs
       - name: Build labelled frame sequence previews
         if: always()
         run: |

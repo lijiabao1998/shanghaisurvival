@@ -9,8 +9,9 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: {
+        // The game is the site root; survival.html (public/) only redirects old links here.
         main: entry('./index.html'),
-        survival: entry('./survival.html'),
+        street: entry('./street.html'),
         stress: entry('./stress.html'),
       },
     },

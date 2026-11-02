@@ -5,7 +5,7 @@ import {mkdir,writeFile} from 'node:fs/promises';
 const out=process.env.QA_OUTPUT??'/tmp/shanghai-survivor-evidence';await mkdir(out,{recursive:true});
 const browser=await puppeteer.launch({executablePath:process.env.QA_BROWSER??'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const report={scope:'isolated candidate; not production',commit:process.env.GITHUB_SHA??'local',checks:[],errors:[],fixtures:[]};
-const url=process.env.QA_URL??'http://127.0.0.1:4173/survival.html?debug';
+const url=process.env.QA_URL??'http://127.0.0.1:4173/?debug';
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const state=p=>p.evaluate(()=>window.__modu.state());
 const press=async(p,key)=>{await p.keyboard.press(key);await delay(80);};

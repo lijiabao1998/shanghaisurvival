@@ -7,7 +7,7 @@ import {mkdir,writeFile,readFile} from 'node:fs/promises';
 import {build} from 'esbuild';
 import {fileURLToPath} from 'node:url';
 const out=process.env.QA_OUTPUT??'/tmp/shanghai-street-daynight-evidence';await mkdir(out,{recursive:true});
-const url=process.env.QA_URL??'http://127.0.0.1:4173/survival.html?debug';
+const url=process.env.QA_URL??'http://127.0.0.1:4173/?debug';
 assert.ok(['127.0.0.1','localhost','[::1]'].includes(new URL(url).hostname),'fixtures may run only against local candidate server');
 const browser=await puppeteer.launch({executablePath:process.env.QA_BROWSER??'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const report={scope:'local candidate in fresh isolated browser contexts; no production storage',commit:process.env.GITHUB_SHA??'local',checks:[],fixtures:[],states:{},errors:[],consoleErrors:[],httpErrors:[],requestFailures:[],passed:false};

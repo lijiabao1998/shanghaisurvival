@@ -1,7 +1,7 @@
 /**
  * Headless screenshot for visual checks.
  *
- *   node tools/shoot.mjs "http://127.0.0.1:5173/survival.html?play" ../docs/screenshots/x.png
+ *   node tools/shoot.mjs "http://127.0.0.1:5173/?play" ../docs/screenshots/x.png
  *
  * Options (key=value after the output path):
  *   wait=800       extra settle time in ms before the shot
