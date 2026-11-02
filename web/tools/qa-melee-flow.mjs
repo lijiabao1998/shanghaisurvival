@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 const out=process.env.QA_OUTPUT??'/tmp/melee-flow-evidence';await mkdir(out,{recursive:true});
 const browser=await puppeteer.launch({executablePath:process.env.QA_BROWSER??'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader','--disable-dev-shm-usage']});
-const url=process.env.QA_URL??'http://127.0.0.1:4187/survival.html?debug';
+const url=process.env.QA_URL??'http://127.0.0.1:4187/?debug';
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
 const report={commit:process.env.GITHUB_SHA??'local',scope:'local candidate only, debug-arranged targets; real keyboard and touch attack inputs',checks:[],frames:[],errors:[],fixtures:[]};
 const state=p=>p.evaluate(()=>window.__modu.state());

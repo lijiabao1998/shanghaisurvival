@@ -2,7 +2,7 @@
 
 以上海病毒爆發為背景的城市生存遊戲原型。斜俯視第三人稱、單機、低多邊形風格；畫面呈現參考《保衛台北》。
 
-**線上遊玩：** https://game.lijiabao.uk/shanghaisurvival/survival.html （街區瀏覽原型：https://game.lijiabao.uk/shanghaisurvival/ ）。推到 `main` 會由 GitHub Actions 建置並部署到 GitHub Pages（`.github/workflows/pages.yml`）。
+**線上遊玩：** https://game.lijiabao.uk/shanghaisurvival/ （街區瀏覽原型：https://game.lijiabao.uk/shanghaisurvival/street.html ；舊的 `survival.html` 網址會自動轉到遊戲）。推到 `main` 會由 GitHub Actions 建置並部署到 GitHub Pages（`.github/workflows/pages.yml`）。
 
 > 遊戲以**真實上海街區**為場景；目前已結合 CMAB 建築資料及 OpenStreetMap 道路，製作首個可行走的街區白模。
 > 第三方資料與素材依各自條款記錄來源及使用方式。詳見 [docs/asset-license.md](docs/asset-license.md)。
@@ -15,7 +15,7 @@
 
 沿用真實上海街區與角色／戰鬥，參考《保衛台北》的「城市搜刮—資源壓力—避敵—接應」循環，以病毒爆發下的多方衝突取代台北原劇情；保留軍方、警察與其他倖存者威脅。
 
-- `web/survival.html`：一局 8 分鐘。搜刮至少 3 處，最後 60 秒回出生點綠圈（5m 內），暴露壓力低於 85，按 **E** 撤離；超時失敗，不再到點自動獲勝。
+- `web/index.html`（遊戲首頁）：一局 8 分鐘。搜刮至少 3 處，最後 60 秒回出生點綠圈（5m 內），暴露壓力低於 85，按 **E** 撤離；超時失敗，不再到點自動獲勝。
 - 水分／飽足隨時間消耗；奔跑消耗較快。水與罐頭同時補充需求；耗盡後持續掉血。
 - 感染者在 4m 內且無牆遮擋會增加暴露壓力，拉開距離會下降。醫療包降低該值。**這是虛構風險機制，不是感染率、診斷或治療模型。**
 - **C** 切換潛行，降低移速與被察覺範圍；**Esc** 暫停／繼續。社區廣播按進度交代危機與接應窗口。
@@ -66,14 +66,14 @@
 - [x] 依《保衛台北》技術棧建立 Three.js 街區原型（現行版本）
 - [ ] 評估樣本品質與遊戲適用性，確定最終街區
 - [x] 原型骨架（早期 Godot 版已歸檔，見下）
-- [x] 生存模式候選：8 分鐘快速撤離與持久生存沙盒（`web/survival.html`）
+- [x] 生存模式候選：8 分鐘快速撤離與持久生存沙盒（`web/index.html`）
 - [ ] 完整垂直切片驗收：戰鬥手感、音效、存檔及真實裝置遊玩仍需驗證
 
 初始樣本見 [shanghai_huangpu_250m.json](data/samples/shanghai_huangpu_250m.json)：以 250 × 250 m 視窗選取相交建築，完整保留跨視窗的原始多邊形，故部分建築會超出範圍。來源 SHP 座標系為 EPSG:3857，已轉換為 UTM 51N（EPSG:32651）的局部公尺座標。來源與校驗資訊見 [CMAB 來源](data/sources/cmab-v7/SOURCE.md)。
 
 原始樣本保留高度欄位原值，單位對應尚未獲作者明確證實；白模暫按米解讀，詳見[樓高核對](docs/cmab-height.md)。樣本是推算的屋頂輪廓，與現地地面範圍是否一致尚未驗證。[OSM 道路](data/sources/osm-shanghai-20261029/SOURCE.md)使用同一座標系，路寬是估計值，部分路線與建築輪廓重疊，原因未確認。
 
-可雙擊 [web/start.cmd](web/start.cmd) 啟動網頁原型，或在 `web/` 執行 `npm install` 和 `npm run dev`。WASD 按螢幕方向移動，滑鼠滾輪縮放；門洞、室內及程序生成的店面、招牌、陽台與路邊物件為遊戲示意，並非實景紀錄。新遊戲的室內擴充與舊存檔的相容規則見 [室內候選說明](docs/interior-nine-room-candidate.md)。操作及資料限制見 [web/README.md](web/README.md)。早期 Godot 原型可從 commit `cd32f57` 取回。生存模式在 `web/survival.html`，`web/index.html` 是街區瀏覽原型。
+可雙擊 [web/start.cmd](web/start.cmd) 啟動網頁原型，或在 `web/` 執行 `npm install` 和 `npm run dev`。WASD 按螢幕方向移動，滑鼠滾輪縮放；門洞、室內及程序生成的店面、招牌、陽台與路邊物件為遊戲示意，並非實景紀錄。新遊戲的室內擴充與舊存檔的相容規則見 [室內候選說明](docs/interior-nine-room-candidate.md)。操作及資料限制見 [web/README.md](web/README.md)。早期 Godot 原型可從 commit `cd32f57` 取回。生存遊戲是首頁 `web/index.html`，`web/street.html` 是街區瀏覽原型（舊的 `survival.html` 只轉址到首頁）。
 
 ## 里程碑：7 天垂直切片
 

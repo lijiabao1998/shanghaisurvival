@@ -1,7 +1,7 @@
 name: Deploy Pages
 # Publishes web/dist to GitHub Pages on every push to main (Settings → Pages → Source: GitHub Actions).
 # The account's custom domain serves it at https://game.lijiabao.uk/shanghaisurvival/
-# (the game itself is survival.html; index.html is the street viewer).
+# (the game is the root index.html; street.html is the street viewer; survival.html redirects).
 on:
   push: { branches: [main] }
   workflow_dispatch:

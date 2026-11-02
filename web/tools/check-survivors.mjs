@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 const browser=await puppeteer.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--use-angle=swiftshader','--enable-unsafe-swiftshader'],defaultViewport:{width:1280,height:800}});
 try {
 const page=await browser.newPage(), errors=[];page.on('pageerror',e=>errors.push(e.message));
-await page.goto('http://127.0.0.1:5178/survival.html?debug',{waitUntil:'networkidle0'});
+await page.goto('http://127.0.0.1:5178/?debug',{waitUntil:'networkidle0'});
 await page.waitForFunction(()=>window.__modu);
 assert.equal(await page.title(),'上海倖存者 · 天亮之前');
 assert.equal(await page.$$eval('.who',x=>x.length),12);

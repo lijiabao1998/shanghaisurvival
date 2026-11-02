@@ -2,7 +2,7 @@
 import puppeteer from 'puppeteer-core';
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
-const base=process.env.QA_URL??'http://127.0.0.1:4173/survival.html?debug=1',out=process.env.QA_OUTPUT??'evidence/menu';
+const base=process.env.QA_URL??'http://127.0.0.1:4173/?debug=1',out=process.env.QA_OUTPUT??'evidence/menu';
 await mkdir(out,{recursive:true});
 const browser=await puppeteer.launch({executablePath:process.env.QA_BROWSER??'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const report={source:process.env.QA_SOURCE_SHA??'local-unrecorded',url:base,devices:[]};

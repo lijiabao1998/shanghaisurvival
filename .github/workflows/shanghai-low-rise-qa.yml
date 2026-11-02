@@ -37,7 +37,7 @@ jobs:
           const assert=require('node:assert/strict');
           (async()=>{
             const browser=await chromium.launch({args:['--use-angle=swiftshader','--enable-unsafe-swiftshader']});
-            const report={url:'http://127.0.0.1:4173/shanghaisurvival/survival.html',commit:process.env.GITHUB_SHA,scope:'Shanghai identity details candidate, not production',runner:process.env.RUNNER_OS,checks:[],errors:[],requests:[]};
+            const report={url:'http://127.0.0.1:4173/shanghaisurvival/',commit:process.env.GITHUB_SHA,scope:'Shanghai identity details candidate, not production',runner:process.env.RUNNER_OS,checks:[],errors:[],requests:[]};
             try {
               const context=await browser.newContext({viewport:{width:1440,height:900}});
               const page=await context.newPage();

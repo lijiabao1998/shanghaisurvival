@@ -1,7 +1,7 @@
 // Layout migration boundary and real movement; candidate localhost only.
 import puppeteer from 'puppeteer-core';import assert from 'node:assert/strict';import {mkdir,writeFile,readFile} from 'node:fs/promises';import {build} from 'esbuild';import {fileURLToPath} from 'node:url';
 const out=process.env.QA_OUTPUT??'/tmp/shanghai-world-layout-evidence';await mkdir(out,{recursive:true});
-const url=process.env.QA_URL??'http://127.0.0.1:4173/survival.html?debug';assert.ok(['localhost','127.0.0.1','[::1]'].includes(new URL(url).hostname));
+const url=process.env.QA_URL??'http://127.0.0.1:4173/?debug';assert.ok(['localhost','127.0.0.1','[::1]'].includes(new URL(url).hostname));
 const browser=await puppeteer.launch({executablePath:process.env.QA_BROWSER??'/usr/bin/chromium',headless:true,args:['--no-sandbox','--use-angle=swiftshader','--enable-unsafe-swiftshader']});
 const report={commit:process.env.GITHUB_SHA??'local',checks:[],fixtures:[],renderSamples:[],errors:[],passed:false};const state=p=>p.evaluate(()=>window.__modu.state());
 const map=JSON.parse(await readFile(new URL('../public/data/block.json',import.meta.url),'utf8'));

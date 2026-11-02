@@ -32,7 +32,7 @@ jobs:
         run: |
           cd web
           npm run preview -- --port 4173 > "$GITHUB_WORKSPACE/menu-preview.log" 2>&1 &
-          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:4173/survival.html >/dev/null && break; sleep 1; done
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:4173/ >/dev/null && break; sleep 1; done
       - name: Natural menu controls, cancel, continue and screenshots
         env:
           QA_SOURCE_SHA: ${{ github.sha }}
@@ -42,7 +42,7 @@ jobs:
         if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         env:
           QA_SOURCE_SHA: ${{ github.sha }}
-          QA_URL: http://127.0.0.1:4173/survival.html?debug=1
+          QA_URL: http://127.0.0.1:4173/?debug=1
           QA_OUTPUT: evidence/melee
         run: node web/tools/qa-melee-weight.mjs
       - name: Preserve evidence even on failure
