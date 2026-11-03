@@ -6,6 +6,9 @@ import { buildMeleeTool, isMeleeTool, TOOL_COMBAT } from './melee-tools';
 import { planRoomExtras, claimRoomExtra, type RoomExtra } from './room-extras';
 import { createFacadeSignage } from './facade-signage';
 import { planDensityBuildings, densityEnabledForLayout } from './density-plan';
+import { planLaneFabric, makeLaneInsideTest, LANE_LAYOUT_VERSION, type LaneHouse } from './lane-fabric';
+import { createLaneVisibility } from './lane-houses';
+import { createLaneLife } from './lane-life';
 import { planInteriorRooms, roomFurnitureCollision, createInteriorRoomGeometry, type InteriorRoom } from './interior-rooms';
 import { createSurvivorSystems, migrateSurvivorSystems, equipHand, carriedWeight, loadEffects, injureBody, stepBody, treatBody } from './survivor-systems';
 import { installSurvivorPanel } from './survivor-panel';
@@ -122,7 +125,7 @@ const LOOT_TABLE: [ItemId, number][] = [
   ['water', 28], ['food', 24], ['battery', 22], ['medkit', 10], ['ammo', 10], ['pistol', 6],
 ];
 
-type Landmark = { x: number; y: number; label: string; cn: string };
+type Landmark = { x: number; y: number; label: string; cn: string; name?: string };
 type Shop = { x: number; y: number; label: string };
 type GameBlock = Block & { landmarks?: Landmark[]; shops?: Shop[]; roads?:StreetRoad[] };
 
@@ -388,15 +391,25 @@ let densityVisibility: ReturnType<typeof createCityVisibility>|null=null;
 const densityGroup=new THREE.Group();
 let densityCollision:typeof collides=()=>false;
 let densityInside:(x:number,z:number)=>boolean=()=>false;
+// Old-town lane fabric (new games): row houses rebuilt along the real OSM lanes around Menghua Street.
+let laneHouses: LaneHouse[]=[];
+let laneVisibility: ReturnType<typeof createLaneVisibility>|null=null;
+let laneLife: ReturnType<typeof createLaneLife>|null=null;
+const laneGroup=new THREE.Group();
+let laneCollision:(x:number,z:number,r?:number)=>boolean=()=>false;
+let laneInside:(x:number,z:number)=>boolean=()=>false;
+const lanesActive=()=>worldLayout===LANE_LAYOUT_VERSION;
 let baseInsideBuilding:(x:number,z:number)=>boolean;
 const interiorGroups=new Map<string,THREE.Group>();
 function configureWorldLayout(layout: Snapshot['worldLayout']) {
   worldLayout=layout;
   densityGroup.visible=densityEnabledForLayout(layout);
-  interiorRooms=plannedInteriorRooms.slice(0,layout==='menghua-infill-v1'?9:3);
+  laneGroup.visible=layout===LANE_LAYOUT_VERSION;
+  const expanded=layout==='menghua-infill-v1'||layout===LANE_LAYOUT_VERSION;
+  interiorRooms=plannedInteriorRooms.slice(0,expanded?9:3);
   const active=new Set(interiorRooms.map(r=>r.id));
   for(const [id,group] of interiorGroups)group.visible=active.has(id);
-  for(const c of containers)if(c.roomId)c.roomEnabled=!c.expandedRoom||layout==='menghua-infill-v1';
+  for(const c of containers)if(c.roomId)c.roomEnabled=!c.expandedRoom||expanded;
 }
 const roomInsideTests=new Map<string,(x:number,z:number)=>boolean>();
 function activeInterior(){return interiorRooms.find(r=>roomInsideTests.get(r.id)?.(px,pz));}
@@ -1408,7 +1421,7 @@ function start(chosen: CharSpec, resume: Snapshot | null = null) {
   el.hurt.classList.remove('low');
   looted = 0;
   moodleKey = '';
-  configureWorldLayout(resume?resume.worldLayout:'menghua-infill-v1');
+  configureWorldLayout(resume?resume.worldLayout:LANE_LAYOUT_VERSION);
   resetWorld();
   if(resume) restoreCampaign(resume);
   updateWeaponVisual();
@@ -1754,7 +1767,7 @@ function frame(dt: number) {
     40,
   ));
   camera.lookAt(target);
-  visibilityTimer-=dt;if(visibilityTimer<=0){visibilityTimer=.1;cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:activeInterior()?.focus);facadeSignage?.update(cityVisibility?.fadedIds()??[]);if(densityGroup.visible)densityVisibility?.update(px,pz);}
+  visibilityTimer-=dt;if(visibilityTimer<=0){visibilityTimer=.1;cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:activeInterior()?.focus);facadeSignage?.update(cityVisibility?.fadedIds()??[]);if(densityGroup.visible)densityVisibility?.update(px,pz);if(laneGroup.visible)laneVisibility?.update(px,pz);}
 }
 
 const clock = new THREE.Clock();
@@ -1769,7 +1782,7 @@ function animate() {
  * fewer than two frames in 300 ms; the simulation visibility timer is not a UI gate. */
 function refreshShelterView() {
   resize();
-  cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:activeInterior()?.focus);facadeSignage?.update(cityVisibility?.fadedIds()??[]);if(densityGroup.visible)densityVisibility?.update(px,pz);
+  cityVisibility?.update(px,pz,inShelter&&shelterPanel.classList.contains('room-view')?roomFocus:activeInterior()?.focus);facadeSignage?.update(cityVisibility?.fadedIds()??[]);if(densityGroup.visible)densityVisibility?.update(px,pz);if(laneGroup.visible)laneVisibility?.update(px,pz);
   visibilityTimer=.1;
   const target=new THREE.Vector3(px,1,-pz);
   camera.position.copy(target).add(new THREE.Vector3(40,56,40));camera.lookAt(target);
@@ -1807,7 +1820,7 @@ fetch(dataUrl)
     const grid = wallGridOf(data, false);
     collides = baseWallCollision = makeCollider(grid);
     baseInsideBuilding = makeInsideTest(data);
-    insideBuilding=(x,z)=>baseInsideBuilding(x,z)||(densityEnabledForLayout(worldLayout)&&densityInside(x,z));
+    insideBuilding=(x,z)=>baseInsideBuilding(x,z)||(densityEnabledForLayout(worldLayout)&&densityInside(x,z))||(lanesActive()&&laneInside(x,z));
 
     bounds = { minX: Infinity, maxX: -Infinity, minY: Infinity, maxY: -Infinity };
     for (const b of data.buildings) {
@@ -1823,7 +1836,7 @@ fetch(dataUrl)
 
     // Preserve every source vertex; fade only buildings intersecting the camera ray.
     shelter = selectShelter(data.buildings, data.spawn, collides, insideBuilding);
-    cityVisibility=createCityVisibility(data.buildings,true);scene.add(cityVisibility.group);facadeSignage=createFacadeSignage(data.buildings);scene.add(facadeSignage.group);
+    cityVisibility=createCityVisibility(data.buildings,true,new Set(shelter?[shelter.id]:[]));scene.add(cityVisibility.group);facadeSignage=createFacadeSignage(data.buildings);scene.add(facadeSignage.group);
     if(shelter) {
       const marker=new THREE.Mesh(new THREE.BoxGeometry(1.2,2.4,.25),new THREE.MeshStandardMaterial({color:0x49c8d8,emissive:0x166c7a,emissiveIntensity:.8}));
       marker.position.set(shelter.outside[0],1.2,-shelter.outside[1]); marker.scale.set(.4,1,.4);scene.add(marker);
@@ -1841,7 +1854,7 @@ fetch(dataUrl)
     densityGroup.visible=false;scene.add(densityGroup);
     plannedInteriorRooms=planInteriorRooms(data,shelter?[shelter.id]:[],9);
     for(const room of plannedInteriorRooms){const b=data.buildings.find(b=>b.id===room.buildingId)!;const roomGroup=createInteriorRoomGeometry(room,b);scene.add(roomGroup);interiorGroups.set(room.id,roomGroup);roomInsideTests.set(room.id,makeInsideTest({buildings:[b],spawn:room.entrance.inside}));}
-    collides=(x,z,r=.35)=>baseWallCollision(x,z,r)||(densityEnabledForLayout(worldLayout)&&densityCollision(x,z,r))||interiorRooms.some(room=>roomFurnitureCollision(room,x,z,r));
+    collides=(x,z,r=.35)=>baseWallCollision(x,z,r)||(densityEnabledForLayout(worldLayout)&&densityCollision(x,z,r))||(lanesActive()&&laneCollision(x,z,r))||interiorRooms.some(room=>roomFurnitureCollision(room,x,z,r));
     const ground = new THREE.Mesh(
       new THREE.PlaneGeometry(
         bounds.maxX - bounds.minX + 320,
@@ -1855,6 +1868,20 @@ fetch(dataUrl)
     // Render the already bundled real OSM network; preserve CMAB/OSM positions.
     streetDetails=createStreetDetails(data.roads??[],data.buildings,bounds);scene.add(streetDetails.group);
     const streets=roadGeometries(data.roads??[]);
+    {
+      // Keep every existing doorway, prop and landmark open; plan once, show only for the lane layout.
+      const keepOpen:Array<[number,number,number]>=[[...data.spawn,6.5]];
+      if(shelter)keepOpen.push([...shelter.outside,3],[...shelter.inside,2]);
+      for(const room of plannedInteriorRooms)keepOpen.push([...room.entrance.outside,2.5],[...room.entrance.inside,1.5]);
+      for(const p of streetDetails.placements)keepOpen.push([p.x,p.z,1.1]);
+      for(const l of landmarks)keepOpen.push([l.x,l.y,(l.name??l.label).includes('文庙')?55:28]);
+      laneHouses=planLaneFabric({buildings:data.buildings,roads:data.roads??[]},{center:data.spawn,radius:320,keepOpen}).houses;
+      laneCollision=makeCollider(wallGridOf({buildings:laneHouses,spawn:data.spawn},false));
+      laneInside=makeLaneInsideTest(laneHouses);
+      laneVisibility=createLaneVisibility(laneHouses,(data.roads??[]).map(r=>r.name??'').filter(Boolean));
+      laneLife=createLaneLife(laneHouses,data.roads??[],laneVisibility.atlas,data.spawn,320);
+      laneGroup.add(laneVisibility.group,laneLife.group);laneGroup.visible=false;scene.add(laneGroup);
+    }
     scene.add(new THREE.Mesh(streets.surface,applyPavementGrain(new THREE.MeshStandardMaterial({vertexColors:true,roughness:1,side:THREE.DoubleSide}),.07)));
     // Segment-wide outlines cross adjacent road ribbons at junctions and look like
     // fictional white road markings. Actual raised kerbs are already in streetDetails.
@@ -1938,6 +1965,9 @@ fetch(dataUrl)
         // Debug observation only: a bounded route suggestion, never moves a player or edits the world.
         navigationProbe: (tx:number,tz:number) => findLocalPath(px,pz,tx,tz,(x,z,r)=>collides(x,z,Math.max(.36,r??.36)),500),
         swing: () => startSwing(),
+        // Debug observation: place the player on open ground (refused inside walls) for screenshots.
+        teleport: (x:number,z:number,face=facing) => { if(!Number.isFinite(x)||!Number.isFinite(z)||collides(x,z,.36)||insideBuilding(x,z))return false; px=x;pz=z;facing=bodyYaw=face;velX=velZ=0;refreshShelterView();return true; },
+        lanes: () => ({ active: lanesActive(), ...(laneVisibility?.stats() ?? {}), life: laneLife?.stats }),
         hurt: (n = 30) => { injureBody(survivorSystems.condition,n);hp = Math.max(0, hp - n); if (hp <= 0) lose(); },
         give: (id: ItemId, n = 1) => { inventory[id] += n; if (id === 'pistol'){grantWeapon(arsenal,'qsz92-9');syncArsenal();} updateBag(); },
       };

@@ -7,11 +7,11 @@ const data=JSON.parse(readFileSync(new URL('../public/data/block.json',import.me
 const before=JSON.stringify(data);
 const city=createCityVisibility(data.buildings,true);
 assert.equal(JSON.stringify(data),before,'source geometry, heights, IDs and save targets unchanged');
-assert.equal(city.group.children.length,3,'no per-building draw calls');
+assert.equal(city.group.children.length,4,'no per-building draw calls');
 for(const mesh of city.group.children){
  const p=mesh.geometry.getAttribute('position'),c=mesh.geometry.getAttribute('color');
  assert.equal(p.count,c.count,'each vertex gets color');
- for(let i=0;i<p.count;i++){assert.ok(Number.isFinite(p.getX(i)+p.getY(i)+p.getZ(i)));assert.ok(p.getY(i)<=(mesh.name==='city-visible-roofs'?14:12.01),'three-storey walls; bounded rooftop service fittings only');}
+ for(let i=0;i<p.count;i++){assert.ok(Number.isFinite(p.getX(i)+p.getY(i)+p.getZ(i)));assert.ok(p.getY(i)<=(mesh.name==='city-visible-roofs'||mesh.name==='city-tile-roofs'?14:12.01),'three-storey walls; bounded rooftop fittings and tile ridges');}
  assert.ok(mesh.material.vertexColors);
 }
 const colors=city.group.children[0].geometry.getAttribute('color');
@@ -23,5 +23,5 @@ for(let i=0;i<100;i++){
  assert.ok(city.group.children.every((m,j)=>m.geometry.index===indices[j]));
 }
 const again=createCityVisibility(data.buildings,true);
-for(let i=0;i<3;i++)assert.deepEqual(again.group.children[i].geometry.getAttribute('position').array,city.group.children[i].geometry.getAttribute('position').array,'deterministic appearance');
-console.log(`PASS ${data.buildings.length} buildings: <=12 m walls / <=14 m roof fittings, varied facades, unchanged sources, deterministic output, 3 stable meshes, occlusion conservation`);
+for(let i=0;i<4;i++)assert.deepEqual(again.group.children[i].geometry.getAttribute('position').array,city.group.children[i].geometry.getAttribute('position').array,'deterministic appearance');
+console.log(`PASS ${data.buildings.length} buildings: <=12 m walls / <=14 m roof fittings, varied facades, unchanged sources, deterministic output, 4 stable meshes, occlusion conservation`);

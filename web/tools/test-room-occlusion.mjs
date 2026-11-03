@@ -7,18 +7,23 @@ const data=JSON.parse(readFileSync(new URL('../public/data/block.json',import.me
 const inside=makeInsideTest(data),collides=makeCollider(wallGridOf(data,false)),s=selectShelter(data.buildings,data.spawn,collides,inside),b=data.buildings.find(b=>b.id===s.id);
 const focus=shelterInspectionPoints(b,s),localInside=makeInsideTest({buildings:[b],spawn:s.inside});
 assert.ok(focus.length>10&&focus.length<=35);assert.ok(focus.every(p=>localInside(...p)),'no focus points outside room or inside courtyard holes');
-const city=createCityVisibility(data.buildings,true),indices=city.group.children.map(m=>m.geometry.index);
+// Inspection mechanics on flat roofs (art-independent); pitched tile roofs are checked separately below.
+const flatAll=new Set(data.buildings.map(b=>b.id));
+const city=createCityVisibility(data.buildings,true,flatAll),indices=city.group.children.map(m=>m.geometry.index);
 city.update(...s.inside);const street=city.fadedIds(),beforeRoof=city.stats().roofIndices;
 assert.equal(city.update(...s.inside,focus),true,'switch to inspection invalidates stationary player cache');
 const inspected=city.fadedIds();assert.ok(inspected.length>street.length,'furniture-area rays fade additional obstructing neighboring buildings');
 assert.ok(street.every(id=>inspected.includes(id)));assert.ok(city.stats().roofIndices<beforeRoof,'blocking roofs really removed');
 assert.equal(city.update(...s.inside,focus),false,'stationary room view does not rebuild index buffers');
 assert.equal(city.stats().solidIndices+city.stats().fadedIndices,city.stats().wallVertices);
-assert.ok(city.group.children.every((m,i)=>m.geometry.index===indices[i]));assert.equal(city.group.children.length,3);
+assert.ok(city.group.children.every((m,i)=>m.geometry.index===indices[i]));assert.equal(city.group.children.length,4);
 assert.equal(city.update(...s.inside),true,'closing inspection restores single player ray');assert.deepEqual(city.fadedIds(),street);assert.equal(city.stats().roofIndices,beforeRoof);
-city.update(...s.inside,focus);city.update(...s.outside);assert.deepEqual(city.fadedIds(),(()=>{const c=createCityVisibility(data.buildings,true);c.update(...s.outside);return c.fadedIds();})(),'leaving shelter matches fresh normal street view');
+city.update(...s.inside,focus);city.update(...s.outside);assert.deepEqual(city.fadedIds(),(()=>{const c=createCityVisibility(data.buildings,true,flatAll);c.update(...s.outside);return c.fadedIds();})(),'leaving shelter matches fresh normal street view');
+// With the taller tile roofs, inspection still fades everything the street view fades (taller ridges may already hide a neighbour).
+const pitched=createCityVisibility(data.buildings,true,new Set([s.id]));pitched.update(...s.inside);const pStreet=pitched.fadedIds();pitched.update(...s.inside,focus);
+assert.ok(pStreet.every(id=>pitched.fadedIds().includes(id))&&pitched.fadedIds().includes(s.id),'pitched-roof city: inspection keeps the shelter and street obstructions faded');
 assert.equal(JSON.stringify(data),before);
-console.log(`PASS ${focus.length} legal indoor rays, added obstruction IDs ${inspected.filter(id=>!street.includes(id)).join(',')}; fixed 3 meshes, stable buffers, stationary mode change and street restoration`);
+console.log(`PASS ${focus.length} legal indoor rays, added obstruction IDs ${inspected.filter(id=>!street.includes(id)).join(',')}; fixed 4 meshes, stable buffers, stationary mode change and street restoration`);
 
 const runtime=readFileSync(new URL('../src/survival.ts',import.meta.url),'utf8');
 const refresh=runtime.slice(runtime.indexOf('function refreshShelterView()'),runtime.indexOf('function resize()'));
