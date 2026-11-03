@@ -6,7 +6,7 @@ const {createCityVisibility}=await import(`data:text/javascript;base64,${Buffer.
 const rect=(id,x,z,h=20)=>({id,footprint:[[x,z],[x+4,z],[x+4,z+4],[x,z+4]],holes:[],height_m:h});
 const source=[rect('front',4,-8),rect('behind',-10,6)];
 const before=JSON.stringify(source),v=createCityVisibility(source);
-assert.equal(v.group.children.length,3);assert.equal(v.stats().meshes,3);
+assert.equal(v.group.children.length,4);assert.equal(v.stats().meshes,4);
 const pos=v.group.children[0].geometry.getAttribute('position').array;
 const original=Array.from(pos);
 const indexBuffers=v.group.children.map(m=>m.geometry.index);
@@ -21,7 +21,7 @@ const city=createCityVisibility(data.buildings),initial=city.stats();
 let transitions=0;const start=performance.now();
 for(let i=0;i<180;i++){
  if(city.update(data.spawn[0]+Math.cos(i*.08)*40,data.spawn[1]+Math.sin(i*.08)*40))transitions++;
- const s=city.stats();assert.equal(s.solidIndices+s.fadedIndices,s.wallVertices);assert.ok(s.roofIndices<=s.roofVertices);assert.equal(s.meshes,3);
+ const s=city.stats();assert.equal(s.solidIndices+s.fadedIndices,s.wallVertices);assert.ok(s.roofIndices<=s.roofVertices);assert.equal(s.meshes,4);
 }
-assert.ok(transitions>0);assert.equal(city.group.children.length,3);assert.equal(initial.wallVertices,city.stats().wallVertices);
-console.log(`PASS fixed 3 meshes; stable source vertices; solid/faded index conservation; 180 real-map samples, ${transitions} transitions in ${(performance.now()-start).toFixed(1)}ms (Node CPU only, not mobile/GPU benchmark)`);
+assert.ok(transitions>0);assert.equal(city.group.children.length,4);assert.equal(initial.wallVertices,city.stats().wallVertices);
+console.log(`PASS fixed 4 meshes (walls, faded walls, flat roofs, tile roofs); stable source vertices; solid/faded index conservation; 180 real-map samples, ${transitions} transitions in ${(performance.now()-start).toFixed(1)}ms (Node CPU only, not mobile/GPU benchmark)`);

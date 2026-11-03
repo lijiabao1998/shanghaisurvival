@@ -13,7 +13,7 @@ const clear=(a,b,collide=expanded)=>{const n=Math.max(1,Math.ceil(Math.hypot(b[0
 const legacyFixture=JSON.parse(readFileSync(new URL('./fixtures/interior-v1-three.json',import.meta.url),'utf8'));
 assert.deepEqual(rooms.slice(0,3),legacyFixture,'legacy three-room layout identity remains exact');
 const originalIds=block.buildings.map(b=>b.id),densityBefore=JSON.stringify(density.buildings),visibility=m.createCityVisibility(density.buildings,true),floor=m.roofGeometry(density.buildings),renderStats=visibility.stats();
-assert.equal(visibility.group.children.length,3);assert.equal(renderStats.meshes,3);
+assert.equal(visibility.group.children.length,4);assert.equal(renderStats.meshes,4);
 const renderVertices=renderStats.wallVertices+renderStats.roofVertices+floor.getAttribute('position').count;
 assert.ok(renderVertices<60000,'four low-rise buildings incl floor stay below explicit 60k unique-vertex budget');
 assert.equal(JSON.stringify(density.buildings),densityBefore);assert.deepEqual(block.buildings.map(b=>b.id),originalIds);
@@ -43,5 +43,5 @@ let wallWitness=0,furnitureWitness=0,samples=0;
 for(const b of density.buildings){const xs=b.footprint.map(p=>p[0]),zs=b.footprint.map(p=>p[1]);for(let x=Math.min(...xs)-.5;x<=Math.max(...xs)+.5;x+=.2)for(let z=Math.min(...zs)-.5;z<=Math.max(...zs)+.5;z+=.2){const reference=base(x,z,.36)||rooms.slice(0,3).some(r=>m.roomFurnitureCollision(r,x,z,.36));assert.equal(legacy(x,z),reference);assert.equal(collision('unknown',x,z),reference);if(!reference&&added(x,z,.36))wallWitness++;samples++;}}
 for(const room of rooms.slice(3))for(const f of room.furniture){const [x,z]=f.center,reference=base(x,z,.36)||rooms.slice(0,3).some(r=>m.roomFurnitureCollision(r,x,z,.36));assert.equal(legacy(x,z),reference);if(!reference&&expanded(x,z))furnitureWitness++;}
 assert.ok(wallWitness>0);assert.ok(furnitureWitness>0);assert.equal(JSON.stringify(block),before);
-const runtime=readFileSync(new URL('../src/survival.ts',import.meta.url),'utf8').replace(/\s+/g,'');assert.ok(runtime.includes('densityEnabledForLayout(worldLayout)&&densityCollision(x,z,r)'));assert.ok(runtime.includes("plannedInteriorRooms.slice(0,layout==='menghua-infill-v1'?9:3)"),'runtime retains legacy three-room gate');
+const runtime=readFileSync(new URL('../src/survival.ts',import.meta.url),'utf8').replace(/\s+/g,'');assert.ok(runtime.includes('densityEnabledForLayout(worldLayout)&&densityCollision(x,z,r)'));assert.ok(runtime.includes("constexpanded=layout==='menghua-infill-v1'||layout===LANE_LAYOUT_VERSION;")&&runtime.includes('plannedInteriorRooms.slice(0,expanded?9:3)'),'runtime retains legacy three-room gate');
 console.log(JSON.stringify({passed:true,radius:.36,gridStep:step,sweptSample:.06,bounds:{minX,minZ,nx,nz},results,legacy:{samples,wallWitness,furnitureWitness},render:{cityMeshes:3,floorMeshes:1,totalMeshes:4,uniqueVertices:renderVertices,budget:60000},scope:'geometry only; not browser traversal'},null,2));

@@ -13,5 +13,5 @@ for(const source of data.buildings){
  }
 }
 assert.equal(JSON.stringify(data),before);assert.ok(vertices<300000,'whole map detail budget');for(const count of Object.values(states))assert.ok(count>40,'each appearance meaningfully represented');
-const group=createCityVisibility(data.buildings,true);assert.equal(group.stats().meshes,3);const beforeCount=group.stats().wallVertices;group.update(...data.spawn);assert.equal(group.stats().wallVertices,beforeCount,'fade changes indices, not detail geometry');
-console.log('PASS deterministic original ID-based appearances, clear real doors, bounded geometry and 3 city meshes', {states,vertices,maxVertices});
+const group=createCityVisibility(data.buildings,true);assert.equal(group.stats().meshes,4);const beforeCount=group.stats().wallVertices;group.update(...data.spawn);assert.equal(group.stats().wallVertices,beforeCount,'fade changes indices, not detail geometry');
+console.log('PASS deterministic original ID-based appearances, clear real doors, bounded geometry and 4 city meshes', {states,vertices,maxVertices});

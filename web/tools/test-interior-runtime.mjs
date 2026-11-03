@@ -31,7 +31,7 @@ assert.ok(compact.includes('containers:containers.filter(c=>!c.roomId).map('),'o
 assert.ok(compact.includes('s.containers.length!==containers.filter(c=>!c.roomId).length'),'legacy exact count stays authoritative');
 assert.ok(compact.includes('c.looted=s.interiorLoot?.[c.roomId!]===true'),'restore only true flags, missing legacy field starts unlooted');
 assert.ok(compact.includes('constordered=containers.filter(c=>!c.roomId).sort('),'indoor supply never becomes daily cache');
-assert.ok(compact.includes('baseWallCollision(x,z,r)||(densityEnabledForLayout(worldLayout)&&densityCollision(x,z,r))||interiorRooms.some(room=>roomFurnitureCollision(room,x,z,r))'),'walls retained alongside furniture');
+assert.ok(compact.includes('baseWallCollision(x,z,r)||(densityEnabledForLayout(worldLayout)&&densityCollision(x,z,r))||(lanesActive()&&laneCollision(x,z,r))||interiorRooms.some(room=>roomFurnitureCollision(room,x,z,r))'),'walls retained alongside furniture and lane houses');
 assert.ok(compact.includes('roomId:loot.id'),'save IDs include supply suffix');
 const basicIndex=source.indexOf('containers.push({ x: 0, z: 0, mesh, looted: false })');
 assert.ok(basicIndex>=0&&basicIndex<source.indexOf('roomId:loot.id'),'rooms appended after ordinary indices');
