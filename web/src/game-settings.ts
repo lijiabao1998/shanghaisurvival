@@ -32,7 +32,7 @@ export function installGameSettings(callbacks:{open:()=>void;resume:()=>void;sav
   document.body.append(root);
   const credits=document.createElement('p');credits.className='settings-note';credits.id='settings-credits';
   credits.innerHTML='地圖資料 © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener" style="color:#f0d79a">OpenStreetMap contributors</a>（ODbL）<br>建築資料：CMAB, Zhang, Yecheng; Zhao, Huimin; Long, Ying，<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener" style="color:#f0d79a">CC BY 4.0</a>（<a href="https://doi.org/10.6084/m9.figshare.27992417" target="_blank" rel="noopener" style="color:#f0d79a">來源</a>），本作已裁切、簡化並轉換';
-  root.querySelector('.settings-card')!.append(credits);
+  root.querySelector('.settings-card')?.append(credits);
   const q=<T extends HTMLElement>(id:string)=>root.querySelector<T>('#'+id)!;
   const volume=q<HTMLInputElement>('settings-volume'),mute=q<HTMLInputElement>('settings-mute'),language=q<HTMLSelectElement>('settings-language');
   let previousFocus:HTMLElement|null=null;
