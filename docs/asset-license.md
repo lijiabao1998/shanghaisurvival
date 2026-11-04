@@ -62,9 +62,8 @@ CC BY 4.0 的署名和其他要求應參照 [授權條款](https://creativecommo
 | 1 | （範例）Kenney Survival Kit | https://kenney.nl/ | CC0 | — | — | 範例，尚不代表已引入 |
 | 2 | CMAB 上海，Figshare 第 7 版 | https://doi.org/10.6084/m9.figshare.27992417 | CC BY 4.0 | 2026-10-29 | 擷取候選範圍及轉換座標 | 初始街區樣本；原始檔與校驗見 SOURCE.md |
 
-## 專案自身授權意向
+## 專案自身授權
 
-- 程式碼：MIT。
-- 自製素材：CC BY-SA 4.0。
-- 第三方資料與素材：依各自條款使用和署名。
-- 目前尚未看到獨立 LICENSE 文件，對外發布前應補齊授權文件並核對素材來源。
+- 程式碼與自製素材：專有，版權所有（All rights reserved），以根目錄 [LICENSE](../LICENSE) 為準；不以 MIT 或 CC BY-SA 釋出。
+- 第三方資料與素材：不在上述聲明內，依各自條款使用和署名。
+- 此處先前寫的「程式碼 MIT、自製素材 CC BY-SA 4.0」是還沒有 LICENSE 時的意向，2026-11-04 擁有者確認以 LICENSE 為準，該意向作廢。見 [tech-stack.md](tech-stack.md) 的 ADR-011。

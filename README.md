@@ -96,9 +96,8 @@
 
 ## 授權
 
-- 程式碼：MIT
-- 自製素材：CC BY-SA 4.0
-- 第三方素材：逐一記錄於 [docs/asset-license.md](docs/asset-license.md)
+- 程式碼與自製素材：專有，版權所有（All rights reserved），未經書面許可不得複製、修改或再發布。見 [LICENSE](LICENSE)。倉庫公開不代表開源授權。
+- 第三方資料與素材：不在上述聲明內，依各自授權；逐一記錄於 [docs/asset-license.md](docs/asset-license.md)
 
 ## 資料來源與授權 / Credits & Attribution
 
