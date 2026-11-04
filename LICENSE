@@ -1,0 +1,13 @@
+Copyright (c) 2026 李家宝. All rights reserved.
+
+The source code in this repository is proprietary. No license is granted to
+copy, modify, or redistribute it without written permission.
+
+Third-party data is NOT covered by the notice above and remains under its own
+licenses. See data/sources/ for details:
+
+- Map/road data © OpenStreetMap contributors, Open Database License (ODbL)
+  https://www.openstreetmap.org/copyright
+- CMAB: A Multi-Attribute Building Dataset of China (Zhang, Yecheng; Zhao,
+  Huimin; Long, Ying), CC BY 4.0, https://doi.org/10.6084/m9.figshare.27992417
+  Modified (clipped, simplified, converted) for this project.
