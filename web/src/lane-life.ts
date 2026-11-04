@@ -3,7 +3,7 @@
  * stone lane-entrance frames carrying the real lane names. Decorative only: no collision, no saves. */
 import * as THREE from 'three';
 import { hash01, type LaneHouse, type LaneRoad } from './lane-fabric.ts';
-import type { SignAtlas } from './lane-houses.ts';
+import { GATE_NAMES, KIOSK_NAMES, BANNERS, type SignAtlas } from './lane-houses.ts';
 
 type V3 = [number, number, number];
 type Batch = { p: number[]; c: number[]; uv: number[] };
@@ -148,21 +148,44 @@ export function createLaneLife(houses: LaneHouse[], roads: LaneRoad[], atlas: Si
         [[u0, v0], [u1, v0], [u1, v1], [u0, v1]]);
     }
   };
-  let roadSigns = 0, gates = 0;
+  let roadSigns = 0, gates = 0, lanterns = 0, banners = 0, kiosks = 0;
   for (const r of roads) {
-    if (!r.name || r.centerline.length < 2 || ['footway', 'path', 'steps'].includes(r.type)) continue;
-    for (const end of [0, r.centerline.length - 1]) {
+    if (r.centerline.length < 2 || ['footway', 'path', 'steps'].includes(r.type)) continue;
+    // unnamed narrow lanes get an invented 里/坊 name on half of them: it should read as Shanghai, not as a survey
+    const invented = !r.name && r.width_m <= 6 && ['service', 'residential', 'living_street', 'unclassified'].includes(r.type) && hash01(r.id + 'gate') < 0.5
+      ? GATE_NAMES[Math.floor(hash01(r.id + 'gn') * GATE_NAMES.length)] : null;
+    if (!r.name && !invented) continue;
+    for (const end of invented ? [0] : [0, r.centerline.length - 1]) {
       const p = r.centerline[end], q = r.centerline[end === 0 ? 1 : end - 1];
       if (Math.hypot(p[0] - center[0], p[1] - center[1]) > radius) continue;
       const len = Math.hypot(q[0] - p[0], q[1] - p[1]);
       if (len < 6) continue;
       const ux = (q[0] - p[0]) / len, uy = (q[1] - p[1]) / len, nx = -uy, ny = ux, half = r.width_m / 2;
-      if (r.name.endsWith('弄') && r.width_m <= 6) {
+      if (invented || (r.name!.endsWith('弄') && r.width_m <= 6)) {
         // lane entrance: two brick piers, a stone lintel and the lane name on both faces
         const x = p[0] + ux * 2.2, y = p[1] + uy * 2.2;
         for (const s of [-1, 1]) box(x + nx * s * (half + 0.1), y + ny * s * (half + 0.1), ux, uy, 0.42, 0.42, 0, 3.55, 0x8a5c4a);
         box(x, y, nx, ny, r.width_m + 0.8, 0.46, 3.4, 3.9, 0xb5ae9e);
-        plate('road:' + r.name, x, y, nx, ny, 3.48, 1.1, 0.34, 0.25); // on both faces of the lintel
+        if (invented) {
+          box(x, y, nx, ny, 1.6, 0.5, 3.9, 4.35, 0xb5ae9e); // small pediment over the lintel
+          plate('gate:' + invented, x, y, nx, ny, 3.95, 1.3, 0.34, 0.26);
+        } else plate('road:' + r.name!, x, y, nx, ny, 3.48, 1.1, 0.34, 0.25); // on both faces of the lintel
+        const key = r.id + ':' + end;
+        if (hash01(key + 'lantern') < 0.4) for (const s of [-1, 1]) {
+          // red lantern on each pier, glowing at night
+          const lx = x + nx * s * (half + 0.1) + ux * 0.4, ly = y + ny * s * (half + 0.1) + uy * 0.4;
+          box(lx, ly, ux, uy, 0.02, 0.02, 3.0, 3.3, 0x222222);
+          box(lx, ly, ux, uy, 0.34, 0.34, 2.55, 3.0, 0xb8261c);
+          box(lx, ly, ux, uy, 0.2, 0.2, 2.5, 2.56, 0xd8a640);
+          quad(glow, W(lx - nx * 0.2, ly - ny * 0.2, 2.6), W(lx + nx * 0.2, ly + ny * 0.2, 2.6), W(lx + nx * 0.2, ly + ny * 0.2, 2.95), W(lx - nx * 0.2, ly - ny * 0.2, 2.95), 0xb02a12);
+          lanterns++;
+        }
+        if (hash01(key + 'banner') < 0.22) {
+          // red cloth banner strung across the lane a few metres in
+          const bx = p[0] + ux * 5, by = p[1] + uy * 5;
+          plate('banner:' + BANNERS[Math.floor(hash01(key + 'bt') * BANNERS.length)], bx, by, nx, ny, 3.3, Math.min(r.width_m + 0.4, 5.2), 0.55, 0.01);
+          banners++;
+        }
         // bare bulb hanging under the lintel, lighting the lane mouth
         box(x, y, ux, uy, 0.02, 0.02, 3.0, 3.4, 0x222222);
         quad(glow, W(x - 0.08, y, 2.88), W(x + 0.08, y, 2.88), W(x + 0.08, y, 3.02), W(x - 0.08, y, 3.02), 0xffd08a);
@@ -172,8 +195,20 @@ export function createLaneLife(houses: LaneHouse[], roads: LaneRoad[], atlas: Si
       } else {
         const x = p[0] + ux * 3 + nx * (half + 0.9), y = p[1] + uy * 3 + ny * (half + 0.9);
         box(x, y, ux, uy, 0.07, 0.07, 0, 2.9, 0x4a5050);
-        plate('road:' + r.name, x, y, ux, uy, 2.55, 0.95, 0.27);
+        plate('road:' + r.name!, x, y, ux, uy, 2.55, 0.95, 0.27);
         roadSigns++;
+        if (r.width_m > 6 && hash01(r.id + end + 'kiosk') < 0.35) {
+          // corner 烟紙店: a narrow shopfront box with a lit counter window
+          const kx = x + ux * 2.2 + nx * 0.6, ky = y + uy * 2.2 + ny * 0.6;
+          box(kx, ky, ux, uy, 2.0, 1.3, 0, 2.5, 0x8c7a62);
+          box(kx, ky, ux, uy, 2.2, 1.5, 2.5, 2.62, 0x3e4a44);
+          const name = KIOSK_NAMES[Math.floor(hash01(r.id + end + 'kn') * KIOSK_NAMES.length)];
+          plate('kiosk:' + name, kx - nx * 0.66, ky - ny * 0.66, ux, uy, 2.05, 1.9, 0.42, 0.02);
+          const fx = kx - nx * 0.68, fy = ky - ny * 0.68;
+          quad(glow, W(fx - ux * 0.8, fy - uy * 0.8, 0.9), W(fx + ux * 0.8, fy + uy * 0.8, 0.9), W(fx + ux * 0.8, fy + uy * 0.8, 1.9), W(fx - ux * 0.8, fy - uy * 0.8, 1.9), 0xd9a050);
+          pool(fx - nx * 0.8, fy - ny * 0.8, 2.6, 0x4a3214);
+          kiosks++;
+        }
       }
     }
   }
@@ -204,5 +239,5 @@ export function createLaneLife(houses: LaneHouse[], roads: LaneRoad[], atlas: Si
     glowMesh.visible = a > 0.02;
     glowMat.color.setScalar(a * 1.6);
   };
-  return { group, setNight, stats: { wireSegments: wires.length / 6, crossings, laundry, bikes, roadSigns, gates, propTriangles: props.p.length / 9 } };
+  return { group, setNight, stats: { wireSegments: wires.length / 6, crossings, laundry, bikes, roadSigns, gates, lanterns, banners, kiosks, propTriangles: props.p.length / 9 } };
 }

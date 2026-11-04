@@ -40,6 +40,10 @@ export const SHOP_SIGNS = [
   '照相馆', '棋牌室', '钟表修理', '布店', '糕团店', '冷饮', '小吃', '报刊亭',
 ] as const;
 /** Invented shop names for vertical lightboxes (竖招牌). Not real businesses or brands. */
+// Invented lane, kiosk and banner texts; none refers to a real place or brand.
+export const GATE_NAMES = ['福康里', '永安坊', '慶餘里', '德馨里', '同興坊', '安樂里', '寶善里', '樹德坊', '承恩里', '仁和坊', '瑞福里', '吉祥里', '餘慶坊', '興仁里', '恆豐里', '積善坊'];
+export const KIOSK_NAMES = ['阿三烟紙店', '老張烟雜店', '便民小賣部', '永興烟紙店', '福記雜貨', '弄口小店'];
+export const BANNERS = ['垃圾分類 人人有責', '注意防火 安全第一', '共建美好家園', '鄰里互助 和睦相處'];
 export const LIGHTBOX_NAMES = [
   '阿德面馆', '老王烟杂', '荣记生煎', '美美发廊', '福兴南货', '永昌五金', '小杨馄饨', '和平旅社',
   '顺发水果', '金鑫棋牌', '巧手裁缝', '宏达电器', '春风浴室', '新华照相', '万利粮油', '德兴馆',
@@ -99,6 +103,9 @@ export function buildSignAtlas(roadNames: string[]): SignAtlas {
   });
   for (let n = 1; n <= 160; n++) keys.push({ key: 'no:' + n, text: n + '号', bg: '#1f4f9a', fg: '#ffffff', plate: true });
   LIGHTBOX_NAMES.forEach((name, i) => keys.push({ key: 'vbox:' + name, text: name, bg: ['#c8261d', '#f3efe2', '#1d4f99', '#1f6b45'][i % 4], fg: i % 4 === 1 ? '#b3241b' : '#fff6d8', plate: false, vertical: true }));
+  GATE_NAMES.forEach(name => keys.push({ key: 'gate:' + name, text: name, bg: '#d9d1bd', fg: '#3b2a1d', plate: false }));
+  KIOSK_NAMES.forEach((name, i) => keys.push({ key: 'kiosk:' + name, text: name, bg: ['#b3261c', '#1d4f99', '#f2ecdc'][i % 3], fg: i % 3 === 2 ? '#a1281e' : '#fff3c4', plate: false }));
+  BANNERS.forEach(text => keys.push({ key: 'banner:' + text, text, bg: '#c21f1a', fg: '#ffe27a', plate: false }));
   for (const name of [...new Set(roadNames)].slice(0, 512 - keys.length)) keys.push({ key: 'road:' + name, text: name, bg: '#1f4f9a', fg: '#ffffff', plate: true });
   const index = new Map(keys.map((k, i) => [k.key, i]));
   let texture: THREE.Texture | null = null;

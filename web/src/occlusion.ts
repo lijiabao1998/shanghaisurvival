@@ -3,6 +3,9 @@ type Point = readonly [number, number];
 export type OcclusionBuilding = { footprint: readonly Point[]; holes: readonly (readonly Point[])[]; height_m: number };
 const EPS = 1e-9;
 const RX = 40, RZ = -40; // Camera offset (40, 56, 40) maps world Z to negative data Y.
+let camY = 56;
+/** Camera height per unit of horizontal (40, -40) offset; lower when the player zooms in for a flatter street view. */
+export function setOcclusionCameraHeight(y: number) { camY = Number.isFinite(y) && y > 10 && y < 120 ? y : 56; }
 const cross = (ax: number, az: number, bx: number, bz: number) => ax * bz - az * bx;
 function inRing(x: number, z: number, ring: readonly Point[]): boolean {
   let inside = false;
@@ -50,7 +53,7 @@ export function buildingOccludesPlayer(b: OcclusionBuilding, px: number, pz: num
   cuts.sort((a, c) => a - c);
   for (let i = 1; i < cuts.length; i++) {
     const start = cuts[i - 1], end = cuts[i];
-    if (end - start < EPS || 1 + 56 * start > h + EPS) continue;
+    if (end - start < EPS || 1 + camY * start > h + EPS) continue;
     const mid = (start + end) / 2;
     if (contains(px + RX * mid, pz + RZ * mid)) return true;
   }

@@ -11,3 +11,13 @@ export function roomViewHeight(aspect:number):number {
   const a=Number.isFinite(aspect)&&aspect>0?aspect:1;
   return Math.max(8,6/a);
 }
+
+/** Street camera height for the (40, y, 40) offset: zooming in also lowers the pitch so facades,
+ * signs and door plates read; zoomed out keeps the classic 56 m top-down framing. */
+export function cameraHeight(zoom:number):number {
+  const z=Number.isFinite(zoom)?zoom:1;
+  const t=Math.max(0,Math.min(1,(z-1)/1.2));
+  return 56-t*24;
+}
+/** Default street zoom: a bit closer than the old 1.0 so lanes read on first entry. */
+export const DEFAULT_STREET_ZOOM=1.35;
