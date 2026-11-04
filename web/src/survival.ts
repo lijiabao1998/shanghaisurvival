@@ -21,7 +21,8 @@ import { createHelperState, exchangeWithHelper, aidHelper, receiveHelperCare } f
 import { createCityVisibility } from './city-visibility';
 import { createLilongInterior, createShelterFloor, shelterInspectionPoints } from './shanghai-details';
 import { roadGeometries, nearbyRoadName, type StreetRoad } from './road-geometry';
-import { viewHeight, roomViewHeight } from './view';
+import { viewHeight, roomViewHeight, cameraHeight, DEFAULT_STREET_ZOOM } from './view';
+import { setOcclusionCameraHeight } from './occlusion';
 import { daylightProfile } from './daylight';
 import { createStreetDetails, applyPavementGrain } from './street-details';
 let streetDetails: ReturnType<typeof createStreetDetails>|null=null;
@@ -206,7 +207,8 @@ moon.position.set(70, 95, 20);
 scene.add(moon);
 
 const camera = new THREE.OrthographicCamera(-30, 30, 22, -22, 0.1, 2400);
-let viewZoom = 1;
+let viewZoom = DEFAULT_STREET_ZOOM;
+let camHeight = cameraHeight(viewZoom);
 
 // ---------------------------------------------------------------- 玩家
 
@@ -1636,7 +1638,7 @@ function installHelperUI() {
 }
 function updateDaylight() {
   const profile=daylightProfile(dayPhase(elapsed).hour);
-  streetDetails?.setNight(profile.lamps);laneVisibility?.setNight(profile.lamps);laneLife?.setNight(profile.lamps);
+  streetDetails?.setNight(profile.lamps);laneVisibility?.setNight(profile.lamps);laneLife?.setNight(profile.lamps);cityVisibility?.setNight(profile.lamps);
   document.documentElement.style.setProperty('--day-vignette',String(profile.vignette));
   hemi.color.setHex(profile.hemiSky);hemi.groundColor.setHex(profile.ground);hemi.intensity=profile.hemiIntensity;
   moon.color.setHex(profile.key);moon.intensity=profile.keyIntensity;
@@ -1763,7 +1765,7 @@ function frame(dt: number) {
   const target = new THREE.Vector3(px, 1, -pz);
   camera.position.copy(target).add(new THREE.Vector3(
     40 + (Math.random() - 0.5) * jitter,
-    56 + (Math.random() - 0.5) * jitter,
+    camHeight + (Math.random() - 0.5) * jitter,
     40,
   ));
   camera.lookAt(target);
@@ -1805,9 +1807,23 @@ addEventListener('resize', resize);
 addEventListener('wheel', e => {
   e.preventDefault();
   if(inShelter&&shelterPanel.classList.contains('room-view'))return;
-  viewZoom = THREE.MathUtils.clamp(viewZoom * (e.deltaY < 0 ? 1.1 : .9), .5, 2.2);
-  resize();
+  setStreetZoom(viewZoom * (e.deltaY < 0 ? 1.1 : .9));
 }, { passive: false });
+function setStreetZoom(z:number){
+  viewZoom = THREE.MathUtils.clamp(z, .5, 2.2);
+  camHeight = cameraHeight(viewZoom);setOcclusionCameraHeight(camHeight);
+  resize();
+}
+setOcclusionCameraHeight(camHeight);
+// Two-finger pinch on the game view zooms (and flattens the pitch) on phones.
+{
+  const pts=new Map<number,[number,number]>();let pinch0=0,zoom0=1;
+  const spread=()=>{const v=[...pts.values()];return v.length<2?0:Math.hypot(v[0][0]-v[1][0],v[0][1]-v[1][1]);};
+  canvas.addEventListener('pointerdown',e=>{if(e.pointerType!=='touch')return;pts.set(e.pointerId,[e.clientX,e.clientY]);if(pts.size===2){pinch0=spread();zoom0=viewZoom;}});
+  canvas.addEventListener('pointermove',e=>{if(!pts.has(e.pointerId))return;pts.set(e.pointerId,[e.clientX,e.clientY]);if(pts.size===2&&pinch0>20&&!(inShelter&&shelterPanel.classList.contains('room-view')))setStreetZoom(zoom0*spread()/pinch0);});
+  const up=(e:PointerEvent)=>{pts.delete(e.pointerId);if(pts.size<2)pinch0=0;};
+  canvas.addEventListener('pointerup',up);canvas.addEventListener('pointercancel',up);
+}
 resize();
 
 // ---------------------------------------------------------------- 啟動
@@ -1836,7 +1852,7 @@ fetch(dataUrl)
 
     // Preserve every source vertex; fade only buildings intersecting the camera ray.
     shelter = selectShelter(data.buildings, data.spawn, collides, insideBuilding);
-    cityVisibility=createCityVisibility(data.buildings,true,new Set(shelter?[shelter.id]:[]));scene.add(cityVisibility.group);facadeSignage=createFacadeSignage(data.buildings);scene.add(facadeSignage.group);
+    cityVisibility=createCityVisibility(data.buildings,true,new Set(shelter?[shelter.id]:[]));scene.add(cityVisibility.group,cityVisibility.glow);facadeSignage=createFacadeSignage(data.buildings);scene.add(facadeSignage.group);
     if(shelter) {
       const marker=new THREE.Mesh(new THREE.BoxGeometry(1.2,2.4,.25),new THREE.MeshStandardMaterial({color:0x49c8d8,emissive:0x166c7a,emissiveIntensity:.8}));
       marker.position.set(shelter.outside[0],1.2,-shelter.outside[1]); marker.scale.set(.4,1,.4);scene.add(marker);

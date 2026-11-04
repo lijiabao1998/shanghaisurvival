@@ -6,7 +6,7 @@ import { lilongFacade } from './shanghai-details';
 import { roofFrame, pitchedRoof } from './pitched-roof';
 import { tiles } from './lane-houses';
 
-type Range = { wallStart:number;wallEnd:number;roofStart:number;roofEnd:number;tileStart:number;tileEnd:number;building:Building;minX:number;maxX:number;minZ:number;maxZ:number };
+type Range = { glowStart:number;glowEnd:number;wallStart:number;wallEnd:number;roofStart:number;roofEnd:number;tileStart:number;tileEnd:number;building:Building;minX:number;maxX:number;minZ:number;maxZ:number };
 /** Four fixed meshes: solid walls, faded walls, flat roofs and grey-tile pitched roofs. Geometry attributes
  * are built once; only triangle index lists change when the occluding set changes.
  * No custom GLSL, per-building draw calls, source-coordinate changes or collision edits.
@@ -14,8 +14,9 @@ type Range = { wallStart:number;wallEnd:number;roofStart:number;roofEnd:number;t
 export function createCityVisibility(buildings:Building[], lowRise = false, keepFlat:ReadonlySet<string> = new Set()) {
   const walls:number[]=[],roofs:number[]=[],wallColors:number[]=[],roofColors:number[]=[],ranges:Range[]=[];
   const tile:number[]=[],tileUV:number[]=[],tileColors:number[]=[];
+  const glow:number[]=[],glowColors:number[]=[];
   for(const building of buildings){
-    const wallStart=walls.length/3,roofStart=roofs.length/3,tileStart=tile.length/3;
+    const glowStart=glow.length/3,wallStart=walls.length/3,roofStart=roofs.length/3,tileStart=tile.length/3;
     // Art-directed 2–3 storey interpretation. Never mutate survey data, footprints,
     // doors, save IDs or collision. This is not a claim of real building heights.
     let seed=2166136261;for(const c of building.id)seed=Math.imul(seed^c.charCodeAt(0),16777619);seed>>>=0;
@@ -54,6 +55,12 @@ export function createCityVisibility(buildings:Building[], lowRise = false, keep
           for(let y=3.2;y+1.3<rendered.height_m-.3;y+=2.8){
             quad(centre-.63,centre+.63,y-.1,y+1.4,0xc6b99b);
             quad(centre-.48,centre+.48,y,y+1.25,(seed+n)%7===0?0x97754d:0x384b4d);
+            // night: about a third of the panes lit, warm incandescent, orange or cool tube light
+            const lit=((Math.imul(seed^(n*73856093)^Math.round(y*10)*19349663^i*83492791,2654435761)>>>0)%1000)/1000;
+            if(lit<.34){const col=new THREE.Color(lit<.07?0x8fa2a6:lit<.2?0xd9963e:lit<.28?0xb46a2a:0xe0c590);
+              const point=(t:number,yy:number)=>[a[0]+dx*t/len+ox*2.4,yy,-(a[1]+dz*t/len+oz*2.4)];
+              const vs=[point(centre-.46,y+.02),point(centre+.46,y+.02),point(centre+.46,y+1.23),point(centre-.46,y+1.23)];
+              for(const j of [0,1,2,0,2,3]){glow.push(...vs[j]);glowColors.push(col.r,col.g,col.b);}}
           }
         }
       }
@@ -73,7 +80,7 @@ export function createCityVisibility(buildings:Building[], lowRise = false, keep
     }
     wg.dispose();rg.dispose();
     const xs=building.footprint.map(p=>p[0]),zs=building.footprint.map(p=>p[1]);
-    ranges.push({building:occluder,wallStart,wallEnd:walls.length/3,roofStart,roofEnd:roofs.length/3,tileStart,tileEnd:tile.length/3,minX:Math.min(...xs),maxX:Math.max(...xs),minZ:Math.min(...zs),maxZ:Math.max(...zs)});
+    ranges.push({glowStart,glowEnd:glow.length/3,building:occluder,wallStart,wallEnd:walls.length/3,roofStart,roofEnd:roofs.length/3,tileStart,tileEnd:tile.length/3,minX:Math.min(...xs),maxX:Math.max(...xs),minZ:Math.min(...zs),maxZ:Math.max(...zs)});
   }
   const make=(positions:number[])=>{const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.Float32BufferAttribute(positions,3));g.computeVertexNormals();g.computeBoundingSphere();return g;};
   const solidGeometry=make(walls),roofBuffer=make(roofs),tileBuffer=make(tile),fadedGeometry=new THREE.BufferGeometry();
@@ -88,6 +95,12 @@ export function createCityVisibility(buildings:Building[], lowRise = false, keep
   const tiled=new THREE.Mesh(tileBuffer,new THREE.MeshStandardMaterial({vertexColors:true,roughness:.9,side:THREE.DoubleSide,map:tiles()}));
   solid.name='city-solid-walls';faded.name='city-occluding-walls';roof.name='city-visible-roofs';tiled.name='city-tile-roofs';
   const group=new THREE.Group();group.name='source-preserving-city';group.add(solid,roof,faded,tiled);
+  // Night-only additive window glow, kept outside the four-mesh group; culled with its building.
+  const glowGeometry=new THREE.BufferGeometry();glowGeometry.setAttribute('position',new THREE.Float32BufferAttribute(glow,3));glowGeometry.setAttribute('color',new THREE.Float32BufferAttribute(glowColors,3));glowGeometry.computeBoundingSphere();
+  const lit=new Uint32Array(glow.length/3);glowGeometry.setIndex(new THREE.BufferAttribute(lit,1).setUsage(THREE.DynamicDrawUsage));
+  const glowMat=new THREE.MeshBasicMaterial({vertexColors:true,side:THREE.DoubleSide,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false});
+  const glowMesh=new THREE.Mesh(glowGeometry,glowMat);glowMesh.name='city-night-windows';glowMesh.renderOrder=2;glowMesh.visible=false;
+  const setNight=(amount:number)=>{const a=Number.isFinite(amount)?Math.max(0,Math.min(1,amount)):0;glowMesh.visible=a>.02;glowMat.color.setScalar(a*1.5);};
   // Allocate index buffers once; reuse across movement to avoid GPU buffer churn.
   const normal=new Uint32Array(walls.length/3),ghost=new Uint32Array(walls.length/3),top=new Uint32Array(roofs.length/3),pitched=new Uint32Array(tile.length/3);
   solidGeometry.setIndex(new THREE.BufferAttribute(normal,1).setUsage(THREE.DynamicDrawUsage));
@@ -108,11 +121,11 @@ export function createCityVisibility(buildings:Building[], lowRise = false, keep
       if(blocks(x,z)||focus?.some(p=>blocks(p[0],p[1])))hidden.add(r.building.id);
     }
     const key=[...hidden].join('|');if(key===lastKey)return false;lastKey=key;fadedIds=[...hidden];
-    let n=0,g=0,t=0,p=0;
-    for(const r of ranges){const occluded=hidden.has(r.building.id);for(let i=r.wallStart;i<r.wallEnd;i++){if(occluded)ghost[g++]=i;else normal[n++]=i;}if(!occluded){for(let i=r.roofStart;i<r.roofEnd;i++)top[t++]=i;for(let i=r.tileStart;i<r.tileEnd;i++)pitched[p++]=i;}}
-    for(const [geometry,count] of [[solidGeometry,n],[fadedGeometry,g],[roofBuffer,t],[tileBuffer,p]] as const){geometry.setDrawRange(0,count);geometry.index!.needsUpdate=true;}
+    let n=0,g=0,t=0,p=0,l=0;
+    for(const r of ranges){const occluded=hidden.has(r.building.id);for(let i=r.wallStart;i<r.wallEnd;i++){if(occluded)ghost[g++]=i;else normal[n++]=i;}if(!occluded){for(let i=r.glowStart;i<r.glowEnd;i++)lit[l++]=i;for(let i=r.roofStart;i<r.roofEnd;i++)top[t++]=i;for(let i=r.tileStart;i<r.tileEnd;i++)pitched[p++]=i;}}
+    for(const [geometry,count] of [[solidGeometry,n],[fadedGeometry,g],[roofBuffer,t],[tileBuffer,p],[glowGeometry,l]] as const){geometry.setDrawRange(0,count);geometry.index!.needsUpdate=true;}
     return true;
   }
   update(-Infinity,Infinity);
-  return {group,update,fadedIds:()=>[...fadedIds],stats:()=>({meshes:4,wallVertices:walls.length/3,roofVertices:roofs.length/3,tileVertices:tile.length/3,solidIndices:solidGeometry.drawRange.count,fadedIndices:fadedGeometry.drawRange.count,roofIndices:roofBuffer.drawRange.count,tileIndices:tileBuffer.drawRange.count})};
+  return {group,glow:glowMesh,setNight,update,fadedIds:()=>[...fadedIds],stats:()=>({meshes:4,wallVertices:walls.length/3,roofVertices:roofs.length/3,tileVertices:tile.length/3,solidIndices:solidGeometry.drawRange.count,fadedIndices:fadedGeometry.drawRange.count,roofIndices:roofBuffer.drawRange.count,tileIndices:tileBuffer.drawRange.count})};
 }

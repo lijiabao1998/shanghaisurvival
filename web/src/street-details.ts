@@ -90,8 +90,12 @@ export function createStreetDetails(roads:StreetRoad[],buildings:Building[],boun
         for(const offset of [-.51,.51])box(furniture,px+nx*offset,pz+nz*offset,1.25,.12,.09,.08,0xb2aa91,s.dx,s.dz);
         box(furniture,px,pz,.19,.19,.1,2.9,0x9b9380);box(furniture,px+.07,pz,.12,.12,1.8,1.3,0x6e7161);
         // Small faceted plane-tree crown, no transparent leaf overdraw/extra mesh.
-        const crown=new THREE.IcosahedronGeometry(.72,0);const p=crown.getAttribute('position'),c=new THREE.Color(0x788465);
-        for(let i=0;i<p.count;i++){furniture.p.push(px+p.getX(i),3.3+p.getY(i)*.8,-pz+p.getZ(i));furniture.c.push(c.r,c.g,c.b);}crown.dispose();treePits++;
+        // 法國梧桐: pale mottled trunk forking into two broad flattened crowns over the pavement.
+        box(furniture,px-.12,pz,.14,.14,2.6,3.9,0xa59c86);box(furniture,px+.14,pz,.14,.14,2.6,4.1,0x8d8a74);
+        for(const [cx,cz,cy,r,col] of [[-.5,-.2,4.3,1.5,0x6f7d55],[.7,.35,4.6,1.35,0x7d8a5c],[.1,.1,5.2,1.0,0x8a9566]] as const){
+          const crown=new THREE.IcosahedronGeometry(r,0);const p=crown.getAttribute('position'),c=new THREE.Color(col);
+          for(let i=0;i<p.count;i++){furniture.p.push(px+cx+p.getX(i),cy+p.getY(i)*.62,-pz+cz+p.getZ(i));furniture.c.push(c.r,c.g,c.b);}crown.dispose();}
+        treePits++;
       }else{
         box(furniture,px,pz,.16,.16,.02,3.7,0x444d49);box(furniture,px,pz,.35,.35,.02,.18,0x64695d);
         box(furniture,px,pz,.48,.35,3.7,.08,0x404a46);
