@@ -99,3 +99,9 @@
 - 程式碼：MIT
 - 自製素材：CC BY-SA 4.0
 - 第三方素材：逐一記錄於 [docs/asset-license.md](docs/asset-license.md)
+
+## 資料來源與授權 / Credits & Attribution
+
+- 地圖與道路資料 © [OpenStreetMap contributors](https://www.openstreetmap.org/copyright)，依 ODbL 授權。見 `data/sources/osm-shanghai-20261029/`。
+- 建築資料：Zhang, Yecheng; Zhao, Huimin; Long, Ying, *CMAB: A Multi-Attribute Building Dataset of China*，[Figshare](https://doi.org/10.6084/m9.figshare.27992417)，[CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)。本專案已裁切、簡化並轉換格式。見 `data/sources/cmab-v7/`。
+- 程式碼版權所有，見 [LICENSE](LICENSE)。第三方資料依其各自授權。
