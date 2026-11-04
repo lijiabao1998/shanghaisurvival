@@ -1636,7 +1636,7 @@ function installHelperUI() {
 }
 function updateDaylight() {
   const profile=daylightProfile(dayPhase(elapsed).hour);
-  streetDetails?.setNight(profile.lamps);
+  streetDetails?.setNight(profile.lamps);laneVisibility?.setNight(profile.lamps);laneLife?.setNight(profile.lamps);
   document.documentElement.style.setProperty('--day-vignette',String(profile.vignette));
   hemi.color.setHex(profile.hemiSky);hemi.groundColor.setHex(profile.ground);hemi.intensity=profile.hemiIntensity;
   moon.color.setHex(profile.key);moon.intensity=profile.keyIntensity;
@@ -1967,6 +1967,7 @@ fetch(dataUrl)
         swing: () => startSwing(),
         // Debug observation: place the player on open ground (refused inside walls) for screenshots.
         teleport: (x:number,z:number,face=facing) => { if(!Number.isFinite(x)||!Number.isFinite(z)||collides(x,z,.36)||insideBuilding(x,z))return false; px=x;pz=z;facing=bodyYaw=face;velX=velZ=0;refreshShelterView();return true; },
+        setHour: (h:number) => { if(!Number.isFinite(h))return false; elapsed=(((h-8)%24+24)%24)*30; updateDaylight(); return dayPhase(elapsed).hour; },
         lanes: () => ({ active: lanesActive(), ...(laneVisibility?.stats() ?? {}), life: laneLife?.stats }),
         hurt: (n = 30) => { injureBody(survivorSystems.condition,n);hp = Math.max(0, hp - n); if (hp <= 0) lose(); },
         give: (id: ItemId, n = 1) => { inventory[id] += n; if (id === 'pistol'){grantWeapon(arsenal,'qsz92-9');syncArsenal();} updateBag(); },

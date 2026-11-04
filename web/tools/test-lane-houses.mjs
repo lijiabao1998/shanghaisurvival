@@ -34,10 +34,11 @@ test('a row has tiled roof slopes, walls and plates; every vertex is finite', ()
   assert.ok(Math.max(...ys) <= houses[0].height_m + 0.6 && Math.max(...ys) > houses[0].height_m - 1.5);
 });
 
-test('the whole fabric stays within a mobile budget in four meshes and fades the row hiding the player', () => {
+test('the whole fabric stays within a mobile budget in five meshes (one night-only glow) and fades the row hiding the player', () => {
   const v = createLaneVisibility(houses, names);
   const s = v.stats();
-  assert.equal(s.meshes, 4);
+  assert.equal(s.meshes, 5);
+  assert.ok(s.glowTriangles > 0 && s.glowTriangles < 120000, `${s.glowTriangles} glow triangles`);
   assert.equal(s.units, houses.reduce((a, h) => a + h.lane.units.length, 0));
   const tris = s.wallTriangles + s.roofTriangles + s.signTriangles;
   assert.ok(tris < 320000, `${tris} triangles`);
@@ -47,7 +48,7 @@ test('the whole fabric stays within a mobile budget in four meshes and fades the
   assert.ok(v.fadedIds().includes(h.id), 'standing inside a row hides it');
   v.update(block.spawn[0] + 500, block.spawn[1] + 500);
   assert.ok(!v.fadedIds().includes(h.id));
-  console.log(`  ${s.houses} rows, ${s.units} houses, ${tris} triangles`);
+  console.log(`  ${s.houses} rows, ${s.units} houses, ${tris} triangles, ${s.glowTriangles} night-glow triangles`);
   v.dispose();
 });
 
