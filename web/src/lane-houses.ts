@@ -39,6 +39,11 @@ export const SHOP_SIGNS = [
   '酱油店', '水果店', '早点', '面馆', '裁缝店', '日用百货', '杂货铺', '熟食店', '茶叶店', '中药铺',
   '照相馆', '棋牌室', '钟表修理', '布店', '糕团店', '冷饮', '小吃', '报刊亭',
 ] as const;
+/** Invented shop names for vertical lightboxes (竖招牌). Not real businesses or brands. */
+export const LIGHTBOX_NAMES = [
+  '阿德面馆', '老王烟杂', '荣记生煎', '美美发廊', '福兴南货', '永昌五金', '小杨馄饨', '和平旅社',
+  '顺发水果', '金鑫棋牌', '巧手裁缝', '宏达电器', '春风浴室', '新华照相', '万利粮油', '德兴馆',
+] as const;
 const SIGN_BG = [0x9b2d24, 0x234e8c, 0x2e6b46, 0x5a3a24, 0xe9e4d6] as const;
 
 // ---------------------------------------------------------------- textures (Node-safe)
@@ -84,21 +89,23 @@ export function tiles() {
   return tileTexture;
 }
 
-/** One atlas for every board and plate: 8 × 32 cells of 128 × 32 px. */
+/** One atlas for every board and plate: 8 × 64 cells of 128 × 32 px. */
 export type SignAtlas = { texture: THREE.Texture | null; cell: (key: string) => [number, number, number, number] | null };
 export function buildSignAtlas(roadNames: string[]): SignAtlas {
-  const keys: Array<{ key: string; text: string; bg: string; fg: string; plate: boolean }> = [];
+  const keys: Array<{ key: string; text: string; bg: string; fg: string; plate: boolean; vertical?: boolean }> = [];
   SHOP_SIGNS.forEach((name, i) => {
     const bg = SIGN_BG[i % SIGN_BG.length];
     keys.push({ key: 'shop:' + name, text: name, bg: '#' + bg.toString(16).padStart(6, '0'), fg: bg === 0xe9e4d6 ? '#a1281e' : i % 3 === 0 ? '#f0d58a' : '#f4f1e8', plate: false });
   });
   for (let n = 1; n <= 160; n++) keys.push({ key: 'no:' + n, text: n + '号', bg: '#1f4f9a', fg: '#ffffff', plate: true });
-  for (const name of [...new Set(roadNames)].slice(0, 256 - keys.length)) keys.push({ key: 'road:' + name, text: name, bg: '#1f4f9a', fg: '#ffffff', plate: true });
+  LIGHTBOX_NAMES.forEach((name, i) => keys.push({ key: 'vbox:' + name, text: name, bg: ['#c8261d', '#f3efe2', '#1d4f99', '#1f6b45'][i % 4], fg: i % 4 === 1 ? '#b3241b' : '#fff6d8', plate: false, vertical: true }));
+  for (const name of [...new Set(roadNames)].slice(0, 512 - keys.length)) keys.push({ key: 'road:' + name, text: name, bg: '#1f4f9a', fg: '#ffffff', plate: true });
   const index = new Map(keys.map((k, i) => [k.key, i]));
   let texture: THREE.Texture | null = null;
   if (hasDom) {
     const cv = document.createElement('canvas');
-    cv.width = cv.height = 1024;
+    cv.width = 1024;
+    cv.height = 2048;
     const g = cv.getContext('2d')!;
     g.textAlign = 'center';
     g.textBaseline = 'middle';
@@ -112,6 +119,13 @@ export function buildSignAtlas(roadNames: string[]): SignAtlas {
         g.strokeRect(x + 4, y + 4, 120, 24);
       }
       g.fillStyle = k.fg;
+      if (k.vertical) {
+        // characters drawn rotated so that a quad with rotated UVs shows them upright and stacked
+        const chars = [...k.text], step = 120 / chars.length, sz = Math.min(26, Math.floor(step * 0.92));
+        g.font = `bold ${sz}px "PingFang SC","Noto Sans CJK SC","Source Han Sans SC","Microsoft YaHei","WenQuanYi Zen Hei",sans-serif`;
+        chars.forEach((ch, j) => { g.save(); g.translate(x + 4 + step * (j + 0.5), y + 16); g.rotate(Math.PI / 2); g.fillText(ch, 0, 1); g.restore(); });
+        return;
+      }
       const size = Math.min(24, Math.floor(118 / Math.max(2, [...k.text].length)));
       g.font = `bold ${size}px "PingFang SC","Noto Sans CJK SC","Source Han Sans SC","Microsoft YaHei","WenQuanYi Zen Hei",sans-serif`;
       g.fillText(k.text, x + 64, y + 17, 120);
@@ -125,19 +139,19 @@ export function buildSignAtlas(roadNames: string[]): SignAtlas {
     cell: key => {
       const i = index.get(key);
       if (i === undefined) return null;
-      const u0 = (i % 8) / 8, v1 = 1 - Math.floor(i / 8) / 32;
-      return [u0 + 0.002, v1 - 1 / 32 + 0.002, u0 + 1 / 8 - 0.002, v1 - 0.002];
+      const u0 = (i % 8) / 8, v1 = 1 - Math.floor(i / 8) / 64;
+      return [u0 + 0.002, v1 - 1 / 64 + 0.001, u0 + 1 / 8 - 0.002, v1 - 0.001];
     },
   };
 }
 
 // ---------------------------------------------------------------- one row of houses
 
-export type LaneHouseGeometry = { walls: Batch; roof: Batch; signs: Batch };
+export type LaneHouseGeometry = { walls: Batch; roof: Batch; signs: Batch; glow: Batch };
 type Numbering = Map<string, number>;
 
 export function laneHouseGeometry(house: LaneHouse, atlas: SignAtlas, numbering: Numbering): LaneHouseGeometry {
-  const walls = batch(), roof = batch(), signs = batch();
+  const walls = batch(), roof = batch(), signs = batch(), glow = batch();
   const fp = house.footprint, O = fp[0];
   const L = Math.hypot(fp[1][0] - O[0], fp[1][1] - O[1]);
   const u: [number, number] = [(fp[1][0] - O[0]) / L, (fp[1][1] - O[1]) / L];
@@ -164,6 +178,33 @@ export function laneHouseGeometry(house: LaneHouse, atlas: SignAtlas, numbering:
     const [ua, va, ub, vb] = cell;
     // the front faces −n; mirror u so text reads left-to-right from the street
     quad(signs, P(s1, d, y0), P(s0, d, y0), P(s0, d, y1), P(s1, d, y1), 0xffffff, [[ua, va], [ub, va], [ub, vb], [ua, vb]]);
+  };
+  /** night-only additive light: a lit pane, a bulb, or a soft pool of light on the pavement */
+  const glowPanel = (s0: number, s1: number, y0: number, y1: number, d: number, color: number) => quad(glow, P(s0, d, y0), P(s1, d, y0), P(s1, d, y1), P(s0, d, y1), color);
+  const pool = (s: number, d: number, r: number, color: number, y = 0.04) => {
+    const segs = 10, c = P(s, d, y);
+    tmp.setHex(color);
+    const [cr, cg, cb] = [tmp.r, tmp.g, tmp.b];
+    for (let i = 0; i < segs; i++) {
+      const a0 = (i / segs) * Math.PI * 2, a1 = ((i + 1) / segs) * Math.PI * 2;
+      glow.p.push(...c, ...P(s + Math.cos(a0) * r, d + Math.sin(a0) * r * 0.9, y), ...P(s + Math.cos(a1) * r, d + Math.sin(a1) * r * 0.9, y));
+      glow.c.push(cr, cg, cb, 0, 0, 0, 0, 0, 0);
+    }
+  };
+  /** vertical lightbox sticking out from the wall, text on both faces */
+  const lightbox = (key: string, s: number, y0: number, y1: number) => {
+    const cell = atlas.cell(key);
+    if (!cell) return;
+    const [ua, va, ub, vb] = cell;
+    box(walls, s - 0.03, s + 0.03, -0.12, 0, y1 - 0.12, y1 - 0.04, 0x3a3a3a, false);
+    box(walls, s - 0.06, s + 0.06, -0.78, -0.16, y0 - 0.03, y1 + 0.03, 0x2a2a2a);
+    // text runs top→bottom: map the cell's u axis onto height
+    for (const x of [s - 0.065, s + 0.065]) {
+      const flip = x < s;
+      quad(signs, P(x, flip ? -0.18 : -0.76, y0), P(x, flip ? -0.76 : -0.18, y0), P(x, flip ? -0.76 : -0.18, y1), P(x, flip ? -0.18 : -0.76, y1), 0xffffff,
+        [[ub, vb], [ub, va], [ua, va], [ua, vb]]);
+    }
+    pool(s, -1.4, 1.6, 0x3a2416);
   };
   const side = house.id.includes(':L:') ? 'L' : 'R';
   const rise = PITCH * (D / 2);
@@ -289,6 +330,13 @@ export function laneHouseGeometry(house: LaneHouse, atlas: SignAtlas, numbering:
       const sign = pick(SHOP_SIGNS, hk('sign'));
       box(walls, o0 + 0.05, o1 - 0.05, -0.14, 0, 2.78, 3.4, 0x3b3330);
       signFace('shop:' + sign, o0 + 0.1, o1 - 0.1, 2.82, 3.36, -0.145);
+      // night: warm spill from the shop and a pool on the pavement; some shops carry a vertical lightbox
+      if (hk('open-lit') < 0.6) {
+        glowPanel(o0 + 0.1, o1 - 0.1, 0.1, 2.6, fd - 0.05, hk('tube') < 0.5 ? 0x8a6a3c : 0x6a7468);
+        pool((o0 + o1) / 2, -1.2, Math.min(2.4, (o1 - o0) * 0.7), 0x4a3418);
+      }
+      glowPanel(o0 + 0.1, o1 - 0.1, 3.36, 3.42, -0.15, 0x9a8a68); // tube light over the board
+      if (f >= 2 && hk('vbox') < 0.45) lightbox('vbox:' + pick(LIGHTBOX_NAMES, hk('vname')), hk('vside') < 0.5 ? o0 + 0.15 : o1 - 0.15, 3.6, 5.3);
       if (hk('awning') < 0.4) {
         const stripes = hk('aw') < 0.5 ? [0xb03a2e, 0xe8e2d6] : [0x2f5d9a, 0xe8e2d6];
         const segs = 6;
@@ -309,6 +357,8 @@ export function laneHouseGeometry(house: LaneHouse, atlas: SignAtlas, numbering:
         panel(walls, dc - 0.012, dc + 0.012, 0, 2.48, fd - 0.025, 0x3a3a3a);
         for (const s of [dc - 0.12, dc + 0.08]) panel(walls, s, s + 0.04, 1.3, 1.36, fd - 0.03, 0xb48c3e);
         box(walls, dc - 0.98, dc + 0.98, -0.18, 0, 2.78, 3.18, 0xb3ad9d);
+        if (hk('bulb') < 0.55) { box(walls, dc - 0.04, dc + 0.04, -0.3, 0, 2.62, 2.7, 0x2b2b2b, false); glowPanel(dc - 0.07, dc + 0.07, 2.48, 2.62, -0.3, 0xffd9a0); pool(dc, -0.9, 1.7, 0x4a3820); }
+        if (hk('pots') < 0.5) for (const [i, s] of [dc - 1.15, dc - 1.4].entries()) { box(walls, s - 0.13, s + 0.13, -0.4, -0.14, 0, 0.3, i ? 0x7a4a34 : 0x5c6a6f); box(walls, s - 0.17, s + 0.17, -0.44, -0.1, 0.3, 0.62, i ? 0x3f6b3a : 0x4f7a3e); }
         if (hk('ped') < 0.5) tri(walls, P(dc - 0.98, -0.18, 3.18), P(dc + 0.98, -0.18, 3.18), P(dc, -0.18, 3.62), 0xb3ad9d);
         else box(walls, dc - 0.7, dc + 0.7, -0.2, 0, 3.18, 3.5, 0xa9a393);
       } else {
@@ -325,6 +375,15 @@ export function laneHouseGeometry(house: LaneHouse, atlas: SignAtlas, numbering:
       }
     }
 
+    // ---- wall-bracket street lamp (sodium-orange in lanes, whiter LED on streets) with a light pool
+    if (f >= 2 && hk('wlamp') < (kind === 'lane' ? 0.2 : 0.13)) {
+      const s = S + 0.25, led = kind !== 'lane' && hk('led') < 0.6;
+      box(walls, s - 0.03, s + 0.03, -0.75, 0, 4.25, 4.31, 0x2d2f30, false);
+      box(walls, s - 0.12, s + 0.12, -0.95, -0.6, 4.12, 4.25, 0x3a3c3d);
+      glowPanel(s - 0.11, s + 0.11, 4.115, 4.116, -0.6, led ? 0xe8eef0 : 0xffb35a);
+      quad(glow, P(s - 0.11, -0.95, 4.11), P(s + 0.11, -0.95, 4.11), P(s + 0.11, -0.6, 4.11), P(s - 0.11, -0.6, 4.11), led ? 0xe8eef0 : 0xffb35a);
+      pool(s + 0.4, -2.2, 4.2, led ? 0x3e4446 : 0x5a3410);
+    }
     // ---- upper floors: windows, cages, AC units, laundry poles
     for (let fl = 1; fl < f; fl++) {
       const y0 = 0.35 + fl * 2.95 + 0.85;
@@ -358,6 +417,8 @@ export function laneHouseGeometry(house: LaneHouse, atlas: SignAtlas, numbering:
       const frame = alu ? 0xc6cac6 : pick(WOOD, hk('wood'));
       panel(walls, c - ww / 2 - 0.07, c + ww / 2 + 0.07, y0 - 0.07, y0 + h + 0.07, -0.02, frame);
       panel(walls, c - ww / 2, c + ww / 2, y0, y0 + h, -0.03, hk('lit' + y0 + c) < 0.15 ? 0x6d6a55 : 0x34424b);
+      const lit = hk('glow' + y0 + c);
+      if (lit < 0.42) glowPanel(c - ww / 2, c + ww / 2, y0, y0 + h, -0.032, lit < 0.12 ? 0xb7c4c2 : lit < 0.3 ? 0xd59a4c : 0xb07a3a);
       panel(walls, c - 0.025, c + 0.025, y0, y0 + h, -0.035, frame);
       if (!alu) panel(walls, c - ww / 2, c + ww / 2, y0 + h * 0.68, y0 + h * 0.68 + 0.05, -0.035, frame);
       box(walls, c - ww / 2 - 0.1, c + ww / 2 + 0.1, -0.12, 0, y0 - 0.16, y0 - 0.07, shade(wall, 1.05));
@@ -379,28 +440,28 @@ export function laneHouseGeometry(house: LaneHouse, atlas: SignAtlas, numbering:
     const s = 0.3;
     signFace('road:' + house.lane.name, s, s + 0.9, 2.9, 3.18, -0.05);
   }
-  return { walls, roof, signs };
+  return { walls, roof, signs, glow };
 }
 
 // ---------------------------------------------------------------- batched, occlusion-aware rendering
 
-type Range = { id: string; house: LaneHouse; w: [number, number]; r: [number, number]; s: [number, number]; minX: number; maxX: number; minZ: number; maxZ: number };
+type Range = { id: string; house: LaneHouse; w: [number, number]; r: [number, number]; s: [number, number]; g: [number, number]; minX: number; maxX: number; minZ: number; maxZ: number };
 
 export function createLaneVisibility(houses: LaneHouse[], roadNames: string[]) {
   const atlas = buildSignAtlas(roadNames);
-  const W = batch(), R = batch(), Sg = batch(), ranges: Range[] = [];
+  const W = batch(), R = batch(), Sg = batch(), G = batch(), ranges: Range[] = [];
   const numbering: Numbering = new Map();
   for (const house of houses) {
     const g = laneHouseGeometry(house, atlas, numbering);
-    const w0 = W.p.length / 3, r0 = R.p.length / 3, s0 = Sg.p.length / 3;
-    for (const [to, from] of [[W, g.walls], [R, g.roof], [Sg, g.signs]] as const) {
+    const w0 = W.p.length / 3, r0 = R.p.length / 3, s0 = Sg.p.length / 3, g0 = G.p.length / 3;
+    for (const [to, from] of [[W, g.walls], [R, g.roof], [Sg, g.signs], [G, g.glow]] as const) {
       to.p.push(...from.p);
       to.c.push(...from.c);
       to.uv.push(...from.uv);
     }
     const xs = house.footprint.map(p => p[0]), zs = house.footprint.map(p => p[1]);
     ranges.push({
-      id: house.id, house, w: [w0, W.p.length / 3], r: [r0, R.p.length / 3], s: [s0, Sg.p.length / 3],
+      id: house.id, house, w: [w0, W.p.length / 3], r: [r0, R.p.length / 3], s: [s0, Sg.p.length / 3], g: [g0, G.p.length / 3],
       minX: Math.min(...xs) - 1, maxX: Math.max(...xs) + 1, minZ: Math.min(...zs) - 1, maxZ: Math.max(...zs) + 1,
     });
   }
@@ -415,7 +476,7 @@ export function createLaneVisibility(houses: LaneHouse[], roadNames: string[]) {
     g.setIndex(index);
     return g;
   };
-  const wallGeometry = make(W, false), roofGeometry = make(R, true), signGeometry = make(Sg, true);
+  const wallGeometry = make(W, false), roofGeometry = make(R, true), signGeometry = make(Sg, true), glowGeometry = make(G, false);
   const fadedGeometry = new THREE.BufferGeometry();
   for (const k of ['position', 'color', 'normal']) fadedGeometry.setAttribute(k, wallGeometry.getAttribute(k));
   fadedGeometry.setIndex(new THREE.BufferAttribute(new Uint32Array(W.p.length / 3), 1).setUsage(THREE.DynamicDrawUsage));
@@ -423,7 +484,13 @@ export function createLaneVisibility(houses: LaneHouse[], roadNames: string[]) {
   const wallMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, side: THREE.DoubleSide });
   const fadedMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, side: THREE.DoubleSide, transparent: true, opacity: 0.18, depthWrite: false });
   const roofMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, side: THREE.DoubleSide, map: tiles() });
-  const signMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, side: THREE.DoubleSide, map: atlas.texture });
+  const signMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, side: THREE.DoubleSide, map: atlas.texture, emissive: 0xffffff, emissiveMap: atlas.texture, emissiveIntensity: 0 });
+  // additive, unlit: lit windows, shop spill, bulbs and pools of light; shown only after dusk
+  const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, fog: true, toneMapped: false });
+  const glowMesh = new THREE.Mesh(glowGeometry, glowMat);
+  glowMesh.name = 'lane-night-glow';
+  glowMesh.renderOrder = 2;
+  glowMesh.visible = false;
   const group = new THREE.Group();
   group.name = 'laoximen-lane-houses';
   const solid = new THREE.Mesh(wallGeometry, wallMat), faded = new THREE.Mesh(fadedGeometry, fadedMat), roofs = new THREE.Mesh(roofGeometry, roofMat), boards = new THREE.Mesh(signGeometry, signMat);
@@ -431,7 +498,7 @@ export function createLaneVisibility(houses: LaneHouse[], roadNames: string[]) {
   faded.name = 'lane-occluding-walls';
   roofs.name = 'lane-roofs';
   boards.name = 'lane-signs';
-  group.add(solid, roofs, boards, faded);
+  group.add(solid, roofs, boards, faded, glowMesh);
   let lastKey: string | null = null, lastX = NaN, lastZ = NaN, lastFocus: ReadonlyArray<readonly [number, number]> | undefined;
   let fadedIds: string[] = [];
   function update(x: number, z: number, focus?: ReadonlyArray<readonly [number, number]>) {
@@ -448,16 +515,17 @@ export function createLaneVisibility(houses: LaneHouse[], roadNames: string[]) {
     if (key === lastKey) return false;
     lastKey = key;
     fadedIds = [...hidden];
-    const wi = wallGeometry.index!.array as Uint32Array, gi = fadedGeometry.index!.array as Uint32Array, ri = roofGeometry.index!.array as Uint32Array, si = signGeometry.index!.array as Uint32Array;
-    let nw = 0, ng = 0, nr = 0, ns = 0;
+    const li = glowGeometry.index!.array as Uint32Array, wi = wallGeometry.index!.array as Uint32Array, gi = fadedGeometry.index!.array as Uint32Array, ri = roofGeometry.index!.array as Uint32Array, si = signGeometry.index!.array as Uint32Array;
+    let nw = 0, ng = 0, nr = 0, ns = 0, nl = 0;
     for (const r of ranges) {
       const occluded = hidden.has(r.id);
       for (let i = r.w[0]; i < r.w[1]; i++) if (occluded) gi[ng++] = i; else wi[nw++] = i;
       if (occluded) continue;
       for (let i = r.r[0]; i < r.r[1]; i++) ri[nr++] = i;
       for (let i = r.s[0]; i < r.s[1]; i++) si[ns++] = i;
+      for (let i = r.g[0]; i < r.g[1]; i++) li[nl++] = i;
     }
-    for (const [g, count] of [[wallGeometry, nw], [fadedGeometry, ng], [roofGeometry, nr], [signGeometry, ns]] as const) {
+    for (const [g, count] of [[wallGeometry, nw], [fadedGeometry, ng], [roofGeometry, nr], [signGeometry, ns], [glowGeometry, nl]] as const) {
       g.setDrawRange(0, count);
       g.index!.needsUpdate = true;
     }
@@ -469,10 +537,17 @@ export function createLaneVisibility(houses: LaneHouse[], roadNames: string[]) {
     atlas,
     update,
     fadedIds: () => [...fadedIds],
-    stats: () => ({ houses: houses.length, units: houses.reduce((a, h) => a + h.lane.units.length, 0), wallTriangles: W.p.length / 9, roofTriangles: R.p.length / 9, signTriangles: Sg.p.length / 9, meshes: 4 }),
+    /** 0 = day, 1 = full night: lit windows, bulbs and light pools fade in; shop boards and plates glow */
+    setNight: (amount: number) => {
+      const a = Number.isFinite(amount) ? Math.max(0, Math.min(1, amount)) : 0;
+      glowMesh.visible = a > 0.02;
+      glowMat.color.setScalar(a * 1.6);
+      signMat.emissiveIntensity = a * 0.55;
+    },
+    stats: () => ({ houses: houses.length, units: houses.reduce((a, h) => a + h.lane.units.length, 0), wallTriangles: W.p.length / 9, roofTriangles: R.p.length / 9, signTriangles: Sg.p.length / 9, glowTriangles: G.p.length / 9, meshes: 5 }),
     dispose: () => {
-      for (const g of [wallGeometry, fadedGeometry, roofGeometry, signGeometry]) g.dispose();
-      for (const m of [wallMat, fadedMat, roofMat, signMat]) m.dispose();
+      for (const g of [wallGeometry, fadedGeometry, roofGeometry, signGeometry, glowGeometry]) g.dispose();
+      for (const m of [wallMat, fadedMat, roofMat, signMat, glowMat]) m.dispose();
     },
   };
 }

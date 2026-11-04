@@ -23,6 +23,16 @@ export function createLaneLife(houses: LaneHouse[], roads: LaneRoad[], atlas: Si
   const wires: number[] = [];
   const props: Batch = { p: [], c: [], uv: [] };
   const signs: Batch = { p: [], c: [], uv: [] };
+  const glow: Batch = { p: [], c: [], uv: [] };
+  const pool = (x: number, y: number, r: number, color: number) => {
+    tmp.setHex(color);
+    const [cr, cg, cb] = [tmp.r, tmp.g, tmp.b];
+    for (let i = 0; i < 12; i++) {
+      const a0 = (i / 12) * Math.PI * 2, a1 = ((i + 1) / 12) * Math.PI * 2;
+      glow.p.push(...W(x, y, 0.05), ...W(x + Math.cos(a0) * r, y + Math.sin(a0) * r, 0.05), ...W(x + Math.cos(a1) * r, y + Math.sin(a1) * r, 0.05));
+      glow.c.push(cr, cg, cb, 0, 0, 0, 0, 0, 0);
+    }
+  };
   const W = (x: number, y: number, h: number): V3 => [x, h, -y];
   /** axis box oriented by unit direction (ux, uy) in data space */
   const box = (x: number, y: number, ux: number, uy: number, w: number, d: number, y0: number, y1: number, color: number) => {
@@ -153,6 +163,11 @@ export function createLaneLife(houses: LaneHouse[], roads: LaneRoad[], atlas: Si
         for (const s of [-1, 1]) box(x + nx * s * (half + 0.1), y + ny * s * (half + 0.1), ux, uy, 0.42, 0.42, 0, 3.55, 0x8a5c4a);
         box(x, y, nx, ny, r.width_m + 0.8, 0.46, 3.4, 3.9, 0xb5ae9e);
         plate('road:' + r.name, x, y, nx, ny, 3.48, 1.1, 0.34, 0.25); // on both faces of the lintel
+        // bare bulb hanging under the lintel, lighting the lane mouth
+        box(x, y, ux, uy, 0.02, 0.02, 3.0, 3.4, 0x222222);
+        quad(glow, W(x - 0.08, y, 2.88), W(x + 0.08, y, 2.88), W(x + 0.08, y, 3.02), W(x - 0.08, y, 3.02), 0xffd08a);
+        quad(glow, W(x, y - 0.08, 2.88), W(x, y + 0.08, 2.88), W(x, y + 0.08, 3.02), W(x, y - 0.08, 3.02), 0xffd08a);
+        pool(x, y, 3.2, 0x5c3c18);
         gates++;
       } else {
         const x = p[0] + ux * 3 + nx * (half + 0.9), y = p[1] + uy * 3 + ny * (half + 0.9);
@@ -178,6 +193,16 @@ export function createLaneLife(houses: LaneHouse[], roads: LaneRoad[], atlas: Si
   const wireMat = new THREE.LineBasicMaterial({ color: 0x1b1c1d });
   const propMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, side: THREE.DoubleSide });
   const signMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, side: THREE.DoubleSide, map: atlas.texture });
-  group.add(new THREE.LineSegments(wireGeometry, wireMat), mesh(props, propMat, false), mesh(signs, signMat, true));
-  return { group, stats: { wireSegments: wires.length / 6, crossings, laundry, bikes, roadSigns, gates, propTriangles: props.p.length / 9 } };
+  const glowMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+  const glowMesh = mesh(glow, glowMat, false);
+  glowMesh.name = 'lane-gate-glow';
+  glowMesh.renderOrder = 2;
+  glowMesh.visible = false;
+  group.add(new THREE.LineSegments(wireGeometry, wireMat), mesh(props, propMat, false), mesh(signs, signMat, true), glowMesh);
+  const setNight = (amount: number) => {
+    const a = Number.isFinite(amount) ? Math.max(0, Math.min(1, amount)) : 0;
+    glowMesh.visible = a > 0.02;
+    glowMat.color.setScalar(a * 1.6);
+  };
+  return { group, setNight, stats: { wireSegments: wires.length / 6, crossings, laundry, bikes, roadSigns, gates, propTriangles: props.p.length / 9 } };
 }
