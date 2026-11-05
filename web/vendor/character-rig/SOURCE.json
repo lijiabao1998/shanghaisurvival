@@ -1,13 +1,14 @@
 {
   "package": "@lijiabao/character-rig",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "source": "https://github.com/lijiabao1998/defendtaipei/tree/main/packages/character-rig",
-  "baseline": "DefendTaipei-Lab v24.0.1",
+  "baseline": "DefendTaipei-Lab v24.0.2",
   "files": {
-    "README.md": "01c1ee995d9b3d345eb295391168d1d760c9ee9e0b331503b37bb27e8a2fb990",
-    "package.json": "fcf63fa63f3072a7f9d9ee2e13d95c972374e8f6fe5e2e144316ed1cbe18ed38",
+    "README.md": "0bc2bf643cd239331e1f6994105721a98a031a222488f880d642b0c2de1f0596",
+    "package.json": "92608413c3626e5b638a562d95f528998e2810bb5159932f97f5b9f5e95d59b5",
     "src/fabric.ts": "28697b00bd13e3ed118fd850f9e33cabf22a807dec33b31e8599f4dd5f19080b",
-    "src/index.ts": "6234969b90ffaa3d30d4f4221a1bf55117f14c2eda5ecc8ba1dbca497f0e1471",
-    "src/kit.ts": "bc3a18031601f56dcc24ed82ce9b3384f6889bcaadf11f56407f78d4364c90a2"
+    "src/index.ts": "7ba4f058a3fad44ae291add1d6cae10c6177b736a1ae30cf8ceb5cfea205404b",
+    "src/kit.ts": "bc3a18031601f56dcc24ed82ce9b3384f6889bcaadf11f56407f78d4364c90a2",
+    "src/motion.ts": "f10d6ed4c7b12dea972c48403a7b78673acd50a9698710e9f5c7a4c659cecb21"
   }
 }
