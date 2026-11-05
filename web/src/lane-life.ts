@@ -1,6 +1,7 @@
 /** Street life between the lane houses: tangled overhead wires along and across the streets, bamboo
- * laundry poles spanning narrow lanes, parked e-bikes and bicycles, blue road-name signs at corners and
- * stone lane-entrance frames carrying the real lane names. Decorative only: no collision, no saves. */
+ * laundry poles spanning narrow lanes, wall-mounted 晾衣架, street 電箱, closed 鐵門 shop curtains,
+ * 骑楼 colonnades on wider streets, utility poles, parked e-bikes and bicycles, blue road-name signs at
+ * corners and stone lane-entrance frames carrying the real lane names. Decorative only: no collision, no saves. */
 import * as THREE from 'three';
 import { hash01, type LaneHouse, type LaneRoad } from './lane-fabric.ts';
 import { GATE_NAMES, KIOSK_NAMES, BANNERS, type SignAtlas } from './lane-houses.ts';
@@ -17,6 +18,7 @@ function quad(out: Batch, a: V3, b: V3, c: V3, d: V3, color: number, uv?: [numbe
   }
 }
 const CLOTHES = [0xc0392b, 0x2e5fa8, 0xe8e6e0, 0xd98aa0, 0xd8b13a, 0x7b7f86, 0x3d7a5a, 0xf0ece4] as const;
+const shadeHex = (color: number, k: number) => tmp.setHex(color).multiplyScalar(k).getHex();
 const BIKE = [0x2b2d30, 0x8a1f1f, 0x1f3f75, 0xd8d8d2, 0x2f5f4a] as const;
 
 export function createLaneLife(houses: LaneHouse[], roads: LaneRoad[], atlas: SignAtlas, center: [number, number], radius: number) {
@@ -213,6 +215,139 @@ export function createLaneLife(houses: LaneHouse[], roads: LaneRoad[], atlas: Si
     }
   }
 
+  // ---- denser lane clutter: 電箱, wall 晾衣架, closed 鐵門, 骑楼 colonnades, utility poles
+  // Capped counts keep propTriangles under the mobile budget; decorative only (no collision).
+  let eboxes = 0, racks = 0, rollDoors = 0, arcades = 0, poles = 0, vboards = 0;
+  for (const h of houses) {
+    const f0 = h.footprint[0], f1 = h.footprint[1], fl = Math.hypot(f1[0] - f0[0], f1[1] - f0[1]);
+    if (fl < 3.2) continue;
+    const ux = (f1[0] - f0[0]) / fl, uy = (f1[1] - f0[1]) / fl;
+    const nx = (h.footprint[3][0] - f0[0]) / h.lane.depth, ny = (h.footprint[3][1] - f0[1]) / h.lane.depth;
+    // street-side electrical cabinets (green or grey) with a conduit climbing the wall
+    if (eboxes < 140 && hash01(h.id + 'ebox') < 0.3) {
+      const s = fl * (0.06 + 0.12 * hash01(h.id + 'ex'));
+      const x = f0[0] + ux * s - nx * 0.2, y = f0[1] + uy * s - ny * 0.2;
+      const green = hash01(h.id + 'eg') < 0.58;
+      box(x, y, ux, uy, 0.58, 0.3, 0.04, 1.28, green ? 0x3f6b52 : 0x6a6e6c);
+      box(x, y, ux, uy, 0.5, 0.24, 0.16, 1.18, green ? 0x2f5542 : 0x55595a);
+      box(x + ux * 0.02, y + uy * 0.02, ux, uy, 0.05, 0.05, 1.28, Math.min(4.2, 2.6 + h.lane.floors[0] * 0.8), 0x3a3d3e);
+      eboxes++;
+    }
+    // wall-mounted folding drying racks with hung clothes
+    if (racks < 120 && hash01(h.id + 'rack') < 0.34) {
+      const s = fl * (0.3 + 0.45 * hash01(h.id + 'rs'));
+      const x = f0[0] + ux * s - nx * 0.06, y = f0[1] + uy * s - ny * 0.06;
+      const yh = 3.05 + 0.55 * hash01(h.id + 'rh');
+      const reach = 1.05 + 0.55 * hash01(h.id + 'rr');
+      box(x, y, ux, uy, 0.08, 0.08, yh - 0.04, yh + 0.08, 0x4a5550);
+      for (const drop of [0, 0.2]) {
+        box(x - nx * (reach * 0.5), y - ny * (reach * 0.5), ux, uy, 0.035, reach, yh - drop, yh - drop + 0.035, 0x6a7570);
+      }
+      // X-brace under the outer arm
+      const ox = x - nx * reach, oy = y - ny * reach;
+      box(ox, oy, ux, uy, 0.04, 0.04, yh - 0.55, yh + 0.02, 0x5a6560);
+      for (let i = 0; i < 4; i++) {
+        if (hash01(h.id + 'rc' + i) < 0.22) continue;
+        const d = 0.22 + i * 0.26;
+        const c = CLOTHES[Math.floor(hash01(h.id + 'rcl' + i) * CLOTHES.length)];
+        const ch = 0.42 + 0.38 * hash01(h.id + 'rch' + i);
+        const px = x - nx * d, py = y - ny * d;
+        quad(props, W(px - ux * 0.2, py - uy * 0.2, yh - 0.02), W(px + ux * 0.2, py + uy * 0.2, yh - 0.02), W(px + ux * 0.2, py + uy * 0.2, yh - ch), W(px - ux * 0.2, py - uy * 0.2, yh - ch), c);
+      }
+      racks++;
+      laundry++;
+    }
+    // closed blue/grey metal roll doors over shop openings (reads as 鐵門 from the street)
+    if (rollDoors < 95 && h.lane.shop.some(Boolean) && hash01(h.id + 'iron') < 0.42) {
+      let s = 0;
+      for (let k = 0; k < h.lane.units.length; k++) {
+        const w = h.lane.units[k];
+        if (h.lane.shop[k] && w >= 3.2 && hash01(h.id + 'ir' + k) < 0.5 && rollDoors < 95) {
+          const mid = s + w / 2;
+          const x = f0[0] + ux * mid - nx * 0.07, y = f0[1] + uy * mid - ny * 0.07;
+          const col = hash01(h.id + 'irc' + k) < 0.55 ? 0x3a5a8c : 0x6e7270;
+          box(x, y, ux, uy, w - 0.38, 0.24, 2.52, 2.86, 0x55595a);
+          box(x, y, ux, uy, w - 0.42, 0.09, 0.04, 2.52, col);
+          for (let yy = 0.22; yy < 2.48; yy += 0.17) box(x, y, ux, uy, w - 0.46, 0.1, yy, yy + 0.028, shadeHex(col, 0.86));
+          for (const side of [-1, 1]) box(x + ux * side * (w / 2 - 0.24), y + uy * side * (w / 2 - 0.24), ux, uy, 0.09, 0.14, 0.04, 2.52, 0x4a4e4c);
+          rollDoors++;
+        }
+        s += w;
+      }
+    }
+    // projecting vertical lightbox shell beside a shop (竖招牌); atlas lettering lives on house boards
+    if (vboards < 80 && h.lane.shop.some(Boolean) && hash01(h.id + 'vboard') < 0.28) {
+      let s = 0;
+      for (let k = 0; k < h.lane.units.length; k++) {
+        const w = h.lane.units[k];
+        if (h.lane.shop[k] && hash01(h.id + 'vb' + k) < 0.55 && vboards < 80) {
+          const side = hash01(h.id + 'vs' + k) < 0.5 ? s + 0.18 : s + w - 0.18;
+          const x = f0[0] + ux * side - nx * 0.55, y = f0[1] + uy * side - ny * 0.55;
+          const face = [0xc8261d, 0xf3efe2, 0x1d4f99, 0x1f6b45][Math.floor(hash01(h.id + 'vc' + k) * 4)];
+          box(x, y, ux, uy, 0.08, 0.08, 5.05, 5.2, 0x2a2a2a);
+          box(x, y, ux, uy, 0.16, 0.68, 3.5, 5.15, 0x222222);
+          // lit faces on both long sides
+          for (const sgn of [-1, 1]) {
+            const ox = x + ux * sgn * 0.09, oy = y + uy * sgn * 0.09;
+            quad(props,
+              W(ox - nx * 0.05, oy - ny * 0.05, 3.58), W(ox - nx * 0.6, oy - ny * 0.6, 3.58),
+              W(ox - nx * 0.6, oy - ny * 0.6, 5.05), W(ox - nx * 0.05, oy - ny * 0.05, 5.05), face);
+          }
+          // readable horizontal board above the vertical shell
+          plate('shop:' + (['烟纸店', '南货店', '理发店', '生煎馒头', '小馄饨', '粮油店', '五金交电', '修车铺'][Math.floor(hash01(h.id + 'hs' + k) * 8)]), x - nx * 0.2, y - ny * 0.2, ux, uy, 5.25, 1.35, 0.38, 0.05);
+          if (hash01(h.id + 'vglow' + k) < 0.75) {
+            quad(glow, W(x - nx * 0.1, y - ny * 0.1, 3.7), W(x - nx * 0.55, y - ny * 0.55, 3.7), W(x - nx * 0.55, y - ny * 0.55, 4.9), W(x - nx * 0.1, y - ny * 0.1, 4.9), face === 0xf3efe2 ? 0xd9c8a0 : face);
+            pool(x - nx * 0.5, y - ny * 0.5, 1.5, 0x3a2416);
+          }
+          vboards++;
+          break;
+        }
+        s += w;
+      }
+    }
+    // 骑楼: columns + flat ceiling over the pavement on wider street shopfronts
+    if (arcades < 72 && h.lane.kind === 'main' && h.lane.shop.some(Boolean) && fl >= 6 && hash01(h.id + 'arc') < 0.38) {
+      const depth = 1.65;
+      const ySlab = 3.15;
+      // ceiling slab
+      box(f0[0] + ux * (fl / 2) - nx * (depth / 2), f0[1] + uy * (fl / 2) - ny * (depth / 2), ux, uy, fl - 0.2, depth, ySlab, ySlab + 0.14, 0xb8b2a4);
+      // fascia beam
+      box(f0[0] + ux * (fl / 2) - nx * depth, f0[1] + uy * (fl / 2) - ny * depth, ux, uy, fl - 0.15, 0.16, ySlab - 0.08, ySlab + 0.18, 0x8a8476);
+      const cols = Math.max(2, Math.min(5, Math.floor(fl / 3.2) + 1));
+      for (let i = 0; i < cols; i++) {
+        const s = 0.35 + ((fl - 0.7) * i) / Math.max(1, cols - 1);
+        const x = f0[0] + ux * s - nx * depth, y = f0[1] + uy * s - ny * depth;
+        box(x, y, ux, uy, 0.28, 0.28, 0, ySlab, 0xcbc4b4);
+        box(x, y, ux, uy, 0.36, 0.36, 0, 0.12, 0x9a9588);
+      }
+      arcades++;
+    }
+  }
+  // utility poles with transformer cans and a nest of short wire stubs
+  for (const r of roads) {
+    if (poles >= 48 || r.centerline.length < 2 || r.width_m < 5) continue;
+    if (['footway', 'path', 'steps'].includes(r.type)) continue;
+    const a = r.centerline[0], b = r.centerline[Math.min(r.centerline.length - 1, Math.floor(r.centerline.length / 2))];
+    const len = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (len < 12) continue;
+    const ux = (b[0] - a[0]) / len, uy = (b[1] - a[1]) / len, nx = -uy, ny = ux;
+    for (const t of [8, len * 0.55, len - 10]) {
+      if (t < 6 || t > len - 6 || poles >= 48) continue;
+      if (hash01(r.id + 'pole' + t) > 0.35) continue;
+      if (Math.hypot(a[0] + ux * t - center[0], a[1] + uy * t - center[1]) > radius) continue;
+      const side = hash01(r.id + 'ps' + t) < 0.5 ? 1 : -1;
+      const x = a[0] + ux * t + nx * side * (r.width_m / 2 + 0.55);
+      const y = a[1] + uy * t + ny * side * (r.width_m / 2 + 0.55);
+      box(x, y, ux, uy, 0.18, 0.18, 0, 7.2, 0x8a8678);
+      // transformer can with cooling fins
+      box(x, y, ux, uy, 0.55, 0.4, 5.2, 6.1, 0x6e7270);
+      for (const dy of [5.35, 5.55, 5.75, 5.95]) box(x, y, ux, uy, 0.62, 0.08, dy, dy + 0.04, 0x55595a);
+      box(x, y, ux, uy, 0.35, 0.28, 6.15, 6.55, 0x3f6b52);
+      sag(W(x, y, 6.4), W(x + ux * 4 + nx * side * 2, y + uy * 4 + ny * side * 2, 5.4), 0.45, 4);
+      poles++;
+    }
+  }
+
   const group = new THREE.Group();
   group.name = 'laoximen-lane-life';
   const wireGeometry = new THREE.BufferGeometry();
@@ -239,5 +374,5 @@ export function createLaneLife(houses: LaneHouse[], roads: LaneRoad[], atlas: Si
     glowMesh.visible = a > 0.02;
     glowMat.color.setScalar(a * 1.6);
   };
-  return { group, setNight, stats: { wireSegments: wires.length / 6, crossings, laundry, bikes, roadSigns, gates, lanterns, banners, kiosks, propTriangles: props.p.length / 9 } };
+  return { group, setNight, stats: { wireSegments: wires.length / 6, crossings, laundry, bikes, roadSigns, gates, lanterns, banners, kiosks, eboxes, racks, rollDoors, arcades, poles, vboards, propTriangles: props.p.length / 9 } };
 }
