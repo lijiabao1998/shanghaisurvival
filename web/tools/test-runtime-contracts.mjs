@@ -28,6 +28,9 @@ assert.ok(t.includes('!helper.hidden'),'touch controls hidden for NPC panel');
 assert.ok(s.includes('const saveKey = `shanghai-survivors:systems-v1:${dataUrl}`'),'candidate uses isolated key');
 assert.ok(s.includes('const legacySaveKey = `shanghai-survivors:v1:${dataUrl}`'),'legacy key is preserved for read-only import');
 assert.ok(s.includes('saveSnapshot(localStorage,saveKey,snapshotCampaign())'),'writes target only candidate snapshot');
+assert.ok(s.includes('position:[px,pz],facing'),'heading is stored with the saved position');
+assert.ok(s.includes('clearSnapshot(localStorage,saveKey)')&&s.includes('clearSnapshot(localStorage,legacySaveKey)'),'clear removes the candidate save and the legacy import');
+assert.ok(s.includes("id='campaign-clear'"),'title screen offers a way to erase the save');
 assert.equal(/(?:setItem|saveSnapshot)\([^;\n]*legacySaveKey/.test(s),false,'no writes to legacy storage key');
 const start=s.indexOf('function loadCandidateSave('),end=s.indexOf('\n}',start)+2;
 assert.ok(start>=0&&end>start);const fn=stripTypeScriptTypes(s.slice(start,end));
@@ -35,4 +38,4 @@ for(const scenario of [{raw:null,expected:'legacy',result:{legacy:true}},{raw:'c
  const reads=[],writes=[];const c=vm.createContext({saveKey:'candidate',legacySaveKey:'legacy',dataUrl:'map',localStorage:{getItem:key=>{reads.push(key);return scenario.raw;},setItem:(...args)=>writes.push(args)},loadSnapshot:(storage,key,map)=>{assert.equal(map,'map');reads.push(key);return scenario.result;}});vm.runInContext(fn,c);assert.equal(c.loadCandidateSave(),scenario.result);assert.deepEqual(reads,['candidate',scenario.expected]);assert.equal(writes.length,0);
 }
 const denied=vm.createContext({saveKey:'candidate',localStorage:{getItem(){throw new Error('denied');}}});vm.runInContext(fn,denied);assert.equal(denied.loadCandidateSave(),null);
-console.log('PASS 21 static contracts plus actual candidate/legacy read-only loading cases (not browser tests)');
+console.log('PASS static contracts plus actual candidate/legacy read-only loading cases (not browser tests)');

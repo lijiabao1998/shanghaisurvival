@@ -26,7 +26,7 @@ import { setOcclusionCameraHeight } from './occlusion';
 import { daylightProfile } from './daylight';
 import { createStreetDetails, applyPavementGrain } from './street-details';
 let streetDetails: ReturnType<typeof createStreetDetails>|null=null;
-import { emptyInventory, replenishCaches, applyCacheLoot, loadSnapshot, saveSnapshot, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
+import { emptyInventory, replenishCaches, applyCacheLoot, loadSnapshot, saveSnapshot, clearSnapshot, SAVE_VERSION, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
 import { selectShelter, type Shelter } from './shelter';
 import { installTouchControls, setTouchControlLabels, setTouchControlsSuspended, requestUnarmedToggle } from './touch-controls';
 import { sweepMove, segmentClear } from './combat';
@@ -1540,7 +1540,7 @@ function buildMenu() {
 // Campaign persistence owns one atomic snapshot: loot depletion and inventory never save separately.
 function campaignElapsed() { return elapsed; }
 function snapshotCampaign(): Snapshot {
-  return { version:1,encounterVersion:1,...(worldLayout?{worldLayout}:{}),mapId:dataUrl,characterId:spec.id,elapsed,hp:phase==='lose'?0:hp,stamina,battery,outbreak:{...outbreak},inventory:{...inventory},stash:{...stash},helper:{...helperState},arsenal:structuredClone(arsenal),survivorSystems:structuredClone(survivorSystems),ammo,hasPistol,pistolEquipped,position:[px,pz],shelterId:shelter?.id??'',inShelter,looted,kills,restCount,status:phase==='lose'?'dead':'alive',
+  return { version:SAVE_VERSION,encounterVersion:1,...(worldLayout?{worldLayout}:{}),mapId:dataUrl,characterId:spec.id,elapsed,hp:phase==='lose'?0:hp,stamina,battery,outbreak:{...outbreak},inventory:{...inventory},stash:{...stash},helper:{...helperState},arsenal:structuredClone(arsenal),survivorSystems:structuredClone(survivorSystems),ammo,hasPistol,pistolEquipped,position:[px,pz],facing,shelterId:shelter?.id??'',inShelter,looted,kills,restCount,status:phase==='lose'?'dead':'alive',
     interiorLoot:Object.fromEntries(containers.filter(c=>c.roomId&&c.roomEnabled!==false).map(c=>[c.roomId!,c.looted])),
     containers:containers.filter(c=>!c.roomId).map(c=>({x:c.x,z:c.z,looted:c.looted,...(c.cacheKind?{cacheKind:c.cacheKind,cacheDay:c.cacheDay}:{})})),
     enemies:zombies.map(z=>({x:z.x,z:z.z,hp:Math.max(0,z.hp),state:z.state,faction:z.faction.id,home:[z.hx,z.hz],patrol:[z.patrolX,z.patrolZ],lastKnown:[z.lastX,z.lastZ],returning:z.returning,retreat:z.retreat})) };
@@ -1564,6 +1564,7 @@ function restoreCampaign(s:Snapshot) {
   if(!s.arsenal&&s.pistolEquipped)equipWeapon(arsenal,'qsz92-9');syncArsenal();
   survivorSystems=migrateSurvivorSystems(s.survivorSystems,arsenal)!;
   [px,pz]=s.position;
+  if(typeof s.facing==='number'){facing=s.facing;bodyYaw=s.facing;}
   if(shelter&&(px<bounds.minX-8||px>bounds.maxX+8||pz<bounds.minY-8||pz>bounds.maxY+8||collides(px,pz,.36))){[px,pz]=shelter.outside;saveWarning='舊存檔位置在街區外或牆內，已移回安全屋門口；物資與進度保留。';}
   inShelter=s.inShelter;looted=s.looted;kills=s.kills;restCount=s.restCount;
   s.containers.forEach((c,i)=>{delete containers[i].cacheKind;delete containers[i].cacheDay;Object.assign(containers[i],c);paintContainer(containers[i]);});
@@ -1578,7 +1579,7 @@ function restoreCampaign(s:Snapshot) {
     enemy.mesh.visible=z.state!=='dead';enemy.mesh.position.set(z.x,0,-z.z);resetEnemyPose(enemy);
   });
   if(inShelter&&shelter)[px,pz]=shelter.inside;
-  if(playerRoot)playerRoot.position.set(px,0,-pz);syncEyes();updateDaylight();
+  if(playerRoot){playerRoot.position.set(px,0,-pz);playerRoot.rotation.y=bodyYaw;}syncEyes();updateDaylight();
 }
 function paintContainer(c:Container) {
   c.mesh.visible=c.roomEnabled!==false;
@@ -1690,7 +1691,7 @@ function showShelter() {
   const status=document.createElement('p');status.textContent=`HP ${Math.round(hp)} · 水分 ${Math.round(outbreak.hydration)} · 飽足 ${Math.round(outbreak.satiety)} · 第${dayPhase(elapsed).day}天 ${saveWarning}`;shelterPanel.append(status);
 }
 function installCampaignUI() {
-  const style=document.createElement('style');style.textContent=`#campaign-mode[hidden]{display:none}#campaign-mode{margin:12px 0;display:flex;gap:8px;flex-wrap:wrap}#campaign-mode button,#shelter-panel button{min-height:44px;padding:8px 12px;border:1px solid #93b6ad;background:#203631;color:#f4ecda;border-radius:6px;font:inherit;cursor:pointer}#campaign-mode button:disabled,#shelter-panel button:disabled{opacity:.4;cursor:default}#shelter-panel{position:fixed;z-index:60;right:3vw;top:10vh;width:min(430px,88vw);max-height:78vh;overflow:auto;background:#142422f5;color:#f4ecda;border:1px solid #70b4ac;padding:16px;border-radius:10px;font:14px system-ui}#shelter-panel[hidden]{display:none}#shelter-panel.room-view{top:auto;bottom:max(16px,env(safe-area-inset-bottom));width:auto;max-width:88vw;padding:8px 14px}#shelter-panel.room-view>:not(.room-view-toggle):not(.shelter-exit){display:none}body.inspecting-shelter #hud,body.inspecting-shelter #side,body.inspecting-shelter #dispatch,body.inspecting-shelter #hint{visibility:hidden}body.inspecting-shelter #vignette{opacity:.2}.shelter-stock>div{display:flex;align-items:center;gap:7px;margin:7px 0}.shelter-stock span{flex:1}#shelter-panel>button{margin:10px 8px 0 0}#campaign-mode .selected{background:#486354}`;document.head.append(style);
+  const style=document.createElement('style');style.textContent=`#campaign-mode[hidden]{display:none}#campaign-mode{margin:12px 0;display:flex;gap:8px;flex-wrap:wrap}#campaign-mode button,#campaign-clear,#shelter-panel button{min-height:44px;padding:8px 12px;border:1px solid #93b6ad;background:#203631;color:#f4ecda;border-radius:6px;font:inherit;cursor:pointer}#campaign-clear{display:block;width:100%;margin:8px 0 0;border-color:#a6846a}#campaign-clear[hidden]{display:none}#campaign-mode button:disabled,#shelter-panel button:disabled{opacity:.4;cursor:default}#shelter-panel{position:fixed;z-index:60;right:3vw;top:10vh;width:min(430px,88vw);max-height:78vh;overflow:auto;background:#142422f5;color:#f4ecda;border:1px solid #70b4ac;padding:16px;border-radius:10px;font:14px system-ui}#shelter-panel[hidden]{display:none}#shelter-panel.room-view{top:auto;bottom:max(16px,env(safe-area-inset-bottom));width:auto;max-width:88vw;padding:8px 14px}#shelter-panel.room-view>:not(.room-view-toggle):not(.shelter-exit){display:none}body.inspecting-shelter #hud,body.inspecting-shelter #side,body.inspecting-shelter #dispatch,body.inspecting-shelter #hint{visibility:hidden}body.inspecting-shelter #vignette{opacity:.2}.shelter-stock>div{display:flex;align-items:center;gap:7px;margin:7px 0}.shelter-stock span{flex:1}#shelter-panel>button{margin:10px 8px 0 0}#campaign-mode .selected{background:#486354}`;document.head.append(style);
   shelterPanel=document.createElement('section');shelterPanel.id='shelter-panel';shelterPanel.hidden=true;shelterPanel.setAttribute('aria-label','安全屋物資與休息');document.body.append(shelterPanel);
   new MutationObserver(()=>{const touch=document.querySelector<HTMLElement>('#survivor-touch-controls');if(touch)touch.hidden=!shelterPanel.hidden||helperOpen||el.overlay.classList.contains('on');}).observe(shelterPanel,{attributes:true,attributeFilter:['hidden']});
   const modes=document.createElement('div');modes.id='campaign-mode';
@@ -1700,13 +1701,23 @@ function installCampaignUI() {
   sand.onclick=()=>{mode='sandbox';sand.className='selected';quick.className='';sand.setAttribute('aria-pressed','true');quick.setAttribute('aria-pressed','false');};quick.onclick=()=>{mode='quick';quick.className='selected';sand.className='';quick.setAttribute('aria-pressed','true');sand.setAttribute('aria-pressed','false');};
   if(!shelter){mode='quick';quick.className='selected';sand.textContent='此地圖未找到安全門口';}
   modes.append(sand,quick);
-  const refreshModes=()=>{sand.textContent=shelter?tr('生存沙盒（持久存檔）','生存沙盒（持久存档）','Sandbox · persistent save'):tr('此地圖未找到安全門口','此地图未找到安全门口','Sandbox unavailable on this map');quick.textContent=tr('8分鐘快速撤離（獨立）','8分钟快速撤离（独立）','8-minute evacuation · separate');const resume=document.querySelector('#campaign-resume');if(resume)resume.textContent=tr('繼續已有存檔','继续已有存档','Continue saved game');const title=el.overlay.querySelector('h1');if(title)title.textContent=tr('上海倖存者','上海幸存者','Shanghai Survivors');};
+  const refreshModes=()=>{sand.textContent=shelter?tr('生存沙盒（持久存檔）','生存沙盒（持久存档）','Sandbox · persistent save'):tr('此地圖未找到安全門口','此地图未找到安全门口','Sandbox unavailable on this map');quick.textContent=tr('8分鐘快速撤離（獨立）','8分钟快速撤离（独立）','8-minute evacuation · separate');const resume=document.querySelector('#campaign-resume');if(resume)resume.textContent=tr('繼續已有存檔','继续已有存档','Continue saved game');const clear=document.querySelector('#campaign-clear');if(clear)clear.textContent=tr('清除本機存檔','清除本机存档','Erase saved game');const title=el.overlay.querySelector('h1');if(title)title.textContent=tr('上海倖存者','上海幸存者','Shanghai Survivors');};
   window.addEventListener('shanghai-language-change',refreshModes);refreshModes();
   const valid=isCompatibleSave(savedGame);
   if(valid){const resume=document.createElement('button');resume.id='campaign-resume';resume.textContent=tr(`繼續第${dayPhase(savedGame!.elapsed).day}天存檔`,`继续第${dayPhase(savedGame!.elapsed).day}天存档`,`Continue · Day ${dayPhase(savedGame!.elapsed).day}`);resume.onclick=()=>{let current:Snapshot|null=null;try{current=loadCandidateSave();}catch{}if(!isCompatibleSave(current)){resume.disabled=true;resume.textContent='存檔已失效';return;}mode='sandbox';modes.hidden=true;start(ROSTER.find(c=>c.id===current!.characterId)??ROSTER[0],current);};modes.append(resume);}
   const note=document.createElement('p');note.id='campaign-note';note.textContent=savedGame?.status==='dead'?'上一位倖存者已死亡；新沙盒會重設世界與庫存。':valid?'候選版獨立存檔；新沙盒只覆寫候選進度，舊正式版與快速挑戰互不影響。':'沙盒：找藍色門標，按E／手機「家」進入。先帶一水一罐頭回家。';
   note.textContent=tr('沙盒自動保存；快速挑戰不影響沙盒存檔。舊檔保留原布局。','沙盒自动保存；快速挑战不影响沙盒存档。旧档保留原布局。','Sandbox autosaves. Quick challenges keep your sandbox save. Older saves retain their original layout.');
-  el.roster.before(modes,note);
+  const clearSave=document.createElement('button');clearSave.id='campaign-clear';clearSave.type='button';clearSave.textContent=tr('清除本機存檔','清除本机存档','Erase saved game');
+  const saveStored=()=>{try{return localStorage.getItem(saveKey)!==null||localStorage.getItem(legacySaveKey)!==null;}catch{return false;}};
+  clearSave.hidden=!saveStored();
+  clearSave.onclick=()=>{
+    if(!saveStored())return;
+    if(!confirm(tr('清除這個瀏覽器裡的上海沙盒存檔？清除後會回到新遊戲，且無法復原。','清除这个浏览器里的上海沙盒存档？清除后会回到新游戏，且无法复原。','Erase the Shanghai sandbox save in this browser? You will start a new game. This cannot be undone.')))return;
+    const removed=clearSnapshot(localStorage,saveKey)&&clearSnapshot(localStorage,legacySaveKey);
+    if(!removed||saveStored()){clearSave.textContent=tr('清除失敗，存檔仍在','清除失败，存档仍在','Clear failed; the save is still there');return;}
+    savedGame=null;location.reload();
+  };
+  el.roster.before(modes,note,clearSave);
   el.overlay.querySelector('.sub')!.textContent='上海病毒爆發。選角色後探索街區、搜刮並返回自己的安全屋；或選擇獨立八分鐘撤離挑戰。';
 }
 addEventListener('pagehide',persistCampaign);

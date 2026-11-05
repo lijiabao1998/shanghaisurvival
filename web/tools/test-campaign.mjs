@@ -1,7 +1,7 @@
 import {createSurvivorSystems,equipHand} from '../src/survivor-systems.ts';
 import { createLegacyArsenal, grantWeapon, equipWeapon, consumeRound } from '../src/arsenal.ts';
 import assert from 'node:assert/strict';
-import { emptyInventory, parseSnapshot, saveSnapshot, loadSnapshot, transferItem, restAtShelter, dayPhase, replenishCaches, applyCacheLoot } from '../src/campaign.ts';
+import { SAVE_VERSION, emptyInventory, parseSnapshot, saveSnapshot, loadSnapshot, openSave, loadGameOrNew, clearSnapshot, transferItem, restAtShelter, dayPhase, replenishCaches, applyCacheLoot } from '../src/campaign.ts';
 let passed = 0;
 const test = (name, run) => { run(); console.log(`PASS ${name}`); passed++; };
 const fresh = () => ({ version:1, mapId:'block.json', characterId:'guard', elapsed:10, hp:75, stamina:40, battery:80,
@@ -10,7 +10,7 @@ const fresh = () => ({ version:1, mapId:'block.json', characterId:'guard', elaps
   containers:[{x:4,z:5,looted:true},{x:6,z:7,looted:false}],
   enemies:[{x:8,z:9,hp:0,state:'dead',faction:'infected'},{x:10,z:11,hp:50,state:'chase',faction:'raider'}],status:'alive',restCount:0 });
 const encode = s => JSON.stringify(s);
-const memory = () => { const data = new Map(); return { getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v) }; };
+const memory = () => { const data = new Map(); return { getItem:k=>data.get(k)??null,setItem:(k,v)=>data.set(k,v),removeItem:k=>data.delete(k) }; };
 test('empty inventories are independent',()=>{ const a=emptyInventory(),b=emptyInventory(); a.water++; assert.equal(b.water,0); });
 test('full roundtrip preserves looted containers, killed enemies and all resources',()=>{
   const s=fresh(), store=memory(); assert.ok(saveSnapshot(store,'save',s)); const restored=loadSnapshot(store,'save','block.json');
@@ -230,6 +230,49 @@ test('failed survivor extension write retains the complete previous snapshot',()
  const s=fresh(),store=memory();s.arsenal=createLegacyArsenal(true,7);s.survivorSystems=createSurvivorSystems(s.arsenal);s.survivorSystems.condition.bleeding=20;assert.ok(saveSnapshot(store,'save',s));const before=store.getItem('save');
  const bad=structuredClone(s);bad.survivorSystems.condition.pain=Infinity;bad.inventory.water=99;assert.equal(saveSnapshot(store,'save',bad),false);assert.equal(store.getItem('save'),before);
  const denied={...store,setItem(){throw new Error('quota');}};const good=structuredClone(s);good.survivorSystems.condition.bleeding=0;assert.equal(saveSnapshot(denied,'save',good),false);assert.equal(store.getItem('save'),before);assert.deepEqual(loadSnapshot(store,'save','block.json'),s);
+});
+
+test('save then load returns the same position health supplies and heading',()=>{
+  const s={...fresh(),facing:-1.25,inventory:{...emptyInventory(),water:3,food:1,medkit:2},hp:64,position:[12.5,-8]};
+  const store=memory();
+  assert.equal(saveSnapshot(store,'save',s),true);
+  const opened=loadGameOrNew(store,'save','block.json');
+  assert.equal(opened.fresh,false);
+  assert.equal(opened.snapshot.version,SAVE_VERSION);
+  assert.deepEqual(opened.snapshot,s);
+  opened.snapshot.inventory.water++;
+  assert.equal(s.inventory.water,3);
+  assert.deepEqual(loadSnapshot(store,'save','block.json'),s);
+});
+test('corrupt saves and old versions fall back to a new game without throwing',()=>{
+  const store=memory();
+  assert.deepEqual(loadGameOrNew(store,'missing','block.json'),{fresh:true,reason:'missing'});
+  for(const raw of ['', '{', 'null', '[]', 'true', '"save"', encode({...fresh(),hp:null}), encode({...fresh(),facing:NaN}), encode({...fresh(),position:[1]}), encode({...fresh(),mapId:'other'})]){
+    store.setItem('save',raw);
+    const opened=loadGameOrNew(store,'save','block.json');
+    assert.equal(opened.fresh,true,raw);
+    assert.equal(opened.reason,'corrupt',raw);
+    assert.equal(Object.hasOwn(opened,'snapshot'),false);
+  }
+  for(const raw of ['{}', encode({...fresh(),version:0}), encode({...fresh(),version:2}), encode({...fresh(),version:'1'})]){
+    store.setItem('save',raw);
+    assert.deepEqual(openSave(raw,'block.json'),{fresh:true,reason:'old-version'});
+    assert.deepEqual(loadGameOrNew(store,'save','block.json'),{fresh:true,reason:'old-version'});
+  }
+  assert.deepEqual(loadGameOrNew({getItem(){throw new Error('denied');},setItem(){}},'save','block.json'),{fresh:true,reason:'corrupt'});
+  assert.equal(openSave('x'.repeat(2_000_001),'block.json').fresh,true);
+});
+test('clearing the save makes the next load a new game and a failed clear keeps it',()=>{
+  const store=memory();
+  const s={...fresh(),facing:0.4};
+  assert.ok(saveSnapshot(store,'save',s));
+  assert.equal(clearSnapshot(store,'save'),true);
+  assert.equal(store.getItem('save'),null);
+  assert.deepEqual(loadGameOrNew(store,'save','block.json'),{fresh:true,reason:'missing'});
+  assert.ok(saveSnapshot(store,'save',s));
+  const stuck={getItem:k=>k==='save'?encode(s):null,setItem(){},removeItem(){throw new Error('denied');}};
+  assert.equal(clearSnapshot(stuck,'save'),false);
+  assert.deepEqual(loadGameOrNew(stuck,'save','block.json').snapshot,s);
 });
 
 console.log(`${passed} campaign tests passed`);
