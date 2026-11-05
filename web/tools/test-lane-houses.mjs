@@ -59,6 +59,8 @@ test('street life: wires, laundry, bikes, corner signs and named lane gates, bou
   assert.ok(s.wireSegments > 1000 && s.crossings > 40, JSON.stringify(s));
   assert.ok(s.laundry > 10 && s.bikes > 50 && s.bikes <= 260);
   assert.ok(s.roadSigns > 10 && s.gates >= 1, 'corner road-name plates and at least one 弄 entrance');
+  assert.ok(s.eboxes > 20 && s.racks > 20 && s.rollDoors > 10, '電箱 / 晾衣架 / 鐵門 atmosphere props');
+  assert.ok(s.arcades > 5 && s.poles > 5 && s.vboards > 10, '骑楼 / utility poles / vertical boards');
   assert.ok(s.propTriangles < 60000);
   for (const child of life.group.children) {
     const p = child.geometry.getAttribute('position').array;

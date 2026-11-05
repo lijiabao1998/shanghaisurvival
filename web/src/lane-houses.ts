@@ -321,7 +321,7 @@ export function laneHouseGeometry(house: LaneHouse, atlas: SignAtlas, numbering:
     if (shop) {
       const o0 = S + 0.22, o1 = S + w - 0.22;
       panel(walls, o0, o1, 0.05, 2.7, fd, 0x221c17);
-      if (hk('shutter') < 0.55) {
+      if (hk('shutter') < 0.38) {
         // 排門板: wooden shutter boards, some taken down for business
         const open = hk('open') * 0.6;
         for (let s = o0, i = 0; s < o1 - 0.05; s += 0.28, i++) {
@@ -329,9 +329,15 @@ export function laneHouseGeometry(house: LaneHouse, atlas: SignAtlas, numbering:
           panel(walls, s + 0.01, Math.min(o1, s + 0.27), 0.05, 2.62, fd - 0.02, i % 2 ? 0x6e4b31 : 0x5d3f2a);
         }
       } else {
-        const top = 2.7 - (hk('up') < 0.5 ? 2.6 : 1.3 * hk('half'));
-        panel(walls, o0, o1, top, 2.7, fd - 0.02, 0x8f9391);
-        for (let y = top + 0.12; y < 2.7; y += 0.16) panel(walls, o0, o1, y, y + 0.025, fd - 0.025, 0x6e7270);
+        // 鐵門 / metal roller shutter: blue or grey curtain with horizontal ribs
+        const metal = hk('metal') < 0.55 ? 0x3a5a8c : 0x8f9391;
+        const top = 2.7 - (hk('up') < 0.45 ? 2.6 : 1.15 * hk('half'));
+        panel(walls, o0, o1, top, 2.7, fd - 0.02, metal);
+        for (let y = top + 0.1; y < 2.7; y += 0.14) panel(walls, o0, o1, y, y + 0.022, fd - 0.025, shade(metal, 0.82));
+        // side channels framing the bay
+        panel(walls, o0 - 0.04, o0 + 0.06, 0.05, 2.7, fd - 0.04, 0x55595a);
+        panel(walls, o1 - 0.06, o1 + 0.04, 0.05, 2.7, fd - 0.04, 0x55595a);
+        panel(walls, o0, o1, 2.62, 2.78, fd - 0.05, 0x4a4e4c); // roller housing
       }
       // signboard
       const sign = pick(SHOP_SIGNS, hk('sign'));
@@ -343,7 +349,7 @@ export function laneHouseGeometry(house: LaneHouse, atlas: SignAtlas, numbering:
         pool((o0 + o1) / 2, -1.2, Math.min(2.4, (o1 - o0) * 0.7), 0x4a3418);
       }
       glowPanel(o0 + 0.1, o1 - 0.1, 3.36, 3.42, -0.15, 0x9a8a68); // tube light over the board
-      if (f >= 2 && hk('vbox') < 0.45) lightbox('vbox:' + pick(LIGHTBOX_NAMES, hk('vname')), hk('vside') < 0.5 ? o0 + 0.15 : o1 - 0.15, 3.6, 5.3);
+      if (f >= 2 && hk('vbox') < 0.62) lightbox('vbox:' + pick(LIGHTBOX_NAMES, hk('vname')), hk('vside') < 0.5 ? o0 + 0.15 : o1 - 0.15, 3.6, 5.3);
       if (hk('awning') < 0.4) {
         const stripes = hk('aw') < 0.5 ? [0xb03a2e, 0xe8e2d6] : [0x2f5d9a, 0xe8e2d6];
         const segs = 6;
@@ -375,6 +381,13 @@ export function laneHouseGeometry(house: LaneHouse, atlas: SignAtlas, numbering:
       }
       // blue house-number plate beside the door
       signFace('no:' + Math.min(160, number), dc + 0.95, dc + 1.27, 1.9, 2.06, fd - 0.04);
+      // small wall-mounted meter box beside the door (電表箱)
+      if (hk('meter') < 0.4) {
+        const mx = dc - 1.05;
+        panel(walls, mx - 0.18, mx + 0.18, 1.35, 1.85, fd - 0.06, 0x3f6b52);
+        panel(walls, mx - 0.14, mx + 0.14, 1.4, 1.78, fd - 0.075, 0x2f5542);
+        panel(walls, mx - 0.02, mx + 0.02, 1.85, 2.55, fd - 0.05, 0x3a3d3e);
+      }
       // ground-floor window with a grille cage
       if (w >= 3.6) {
         const wc = dc < S + w / 2 ? S + w - 0.85 : S + 0.85;
@@ -402,7 +415,7 @@ export function laneHouseGeometry(house: LaneHouse, atlas: SignAtlas, numbering:
         box(walls, s - 0.38, s + 0.38, -0.36, -0.04, y0 - 0.75, y0 - 0.2, 0xdedfdb);
         panel(walls, s - 0.28, s + 0.08, y0 - 0.68, y0 - 0.28, -0.365, 0x55595a);
       }
-      if (hk('pole' + fl) < 0.38) {
+      if (hk('pole' + fl) < 0.52) {
         const s = centres[centres.length - 1] + 0.3, yp = y0 + 1.42, len = 1.25 + 0.4 * hk('pl' + fl);
         box(walls, s - 0.02, s + 0.02, -len, 0, yp - 0.02, yp + 0.02, hk('bam' + fl) < 0.6 ? 0xb59a5c : 0x9aa0a0, false);
         for (let i = 0, d = -0.25; d > -len + 0.15 && i < 4; i++, d -= 0.36) {

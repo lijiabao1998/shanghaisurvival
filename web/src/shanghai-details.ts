@@ -57,6 +57,17 @@ function livedInWalls(building:Building,out:DetailBatch){
     panel(pipeX,.36,.10,pipeTop-.36,0x5b645d,.16);
     face(out,[at(pipeX,.36,.06),at(pipeX,.36,.16),at(pipeX,pipeTop,.16),at(pipeX,pipeTop,.06)],0x889183);
     panel(pipeX-.045,1.1,.19,.065,0xa19d89,.18);panel(pipeX-.045,3,.19,.065,0xa19d89,.18);
+    // Sparse street-level 電箱 / 晾衣架: only on a minority of substantial walls.
+    if(index===0&&e.len>7.5&&(building.id.charCodeAt(building.id.length-1)%5)===0){
+      box(.22,.08,.52,1.15,.28,0x3f6b52);panel(.28,.18,.4,.85,0x2f5542,.3);
+      panel(.44,1.23,.06,2.2,0x3a3d3e,.14);
+    }
+    if(index===1&&height>5.5&&e.len>8&&(building.id.charCodeAt(0)%4)===0){
+      const rx=Math.min(e.len-1.8,2.4),ry=3.2;
+      face(out,[at(rx,ry,.06),at(rx+1.4,ry,.06),at(rx+1.4,ry,.55),at(rx,ry,.55)],0x52645d);
+      panel(rx,ry,.04,.55,0x3d4745,.55);panel(rx+1.36,ry,.04,.55,0x3d4745,.55);
+      panel(rx+.12,ry+.12,.42,.48,0xc0392b,.5);panel(rx+.7,ry+.08,.48,.52,0xe8e6e0,.5);
+    }
     // One outdoor AC per building, above head height; housing and louvers are
     // large shapes, no tiny text or separate fan/cylinder meshes.
     if(index===1&&height>5.6){
@@ -143,6 +154,14 @@ export function lilongFacade(building:Building):DetailBatch {
   // Blue enamel lane-number plate (unlettered rather than a fabricated real address).
   panel(mid+1.32,1.75,.38,.28,0xc7c4af,.08);panel(mid+1.35,1.78,.32,.22,0x264c63,.09);
   out.features++;
+  // Occasional closed metal roll door beside the stone gateway (鐵門 silhouette).
+  const appearance=buildingAppearance(building.id);
+  if(appearance==='shuttered'&&length>8&&(building.id.length%3)===0){
+    const rx=mid-2.55;panel(rx,.05,1.45,2.35,0x3a5a8c,.12);
+    for(let y=.2;y<2.3;y+=.22)panel(rx,y,1.45,.03,0x2e4870,.13);
+    panel(rx,2.35,1.45,.22,0x55595a,.15);panel(rx-.06,.05,.08,2.5,0x4a4e4c,.14);panel(rx+1.43,.05,.08,2.5,0x4a4e4c,.14);
+    out.features++;
+  }
   // Red-brick piers and fine mortar at the gateway, only on the solid jambs.
   for(const side of [-1,1]){
     const x=mid+side*1.62-.18;
