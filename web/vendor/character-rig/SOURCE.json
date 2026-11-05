@@ -1,0 +1,13 @@
+{
+  "package": "@lijiabao/character-rig",
+  "version": "0.1.0",
+  "source": "https://github.com/lijiabao1998/defendtaipei/tree/main/packages/character-rig",
+  "baseline": "DefendTaipei-Lab v23.9.1",
+  "files": {
+    "README.md": "01c1ee995d9b3d345eb295391168d1d760c9ee9e0b331503b37bb27e8a2fb990",
+    "package.json": "fcf63fa63f3072a7f9d9ee2e13d95c972374e8f6fe5e2e144316ed1cbe18ed38",
+    "src/fabric.ts": "28697b00bd13e3ed118fd850f9e33cabf22a807dec33b31e8599f4dd5f19080b",
+    "src/index.ts": "6234969b90ffaa3d30d4f4221a1bf55117f14c2eda5ecc8ba1dbca497f0e1471",
+    "src/kit.ts": "5fe0baf81de6684985780095f5f11f231977b61057ec340dd6843deefc36dfa2"
+  }
+}
