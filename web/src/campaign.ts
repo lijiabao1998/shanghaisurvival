@@ -9,11 +9,17 @@ export type CacheKind = 'water' | 'food' | 'ammo';
 export type SavedContainer = { x: number; z: number; looted: boolean; cacheKind?: CacheKind; cacheDay?: number };
 export type SavedEnemy = { x: number; z: number; hp: number; state: 'sleep' | 'wander' | 'chase' | 'dead'; faction: string; home?: [number, number]; patrol?: [number, number]; lastKnown?: [number, number]; returning?: boolean; retreat?: number };
 export type Outbreak = { hydration: number; satiety: number; exposure: number };
+/** Current campaign schema. Any other version is unreadable and must start a new game. */
+export const SAVE_VERSION = 1;
+export type FreshReason = 'missing' | 'corrupt' | 'old-version';
+export type OpenedSave = { fresh: false; snapshot: Snapshot } | { fresh: true; reason: FreshReason };
 export type Snapshot = {
-  version: 1; mapId: string; characterId: string; elapsed: number;
+  version: typeof SAVE_VERSION; mapId: string; characterId: string; elapsed: number;
   hp: number; stamina: number; battery: number; outbreak: Outbreak;
   inventory: Inventory; stash: Inventory; ammo: number;
   hasPistol: boolean; pistolEquipped: boolean; position: [number, number];
+  /** Gameplay heading in radians. Omitted on older snapshots; those keep the spawn facing. */
+  facing?: number;
   shelterId: string; inShelter: boolean; looted: number; kills: number;
   containers: SavedContainer[];
   /** Independent stable IDs preserve the original ordinary-container save indices. */
@@ -47,12 +53,14 @@ export function parseSnapshot(raw: string, mapId: string): Snapshot | null {
   if (typeof raw !== 'string' || raw.length > 2_000_000) return null;
   try {
     const s: unknown = JSON.parse(raw);
-    if (!isRecord(s) || s.version !== 1 || !text(s.mapId) || s.mapId !== mapId || !text(s.characterId)
+    if (!isRecord(s) || s.version !== SAVE_VERSION || !text(s.mapId) || s.mapId !== mapId || !text(s.characterId)
       || !numberIn(s.elapsed, 0, MAX_SECONDS) || !meter(s.hp) || !meter(s.stamina) || !meter(s.battery)
       || !outbreakValid(s.outbreak) || !inventoryValid(s.inventory) || !inventoryValid(s.stash)
       || !count(s.ammo) || typeof s.hasPistol !== 'boolean' || typeof s.pistolEquipped !== 'boolean'
       || (s.pistolEquipped && !s.hasPistol) || !Array.isArray(s.position) || s.position.length !== 2
-      || !s.position.every(coordinate) || !text(s.shelterId) || typeof s.inShelter !== 'boolean'
+      || !s.position.every(coordinate)
+      || ('facing' in s && (typeof s.facing !== 'number' || !Number.isFinite(s.facing)))
+      || !text(s.shelterId) || typeof s.inShelter !== 'boolean'
       || !count(s.looted) || !count(s.kills) || !count(s.restCount)
       || typeof s.status !== 'string' || !['alive', 'dead'].includes(s.status) || (s.status === 'alive' && s.hp <= 0)
       || (s.status === 'dead' && s.hp !== 0)
@@ -110,6 +118,32 @@ export function saveSnapshot(storage: StorageLike, key: string, snapshot: Snapsh
 export function loadSnapshot(storage: StorageLike, key: string, mapId: string): Snapshot | null {
   try { const raw = storage.getItem(key); return raw === null ? null : parseSnapshot(raw, mapId); }
   catch { return null; }
+}
+
+/** Read one save without throwing. Missing, corrupt and non-current versions all mean a new game. */
+export function openSave(raw: string | null, mapId: string): OpenedSave {
+  if (raw === null) return { fresh: true, reason: 'missing' };
+  if (typeof raw !== 'string' || raw.length === 0 || raw.length > 2_000_000) return { fresh: true, reason: 'corrupt' };
+  let value: unknown;
+  try { value = JSON.parse(raw); }
+  catch { return { fresh: true, reason: 'corrupt' }; }
+  if (!isRecord(value)) return { fresh: true, reason: 'corrupt' };
+  if (value.version !== SAVE_VERSION) return { fresh: true, reason: 'old-version' };
+  const snapshot = parseSnapshot(raw, mapId);
+  return snapshot ? { fresh: false, snapshot } : { fresh: true, reason: 'corrupt' };
+}
+export function loadGameOrNew(storage: StorageLike, key: string, mapId: string): OpenedSave {
+  try { return openSave(storage.getItem(key), mapId); }
+  catch { return { fresh: true, reason: 'corrupt' }; }
+}
+
+export type ClearableStorage = StorageLike & { removeItem(key: string): void };
+/** Remove one save key. A failed removal leaves whatever is still stored. */
+export function clearSnapshot(storage: ClearableStorage, key: string): boolean {
+  try {
+    storage.removeItem(key);
+    return storage.getItem(key) === null;
+  } catch { return false; }
 }
 
 /** Move exactly one item, conserving totals. No aliasing, fractions or overdrafts. */
