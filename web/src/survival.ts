@@ -26,7 +26,7 @@ import { setOcclusionCameraHeight } from './occlusion';
 import { daylightProfile } from './daylight';
 import { createStreetDetails, applyPavementGrain } from './street-details';
 let streetDetails: ReturnType<typeof createStreetDetails>|null=null;
-import { emptyInventory, replenishCaches, applyCacheLoot, loadSnapshot, saveSnapshot, clearSnapshot, SAVE_VERSION, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
+import { emptyInventory, replenishCaches, applyCacheLoot, openSave, saveSnapshot, clearSaveKeys, SAVE_VERSION, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
 import { DARK_DAYLIGHT, DUSK_WARNING_HOUR, duskWarning, nightPatrolPoint, nightRouses, nightSenseMultiplier, nightWanderMultiplier, nightCanBeSkipped, skipToDawn, skipToDawnText } from './night';
 import { selectShelter, type Shelter } from './shelter';
 import { installTouchControls, setTouchControlLabels, setTouchControlsSuspended, requestUnarmedToggle } from './touch-controls';
@@ -183,7 +183,11 @@ const dataUrl = rawData ? (rawData.includes('/') ? rawData : `./data/${rawData}`
 const legacySaveKey = `shanghai-survivors:v1:${dataUrl}`;
 const saveKey = `shanghai-survivors:systems-v1:${dataUrl}`;
 function loadCandidateSave(): Snapshot | null {
-  try { return localStorage.getItem(saveKey) === null ? loadSnapshot(localStorage,legacySaveKey,dataUrl) : loadSnapshot(localStorage,saveKey,dataUrl); } catch { return null; }
+  try {
+    const current = localStorage.getItem(saveKey);
+    const opened = openSave(current === null ? localStorage.getItem(legacySaveKey) : current, dataUrl);
+    return opened.fresh ? null : opened.snapshot;
+  } catch { return null; }
 }
 
 // ---------------------------------------------------------------- 渲染
@@ -1756,7 +1760,7 @@ function installCampaignUI() {
   clearSave.onclick=()=>{
     if(!saveStored())return;
     if(!confirm(tr('清除這個瀏覽器裡的上海沙盒存檔？清除後會回到新遊戲，且無法復原。','清除这个浏览器里的上海沙盒存档？清除后会回到新游戏，且无法复原。','Erase the Shanghai sandbox save in this browser? You will start a new game. This cannot be undone.')))return;
-    const removed=clearSnapshot(localStorage,saveKey)&&clearSnapshot(localStorage,legacySaveKey);
+    const removed=clearSaveKeys(localStorage,[saveKey,legacySaveKey]);
     if(!removed||saveStored()){clearSave.textContent=tr('清除失敗，存檔仍在','清除失败，存档仍在','Clear failed; the save is still there');return;}
     savedGame=null;location.reload();
   };
