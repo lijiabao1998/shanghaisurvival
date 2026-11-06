@@ -32,6 +32,20 @@ assert.equal(duskWarning(SUNSET_HOUR), null);
 assert.match(DUSK_WARNING_TEXT[0], /黃昏/);
 
 const clear = { elapsed: night, inShelter: true, shelter, threats: [] };
+const duskElapsed = (DUSK_WARNING_HOUR - CAMPAIGN_START_HOUR) * REAL_SECONDS_PER_GAME_HOUR;
+const minute = REAL_SECONDS_PER_GAME_HOUR / 60;
+assert.equal(dayPhase(duskElapsed).hour, DUSK_WARNING_HOUR);
+assert.equal(duskWarning(dayPhase(duskElapsed).hour), DUSK_WARNING_TEXT);
+assert.ok(dayPhase(duskElapsed).daylight > 0);
+assert.equal(skipToDawn({ ...clear, elapsed: duskElapsed }).reason, 'still-day');
+const justBefore = night - minute;
+assert.ok(dayPhase(justBefore).hour < SUNSET_HOUR);
+assert.ok(dayPhase(justBefore).daylight > 0);
+assert.equal(skipToDawn({ ...clear, elapsed: justBefore }).reason, 'still-day');
+const afterSunset = night + minute;
+assert.ok(dayPhase(afterSunset).hour > SUNSET_HOUR);
+assert.equal(dayPhase(afterSunset).daylight, 0);
+assert.equal(skipToDawn({ ...clear, elapsed: afterSunset }).ok, true);
 const skipped = skipToDawn(clear);
 assert.equal(skipped.ok, true);
 assert.ok(Math.abs(dayPhase(skipped.elapsed).hour - DAWN_HOUR) < 1e-6);
@@ -62,7 +76,7 @@ assert.ok(Math.abs(dayPhase(early.elapsed).hour - DAWN_HOUR) < 1e-6);
 let overflow = false;
 for (let elapsed = MAX_SECONDS - 1; elapsed > MAX_SECONDS - 40_000; elapsed -= 15) {
   const phase = dayPhase(elapsed);
-  if (phase.hour > SUNRISE_HOUR && phase.hour < DUSK_WARNING_HOUR) continue;
+  if (phase.hour > SUNRISE_HOUR && phase.hour < SUNSET_HOUR) continue;
   const decision = skipToDawn({ elapsed, inShelter: true, shelter, threats: [] });
   if (!decision.ok && decision.reason === 'time-limit') { overflow = true; break; }
   if (decision.ok) assert.ok(decision.elapsed <= MAX_SECONDS);
