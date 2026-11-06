@@ -1,7 +1,7 @@
 import {createSurvivorSystems,equipHand} from '../src/survivor-systems.ts';
 import { createLegacyArsenal, grantWeapon, equipWeapon, consumeRound } from '../src/arsenal.ts';
 import assert from 'node:assert/strict';
-import { SAVE_VERSION, emptyInventory, parseSnapshot, saveSnapshot, loadSnapshot, openSave, loadGameOrNew, clearSnapshot, transferItem, restAtShelter, dayPhase, replenishCaches, applyCacheLoot } from '../src/campaign.ts';
+import { SAVE_VERSION, emptyInventory, parseSnapshot, saveSnapshot, loadSnapshot, openSave, loadGameOrNew, clearSnapshot, clearSaveKeys, transferItem, restAtShelter, dayPhase, replenishCaches, applyCacheLoot } from '../src/campaign.ts';
 let passed = 0;
 const test = (name, run) => { run(); console.log(`PASS ${name}`); passed++; };
 const fresh = () => ({ version:1, mapId:'block.json', characterId:'guard', elapsed:10, hp:75, stamina:40, battery:80,
@@ -247,14 +247,15 @@ test('save then load returns the same position health supplies and heading',()=>
 test('corrupt saves and old versions fall back to a new game without throwing',()=>{
   const store=memory();
   assert.deepEqual(loadGameOrNew(store,'missing','block.json'),{fresh:true,reason:'missing'});
-  for(const raw of ['', '{', 'null', '[]', 'true', '"save"', encode({...fresh(),hp:null}), encode({...fresh(),facing:NaN}), encode({...fresh(),position:[1]}), encode({...fresh(),mapId:'other'})]){
+  for(const raw of ['', '{', '{}', '{"mapId":"block.json"}', 'null', '[]', 'true', '"save"', encode({...fresh(),hp:null}), encode({...fresh(),facing:NaN}), encode({...fresh(),position:[1]}), encode({...fresh(),mapId:'other'})]){
     store.setItem('save',raw);
     const opened=loadGameOrNew(store,'save','block.json');
     assert.equal(opened.fresh,true,raw);
     assert.equal(opened.reason,'corrupt',raw);
     assert.equal(Object.hasOwn(opened,'snapshot'),false);
+    assert.deepEqual(openSave(raw,'block.json'),{fresh:true,reason:'corrupt'});
   }
-  for(const raw of ['{}', encode({...fresh(),version:0}), encode({...fresh(),version:2}), encode({...fresh(),version:'1'})]){
+  for(const raw of [encode({...fresh(),version:0}), encode({...fresh(),version:2}), encode({...fresh(),version:'1'})]){
     store.setItem('save',raw);
     assert.deepEqual(openSave(raw,'block.json'),{fresh:true,reason:'old-version'});
     assert.deepEqual(loadGameOrNew(store,'save','block.json'),{fresh:true,reason:'old-version'});
@@ -273,6 +274,23 @@ test('clearing the save makes the next load a new game and a failed clear keeps 
   const stuck={getItem:k=>k==='save'?encode(s):null,setItem(){},removeItem(){throw new Error('denied');}};
   assert.equal(clearSnapshot(stuck,'save'),false);
   assert.deepEqual(loadGameOrNew(stuck,'save','block.json').snapshot,s);
+});
+test('clearing both keys tries each one before the combined result',()=>{
+  const store=memory();
+  store.setItem('new','current');store.setItem('old','legacy');
+  assert.equal(clearSaveKeys(store,['new','old']),true);
+  assert.equal(store.getItem('new'),null);assert.equal(store.getItem('old'),null);
+  store.setItem('new','current');store.setItem('old','legacy');
+  const attempted=[];
+  const denyNew={getItem:k=>store.getItem(k),setItem(){},removeItem(k){attempted.push(k);if(k==='new')throw new Error('denied');store.removeItem(k);}};
+  assert.equal(clearSaveKeys(denyNew,['new','old']),false);
+  assert.deepEqual(attempted,['new','old']);
+  assert.equal(store.getItem('new'),'current');assert.equal(store.getItem('old'),null);
+  store.setItem('old','legacy');
+  const sticky=[];
+  const stays={getItem:()=>'still',setItem(){},removeItem(k){sticky.push(k);}};
+  assert.equal(clearSaveKeys(stays,['new','old']),false);
+  assert.deepEqual(sticky,['new','old']);
 });
 
 console.log(`${passed} campaign tests passed`);
