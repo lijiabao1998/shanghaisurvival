@@ -32,7 +32,13 @@ export type Snapshot = {
 export type StorageLike = { getItem(key: string): string | null; setItem(key: string, value: string): void };
 export type RestState = Pick<Snapshot, 'hp' | 'stamina' | 'outbreak' | 'inventory' | 'stash' | 'elapsed' | 'restCount'>;
 const MAX_COUNT = 1_000_000;
-const MAX_SECONDS = 1_000_000_000;
+/** Upper bound for the saved elapsed field. Skipping the night cannot pass it. */
+export const MAX_SECONDS = 1_000_000_000;
+/** Sandbox clock: thirty real seconds are one game hour. Twelve real minutes are one game day. */
+export const REAL_SECONDS_PER_GAME_HOUR = 30;
+export const CAMPAIGN_START_HOUR = 8;
+export const SUNRISE_HOUR = 6;
+export const SUNSET_HOUR = 18;
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const numberIn = (v: unknown, min: number, max: number): v is number => typeof v === 'number' && Number.isFinite(v) && v >= min && v <= max;
 const count = (v: unknown): v is number => numberIn(v, 0, MAX_COUNT) && Number.isInteger(v);
@@ -176,9 +182,10 @@ export function restAtShelter(state: RestState): boolean {
 /** Twelve real minutes per game day; start at 08:00, sunrise 06:00 / sunset 18:00. */
 export function dayPhase(elapsed: number): { day: number; hour: number; daylight: number } {
   const seconds = Number.isFinite(elapsed) ? Math.max(0, elapsed) : 0;
-  const hours = 8 + seconds / 30;
+  const hours = CAMPAIGN_START_HOUR + seconds / REAL_SECONDS_PER_GAME_HOUR;
   const hour = hours % 24;
-  return { day: Math.floor(hours / 24) + 1, hour, daylight: hour <= 6 || hour >= 18 ? 0 : Math.sin((hour - 6) / 12 * Math.PI) };
+  const daylightHours = SUNSET_HOUR - SUNRISE_HOUR;
+  return { day: Math.floor(hours / 24) + 1, hour, daylight: hour <= SUNRISE_HOUR || hour >= SUNSET_HOUR ? 0 : Math.sin((hour - SUNRISE_HOUR) / daylightHours * Math.PI) };
 }
 
 /** Refresh each marked supply cache at most once per calendar day. Never stockpile missed days. */

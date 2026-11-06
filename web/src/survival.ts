@@ -27,6 +27,7 @@ import { daylightProfile } from './daylight';
 import { createStreetDetails, applyPavementGrain } from './street-details';
 let streetDetails: ReturnType<typeof createStreetDetails>|null=null;
 import { emptyInventory, replenishCaches, applyCacheLoot, openSave, saveSnapshot, clearSaveKeys, SAVE_VERSION, transferItem, restAtShelter, dayPhase, type Snapshot } from './campaign';
+import { DARK_DAYLIGHT, DUSK_WARNING_HOUR, duskWarning, nightPatrolPoint, nightRouses, nightSenseMultiplier, nightWanderMultiplier, nightCanBeSkipped, skipToDawn, skipToDawnText } from './night';
 import { selectShelter, type Shelter } from './shelter';
 import { installTouchControls, setTouchControlLabels, setTouchControlsSuspended, requestUnarmedToggle } from './touch-controls';
 import { sweepMove, segmentClear } from './combat';
@@ -925,8 +926,19 @@ function steerEnemy(zb:Zombie, tx:number, tz:number, speed:number, dt:number) {
   zb.x=moved.x;zb.z=moved.z;
   if(moved.blocked){zb.path=[];zb.pathTimer=0;}
 }
+function rouseNightInfected() {
+  if (mode !== 'sandbox') return;
+  const bodies = zombies.map(z => ({ x:z.x, z:z.z, hx:z.hx, hz:z.hz, patrolX:z.patrolX, patrolZ:z.patrolZ, state:z.state, faction:z.faction.id, returning:z.returning }));
+  for (const order of nightRouses(bodies, { x:px, z:pz }, dayPhase(elapsed).daylight, (x, z) => collides(x, z, .34))) {
+    const zb = zombies[order.index];
+    zb.state = 'wander';
+    zb.wx = order.x; zb.wz = order.z;
+    zb.path = []; zb.pathTimer = 0;
+  }
+}
 function updateZombies(dt: number) {
   navigationBudget=2;
+  if (typeof mode === 'string' && mode === 'sandbox') rouseNightInfected();
   for (const zb of zombies) {
     stepEnemy(zb, dt);
     poseEnemy(zb, dt);
@@ -952,12 +964,13 @@ function stepEnemy(zb: Zombie, dt: number) {
     if(zb.hitReact>0)return; // stunned while the flinch plays
     const dx = px - zb.x, dz = pz - zb.z;
     const dist = Math.hypot(dx, dz);
+    const sandbox = typeof mode === 'string' && mode === 'sandbox';
 
     if (zb.state === 'sleep') {
       zb.think -= dt;
       if (zb.think <= 0) {
         zb.think = 0.35;
-        const sense = (lightOn ? SENSE_LIGHT : SENSE_DARK) * (sneaking ? 0.6 : 1) * (mode==='sandbox' && zb.faction.id==='infected' && dayPhase(elapsed).daylight<.25 ? 1.35 : 1);
+        const sense = (lightOn ? SENSE_LIGHT : SENSE_DARK) * (sneaking ? 0.6 : 1) * (sandbox ? nightSenseMultiplier(dayPhase(elapsed).daylight, zb.faction.id) : 1);
         if (dist < sense && canSee(zb.x, zb.z, px, pz)) wake(zb);
       }
       return;
@@ -1002,19 +1015,32 @@ function stepEnemy(zb: Zombie, dt: number) {
         if (hp <= 0) lose();
       }
     } else {
+      const clock = sandbox ? dayPhase(elapsed) : { daylight: 1 };
+      const nightPatrol = sandbox && zb.faction.id==='infected' && clock.daylight===0 && !zb.returning;
+      const dawnHome = sandbox && zb.faction.id==='infected' && clock.daylight>0 && !zb.returning;
+      if (dawnHome) { zb.wx=zb.hx; zb.wz=zb.hz; }
       const tdx = zb.wx - zb.x, tdz = zb.wz - zb.z;
       const td = Math.hypot(tdx, tdz);
       if (td < 0.6) {
         if(Math.hypot(zb.x-zb.hx,zb.z-zb.hz)<1)zb.returning=false;
-        if(zb.faction.id==='military'||zb.faction.id==='police') {
+        if (dawnHome && Math.hypot(zb.x-zb.hx,zb.z-zb.hz)<1.2) {
+          zb.state='sleep'; zb.wx=zb.hx; zb.wz=zb.hz;
+        } else if (nightPatrol) {
+          const atHome=Math.hypot(zb.x-zb.hx,zb.z-zb.hz)<1;
+          const point=nightPatrolPoint({x:zb.hx,z:zb.hz},{x:zb.patrolX,z:zb.patrolZ});
+          const next=atHome?point:{x:zb.hx,z:zb.hz};
+          if (!collides(next.x,next.z,.34)) { zb.wx=next.x; zb.wz=next.z; }
+        } else if(zb.faction.id==='military'||zb.faction.id==='police') {
           const atHome=Math.hypot(zb.x-zb.hx,zb.z-zb.hz)<1;
           zb.wx=atHome?zb.patrolX:zb.hx;zb.wz=atHome?zb.patrolZ:zb.hz;
         } else { zb.wx=zb.hx;zb.wz=zb.hz; }
         zb.pathTimer=0;
       } else {
-        if(dist<80)steerEnemy(zb,zb.wx,zb.wz,zb.faction.id==='infected'?ZOMBIE_WANDER:zb.faction.speed*.7,dt);
+        const pace = sandbox ? nightWanderMultiplier(clock.daylight, zb.faction.id) : 1;
+        if(dist<80)steerEnemy(zb,zb.wx,zb.wz,(zb.faction.id==='infected'?ZOMBIE_WANDER:zb.faction.speed*.7)*pace,dt);
       }
-      if (zb.retreat<=0 && dist < (lightOn?SENSE_LIGHT:SENSE_DARK)*(sneaking?.6:1) && canSee(zb.x, zb.z, px, pz)) wake(zb);
+      const sense = (lightOn ? SENSE_LIGHT : SENSE_DARK) * (sneaking ? 0.6 : 1) * (sandbox ? nightSenseMultiplier(clock.daylight, zb.faction.id) : 1);
+      if (zb.state!=='sleep' && zb.retreat<=0 && dist < sense && canSee(zb.x, zb.z, px, pz)) wake(zb);
     }
 }
 
@@ -1222,8 +1248,8 @@ function updateHud() {
   mission.textContent = bagOpen ? '背包已開啟（暫停）｜點物品使用，Tab / Esc 返回' : paused ? tr('已暫停｜Esc 選單','已暂停｜Esc 菜单','Paused | Esc menu') : `接應點 ${Math.round(distance)}m · 搜刮 ${Math.min(looted, 3)}/3 · ${elapsed >= 480 ? '窗口已關閉' : elapsed >= 420 ? '窗口開啟，回綠圈按 E' : `接應倒數 ${Math.ceil(420 - elapsed)} 秒`} · 暴露須低於85`;
   if(mode==='sandbox') {
     const day=dayPhase(elapsed);
-    mission.textContent = helperOpen ? '阿梅・互助站｜對話暫停，Esc 或按鈕離開' : inShelter ? '安全屋｜存放物資、休息或返回街區' : bagOpen ? '背包（暫停）｜點擊使用／裝備' : paused ? tr('已暫停｜Esc 選單','已暂停｜Esc 菜单','Paused | Esc menu') : `第 ${day.day} 天 · 安全屋 ${shelter ? Math.round(Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])) : '?'}m · 已搜 ${looted}次 · ${nearestSupplyHint()}`;
-    radio.textContent = saveWarning || (inShelter ? '休息花費庫存1水＋1罐頭，時間推進2分鐘。物資有限，不會重生。' : day.daylight<.25 ? '夜間感染者更敏銳。慢行、關燈；帶回一水一食便能在家休息。' : '互助台：藍門回家；水／食／封鎖物資箱每日交接一次，普通搜刮點不重生。紅箱聲響最遠。');
+    mission.textContent = helperOpen ? '阿梅・互助站｜對話暫停，Esc 或按鈕離開' : inShelter ? '安全屋｜存放物資、休息、快轉到天亮，或返回街區' : bagOpen ? '背包（暫停）｜點擊使用／裝備' : paused ? tr('已暫停｜Esc 選單','已暂停｜Esc 菜单','Paused | Esc menu') : `第 ${day.day} 天 · 安全屋 ${shelter ? Math.round(Math.hypot(px-shelter.outside[0],pz-shelter.outside[1])) : '?'}m · 已搜 ${looted}次 · ${nearestSupplyHint()}`;
+    radio.textContent = saveWarning || (inShelter ? (nightCanBeSkipped(day.hour) ? '附近沒有敵人、也沒人在追，才能快轉到天亮。休息仍要庫存一水一罐頭。' : '休息花費庫存1水＋1罐頭，時間推進2分鐘。物資有限，不會重生。') : day.daylight<DARK_DAYLIGHT ? '夜間感染者更敏銳，附近的會出來巡邏。慢行、關燈；要撐過今晚就回安全屋。' : '互助台：藍門回家；水／食／封鎖物資箱每日交接一次，普通搜刮點不重生。紅箱聲響最遠。');
   } else radio.textContent = [...BROADCASTS].reverse().find(([at]) => elapsed >= at)?.[1] ?? '';
   radio.classList.toggle('critical', Boolean(saveWarning));
   if (evacRing) (evacRing.material as THREE.MeshBasicMaterial).color.setHex(elapsed >= 420 && elapsed < 480 ? 0x9fffc2 : 0x397959);
@@ -1404,7 +1430,7 @@ function start(chosen: CharSpec, resume: Snapshot | null = null) {
   stagedMenu?.dispose();stagedMenu=null;
   document.querySelector('#title-settings-button')?.remove();
   if(!resume)savedGame=null;
-  elapsed=0; inShelter=false; shelterPanel.classList.remove('room-view');document.body.classList.remove('inspecting-shelter');resize(); helperOpen=false;helperPanel.hidden=true;helperState=createHelperState(); stash=emptyInventory(); restCount=0; saveTimer=0; saveWarning='';
+  elapsed=0; duskWarnedDay=0; inShelter=false; shelterPanel.classList.remove('room-view');document.body.classList.remove('inspecting-shelter');resize(); helperOpen=false;helperPanel.hidden=true;helperState=createHelperState(); stash=emptyInventory(); restCount=0; saveTimer=0; saveWarning='';
   shelterPanel.hidden=true;
   spec = chosen;
   document.querySelector<HTMLElement>('#campaign-mode')?.setAttribute('hidden','');
@@ -1641,6 +1667,16 @@ function installHelperUI() {
   helperPanel=document.createElement('section');helperPanel.id='helper-panel';helperPanel.hidden=true;helperPanel.setAttribute('aria-label','阿梅互助站對話');document.body.append(helperPanel);
   new MutationObserver(()=>{const touch=document.querySelector<HTMLElement>('#survivor-touch-controls');if(touch)touch.hidden=helperOpen||inShelter||el.overlay.classList.contains('on');}).observe(helperPanel,{attributes:true,attributeFilter:['hidden']});
 }
+let duskWarnedDay = 0;
+function warnDusk() {
+  if (mode !== 'sandbox') return;
+  const clock = dayPhase(elapsed);
+  const text = duskWarning(clock.hour);
+  if (!text) { if (clock.hour < DUSK_WARNING_HOUR) duskWarnedDay = 0; return; }
+  if (duskWarnedDay === clock.day) return;
+  duskWarnedDay = clock.day;
+  flashHint(tr(...text));
+}
 function updateDaylight() {
   const profile=daylightProfile(dayPhase(elapsed).hour);
   streetDetails?.setNight(profile.lamps);laneVisibility?.setNight(profile.lamps);laneLife?.setNight(profile.lamps);cityVisibility?.setNight(profile.lamps);
@@ -1676,7 +1712,7 @@ function showShelter() {
   const roomView=document.createElement('button');roomView.className='room-view-toggle';
   const syncRoomView=()=>{const viewing=shelterPanel.classList.contains('room-view');roomView.textContent=viewing?'開啟物資面板':'看看屋內';roomView.setAttribute('aria-pressed',String(viewing));document.body.classList.toggle('inspecting-shelter',viewing&&inShelter);refreshShelterView();};
   roomView.onclick=()=>{shelterPanel.classList.toggle('room-view');syncRoomView();};syncRoomView();shelterPanel.append(roomView);
-  const info=document.createElement('p');info.textContent='門已關好。物品可逐個存取；休息消耗庫存一水一罐頭，推進2分鐘。';shelterPanel.append(info);
+  const info=document.createElement('p');info.textContent='門已關好。物品可逐個存取；休息消耗庫存一水一罐頭，推進2分鐘。天黑後，附近沒有敵人、也沒人在追，才能快轉到天亮。';shelterPanel.append(info);
   const controls=document.createElement('div');controls.className='shelter-stock';
   for(const id of Object.keys(ITEMS) as ItemId[]) {
     if(id==='pistol')continue; // The equipped weapon stays on the survivor; supplies are transferable.
@@ -1690,8 +1726,15 @@ function showShelter() {
   shelterPanel.append(controls);
   const rest=document.createElement('button');rest.textContent='休息：庫存 1水＋1罐頭';rest.disabled=stash.water<1||stash.food<1;
   rest.onclick=()=>{const state={hp,stamina,outbreak,inventory,stash,elapsed,restCount};if(restAtShelter(state)){treatBody(survivorSystems.condition,'rest');hp=state.hp;stamina=state.stamina;elapsed=state.elapsed;restCount=state.restCount;updateDaylight();refreshSupplySites();persistCampaign();showShelter();flashHint('休息完成，補充體力與水分；街區時間已前進。');}};
+  const skip=document.createElement('button');skip.id='shelter-skip';skip.type='button';skip.textContent=tr('快轉到天亮','快转到天亮','Skip to dawn');
+  skip.onclick=()=>{
+    const decision=skipToDawn({elapsed,inShelter,shelter:shelter?{x:shelter.outside[0],z:shelter.outside[1]}:null,threats:zombies.map(z=>({x:z.x,z:z.z,state:z.state}))});
+    if(!decision.ok){flashHint(tr(...skipToDawnText(decision.reason)));return;}
+    elapsed=decision.elapsed;updateDaylight();warnDusk();refreshSupplySites();persistCampaign();showShelter();
+    flashHint(tr('在安全屋撐到天亮。','在安全屋撑到天亮。','You waited in the shelter until dawn.'));
+  };
   const exit=document.createElement('button');exit.className='shelter-exit';exit.textContent='返回街區';exit.onclick=leaveShelter;
-  shelterPanel.append(rest,exit);
+  shelterPanel.append(rest,skip,exit);
   const status=document.createElement('p');status.textContent=`HP ${Math.round(hp)} · 水分 ${Math.round(outbreak.hydration)} · 飽足 ${Math.round(outbreak.satiety)} · 第${dayPhase(elapsed).day}天 ${saveWarning}`;shelterPanel.append(status);
 }
 function installCampaignUI() {
@@ -1743,7 +1786,7 @@ function frame(dt: number) {
 
   if (phase === 'play' && !paused && !bagOpen && !inShelter && !helperOpen) {
     if(mode==='quick')timeLeft -= dt;
-    else { elapsed += dt; timeLeft = NIGHT_SECONDS - elapsed; updateDaylight(); refreshSupplySites(); }
+    else { elapsed += dt; timeLeft = NIGHT_SECONDS - elapsed; updateDaylight(); warnDusk(); refreshSupplySites(); }
     const nearbyThreat = zombies.some(z => z.faction.id === 'infected' && z.state !== 'dead' && Math.hypot(z.x - px, z.z - pz) < 4 && canSee(z.x, z.z, px, pz));
     stepOutbreak(outbreak, dt, { running: !sneaking && stamina > 1 && action === 'none' && ['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].some(k => keys.has(k)) && (keys.has('ShiftLeft') || keys.has('ShiftRight')), nearbyThreat });
     hp=Math.max(0,hp-stepBody(survivorSystems.condition,dt));
