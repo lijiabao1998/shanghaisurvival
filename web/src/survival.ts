@@ -934,7 +934,7 @@ function rouseNightInfected() {
 }
 function updateZombies(dt: number) {
   navigationBudget=2;
-  rouseNightInfected();
+  if (typeof mode === 'string' && mode === 'sandbox') rouseNightInfected();
   for (const zb of zombies) {
     stepEnemy(zb, dt);
     poseEnemy(zb, dt);
@@ -960,13 +960,13 @@ function stepEnemy(zb: Zombie, dt: number) {
     if(zb.hitReact>0)return; // stunned while the flinch plays
     const dx = px - zb.x, dz = pz - zb.z;
     const dist = Math.hypot(dx, dz);
-    const clock = dayPhase(elapsed);
-    const sense = (lightOn ? SENSE_LIGHT : SENSE_DARK) * (sneaking ? 0.6 : 1) * (mode==='sandbox' ? nightSenseMultiplier(clock.daylight, zb.faction.id) : 1);
+    const sandbox = typeof mode === 'string' && mode === 'sandbox';
 
     if (zb.state === 'sleep') {
       zb.think -= dt;
       if (zb.think <= 0) {
         zb.think = 0.35;
+        const sense = (lightOn ? SENSE_LIGHT : SENSE_DARK) * (sneaking ? 0.6 : 1) * (sandbox ? nightSenseMultiplier(dayPhase(elapsed).daylight, zb.faction.id) : 1);
         if (dist < sense && canSee(zb.x, zb.z, px, pz)) wake(zb);
       }
       return;
@@ -1011,8 +1011,9 @@ function stepEnemy(zb: Zombie, dt: number) {
         if (hp <= 0) lose();
       }
     } else {
-      const nightPatrol = mode==='sandbox' && zb.faction.id==='infected' && clock.daylight===0 && !zb.returning;
-      const dawnHome = mode==='sandbox' && zb.faction.id==='infected' && clock.daylight>0 && !zb.returning;
+      const clock = sandbox ? dayPhase(elapsed) : { daylight: 1 };
+      const nightPatrol = sandbox && zb.faction.id==='infected' && clock.daylight===0 && !zb.returning;
+      const dawnHome = sandbox && zb.faction.id==='infected' && clock.daylight>0 && !zb.returning;
       if (dawnHome) { zb.wx=zb.hx; zb.wz=zb.hz; }
       const tdx = zb.wx - zb.x, tdz = zb.wz - zb.z;
       const td = Math.hypot(tdx, tdz);
@@ -1031,9 +1032,10 @@ function stepEnemy(zb: Zombie, dt: number) {
         } else { zb.wx=zb.hx;zb.wz=zb.hz; }
         zb.pathTimer=0;
       } else {
-        const pace = mode==='sandbox' ? nightWanderMultiplier(clock.daylight, zb.faction.id) : 1;
+        const pace = sandbox ? nightWanderMultiplier(clock.daylight, zb.faction.id) : 1;
         if(dist<80)steerEnemy(zb,zb.wx,zb.wz,(zb.faction.id==='infected'?ZOMBIE_WANDER:zb.faction.speed*.7)*pace,dt);
       }
+      const sense = (lightOn ? SENSE_LIGHT : SENSE_DARK) * (sneaking ? 0.6 : 1) * (sandbox ? nightSenseMultiplier(clock.daylight, zb.faction.id) : 1);
       if (zb.state!=='sleep' && zb.retreat<=0 && dist < sense && canSee(zb.x, zb.z, px, pz)) wake(zb);
     }
 }
