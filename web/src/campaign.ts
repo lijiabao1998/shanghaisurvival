@@ -128,6 +128,7 @@ export function openSave(raw: string | null, mapId: string): OpenedSave {
   try { value = JSON.parse(raw); }
   catch { return { fresh: true, reason: 'corrupt' }; }
   if (!isRecord(value)) return { fresh: true, reason: 'corrupt' };
+  if (!Object.hasOwn(value, 'version')) return { fresh: true, reason: 'corrupt' };
   if (value.version !== SAVE_VERSION) return { fresh: true, reason: 'old-version' };
   const snapshot = parseSnapshot(raw, mapId);
   return snapshot ? { fresh: false, snapshot } : { fresh: true, reason: 'corrupt' };
@@ -144,6 +145,11 @@ export function clearSnapshot(storage: ClearableStorage, key: string): boolean {
     storage.removeItem(key);
     return storage.getItem(key) === null;
   } catch { return false; }
+}
+/** Try every key, then succeed only when all of them are gone. */
+export function clearSaveKeys(storage: ClearableStorage, keys: readonly string[]): boolean {
+  const cleared = keys.map(key => clearSnapshot(storage, key));
+  return cleared.every(Boolean);
 }
 
 /** Move exactly one item, conserving totals. No aliasing, fractions or overdrafts. */

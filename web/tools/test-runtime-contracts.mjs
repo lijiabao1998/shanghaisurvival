@@ -29,13 +29,15 @@ assert.ok(s.includes('const saveKey = `shanghai-survivors:systems-v1:${dataUrl}`
 assert.ok(s.includes('const legacySaveKey = `shanghai-survivors:v1:${dataUrl}`'),'legacy key is preserved for read-only import');
 assert.ok(s.includes('saveSnapshot(localStorage,saveKey,snapshotCampaign())'),'writes target only candidate snapshot');
 assert.ok(s.includes('position:[px,pz],facing'),'heading is stored with the saved position');
-assert.ok(s.includes('clearSnapshot(localStorage,saveKey)')&&s.includes('clearSnapshot(localStorage,legacySaveKey)'),'clear removes the candidate save and the legacy import');
+assert.ok(s.includes('clearSaveKeys(localStorage,[saveKey,legacySaveKey])'),'clear tries the candidate save and the legacy import before judging');
+assert.ok(s.includes('openSave('),'runtime load classifies the selected raw save through openSave');
 assert.ok(s.includes("id='campaign-clear'"),'title screen offers a way to erase the save');
 assert.equal(/(?:setItem|saveSnapshot)\([^;\n]*legacySaveKey/.test(s),false,'no writes to legacy storage key');
 const start=s.indexOf('function loadCandidateSave('),end=s.indexOf('\n}',start)+2;
 assert.ok(start>=0&&end>start);const fn=stripTypeScriptTypes(s.slice(start,end));
-for(const scenario of [{raw:null,expected:'legacy',result:{legacy:true}},{raw:'candidate',expected:'candidate',result:{candidate:true}},{raw:'corrupt',expected:'candidate',result:null}]){
- const reads=[],writes=[];const c=vm.createContext({saveKey:'candidate',legacySaveKey:'legacy',dataUrl:'map',localStorage:{getItem:key=>{reads.push(key);return scenario.raw;},setItem:(...args)=>writes.push(args)},loadSnapshot:(storage,key,map)=>{assert.equal(map,'map');reads.push(key);return scenario.result;}});vm.runInContext(fn,c);assert.equal(c.loadCandidateSave(),scenario.result);assert.deepEqual(reads,['candidate',scenario.expected]);assert.equal(writes.length,0);
+for(const scenario of [{stored:null,reads:['candidate','legacy'],raw:null,opened:{fresh:true,reason:'missing'},result:null},{stored:'candidate',reads:['candidate'],raw:'candidate',opened:{fresh:false,snapshot:{candidate:true}},result:{candidate:true}},{stored:'corrupt',reads:['candidate'],raw:'corrupt',opened:{fresh:true,reason:'corrupt'},result:null}]){
+ const reads=[],writes=[],opened=[];const c=vm.createContext({saveKey:'candidate',legacySaveKey:'legacy',dataUrl:'map',localStorage:{getItem:key=>{reads.push(key);return scenario.stored;},setItem:(...args)=>writes.push(args)},openSave:(raw,map)=>{opened.push([raw,map]);return scenario.opened;}});vm.runInContext(fn,c);assert.deepEqual(c.loadCandidateSave(),scenario.result);assert.deepEqual(reads,scenario.reads);assert.deepEqual(opened,[[scenario.raw,'map']]);assert.equal(writes.length,0);
 }
+assert.equal(fn.includes('loadSnapshot('),false,'runtime loader no longer parses through loadSnapshot');
 const denied=vm.createContext({saveKey:'candidate',localStorage:{getItem(){throw new Error('denied');}}});vm.runInContext(fn,denied);assert.equal(denied.loadCandidateSave(),null);
 console.log('PASS static contracts plus actual candidate/legacy read-only loading cases (not browser tests)');
