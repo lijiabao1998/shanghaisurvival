@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { SAVE_VERSION, dayPhase, emptyInventory, loadSnapshot, parseSnapshot, saveSnapshot, CAMPAIGN_START_HOUR, REAL_SECONDS_PER_GAME_HOUR, SUNRISE_HOUR, SUNSET_HOUR, MAX_SECONDS } from '../src/campaign.ts';
-import { DAWN_HOUR, DARK_DAYLIGHT, DUSK_WARNING_HOUR, DUSK_WARNING_TEXT, NIGHT_PATROL_LIMIT, NIGHT_PATROL_OFFSET, NIGHT_PATROL_RADIUS, NIGHT_SENSE_MULTIPLIER, NIGHT_WANDER_MULTIPLIER, SHELTER_THREAT_RADIUS, duskWarning, nightRouses, nightSenseMultiplier, nightWanderMultiplier, skipToDawn, SKIP_TO_DAWN_TEXT } from '../src/night.ts';
+import { DAWN_HOUR, DARK_DAYLIGHT, DUSK_WARNING_HOUR, DUSK_WARNING_TEXT, NIGHT_PATROL_LIMIT, NIGHT_PATROL_OFFSET, NIGHT_PATROL_RADIUS, NIGHT_SENSE_MULTIPLIER, NIGHT_WANDER_MULTIPLIER, SHELTER_THREAT_RADIUS, duskWarning, nightCanBeSkipped, nightRouses, nightSenseMultiplier, nightWanderMultiplier, skipToDawn, SKIP_TO_DAWN_TEXT } from '../src/night.ts';
 
 const fresh = () => ({ version: SAVE_VERSION, mapId: 'block.json', characterId: 'guard', elapsed: 360, hp: 75, stamina: 40, battery: 80,
   outbreak: { hydration: 50, satiety: 40, exposure: 25 }, inventory: emptyInventory(), stash: { ...emptyInventory(), water: 2, food: 2 },
@@ -72,11 +72,24 @@ const early = skipToDawn({ ...clear, elapsed: beforeDawn });
 assert.equal(early.ok, true);
 assert.equal(dayPhase(early.elapsed).day, dayPhase(beforeDawn).day);
 assert.ok(Math.abs(dayPhase(early.elapsed).hour - DAWN_HOUR) < 1e-6);
+const elapsedAtHour = (hour) => ((hour < CAMPAIGN_START_HOUR ? 24 + hour : hour) - CAMPAIGN_START_HOUR) * REAL_SECONDS_PER_GAME_HOUR;
+for (const hour of [0, 0.5, 5 + 59 / 60]) {
+  const elapsed = elapsedAtHour(hour);
+  assert.ok(Math.abs(dayPhase(elapsed).hour - hour) < 1e-9, hour);
+  assert.equal(nightCanBeSkipped(dayPhase(elapsed).hour), true, hour);
+  assert.equal(dayPhase(elapsed).hour < SUNRISE_HOUR || dayPhase(elapsed).hour >= SUNSET_HOUR, true);
+  const decision = skipToDawn({ ...clear, elapsed });
+  assert.equal(decision.ok, true, hour);
+  assert.ok(Math.abs(dayPhase(decision.elapsed).hour - DAWN_HOUR) < 1e-6);
+}
+assert.equal(nightCanBeSkipped(SUNRISE_HOUR), false);
+assert.equal(skipToDawn({ ...clear, elapsed: elapsedAtHour(SUNRISE_HOUR) }).reason, 'still-day');
+assert.equal(skipToDawn({ ...clear, elapsed: elapsedAtHour(SUNRISE_HOUR + 1 / 60) }).reason, 'still-day');
 
 let overflow = false;
 for (let elapsed = MAX_SECONDS - 1; elapsed > MAX_SECONDS - 40_000; elapsed -= 15) {
   const phase = dayPhase(elapsed);
-  if (phase.hour > SUNRISE_HOUR && phase.hour < SUNSET_HOUR) continue;
+  if (phase.hour >= SUNRISE_HOUR && phase.hour < SUNSET_HOUR) continue;
   const decision = skipToDawn({ elapsed, inShelter: true, shelter, threats: [] });
   if (!decision.ok && decision.reason === 'time-limit') { overflow = true; break; }
   if (decision.ok) assert.ok(decision.elapsed <= MAX_SECONDS);

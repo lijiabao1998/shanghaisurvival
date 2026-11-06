@@ -44,11 +44,11 @@ export type NightBody = {
   state: 'sleep' | 'wander' | 'chase' | 'dead'; faction: string; returning: boolean;
 };
 
-/** Dark hours only, using the campaign sunset and sunrise. Dusk remains a warning, not a skip. */
+/** After sunset or before sunrise: hour >= SUNSET_HOUR or hour < SUNRISE_HOUR. 06:00 itself is not a skip. */
 export function nightCanBeSkipped(hour: number): boolean {
   if (!Number.isFinite(hour)) return false;
   const wrapped = ((hour % 24) + 24) % 24;
-  return wrapped <= SUNRISE_HOUR || wrapped >= SUNSET_HOUR;
+  return wrapped >= SUNSET_HOUR || wrapped < SUNRISE_HOUR;
 }
 
 export function duskWarning(hour: number): typeof DUSK_WARNING_TEXT | null {
